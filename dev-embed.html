@@ -124,11 +124,15 @@
         if (els.sheet.value) p.set('sheet_id', els.sheet.value)
         if (els.mode.value) p.set('mode', els.mode.value)
         if (els.source.value) p.set('source', els.source.value)
-        if (els.gcs.value) p.set('gcs_uri', els.gcs.value)
-        if (els.bqp.value) p.set('bq_project', els.bqp.value)
-        if (els.bqd.value) p.set('bq_dataset', els.bqd.value)
-        if (els.bqn.value) p.set('bq_nodes', els.bqn.value)
-        if (els.bqe.value) p.set('bq_edges', els.bqe.value)
+        // Only attach params relevant to the chosen source
+        if (els.source.value === 'gcs_json') {
+          if (els.gcs.value) p.set('gcs_uri', els.gcs.value)
+        } else if (els.source.value === 'bigquery') {
+          if (els.bqp.value) p.set('bq_project', els.bqp.value)
+          if (els.bqd.value) p.set('bq_dataset', els.bqd.value)
+          if (els.bqn.value) p.set('bq_nodes', els.bqn.value)
+          if (els.bqe.value) p.set('bq_edges', els.bqe.value)
+        }
         document.getElementById('frame').src = u.toString() + '?' + p.toString()
       }
       document.getElementById('cfg').addEventListener('submit', openEmbed)
@@ -137,4 +141,3 @@
     </script>
   </body>
   </html>
-

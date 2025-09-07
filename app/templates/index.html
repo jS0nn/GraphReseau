@@ -10,7 +10,188 @@
     <link rel="stylesheet" href="/static/bundle/app.css">
   </head>
   <body data-theme="dark" class="prop-collapsed">
-    <!-- Legacy editor builds its own DOM; bridge reads URL params: sheet_id, mode, source -->
+    <!-- Barre d’outils -->
+    <header class="appbar" id="appbar">
+      <div class="title">Éditeur réseau</div>
+      <button class="btn" id="loadBtn"><i class="uil uil-import"></i>Charger</button>
+      <button class="btn primary" id="saveBtn" title="Ctrl/Cmd+S"><i class="uil uil-save"></i>Sauvegarder</button>
+      <button class="btn" id="layoutBtn" title="L"><i class="uil uil-horizontal-align-right"></i>Agencer</button>
+      <div class="seg" id="modes" title="C = Connecter">
+        <button id="modeSelect" class="active"><i class="uil uil-mouse"></i> Sélection</button>
+        <button id="modeConnect"><i class="uil uil-vector-square-alt"></i> Connecter</button>
+        <button id="modeDelete"><i class="uil uil-trash-alt"></i> Supprimer</button>
+      </div>
+      <div class="menu-add">
+        <button class="btn" id="addBtn"><i class="uil uil-plus"></i> Ajouter</button>
+        <div class="menu" id="addMenu">
+          <div class="item" data-add="PUITS"><i class="uil uil-water"></i> Puits</div>
+          <div class="item" data-add="CANALISATION"><i class="uil uil-circuit"></i> Canalisation</div>
+          <div class="item" data-add="PLATEFORME"><i class="uil uil-constructor"></i> Plateforme</div>
+          <div class="item" data-add="VANNE"><i class="uil uil-sliders-v"></i> Vanne</div>
+          <div class="item" data-add="POINT_MESURE"><i class="uil uil-analytics"></i> Point de mesure</div>
+        </div>
+      </div>
+      <div class="seg" title="Zoom (Espace = pan)">
+        <button id="zoomOutBtn" class="ghost"><i class="uil uil-minus-circle"></i></button>
+        <button id="zoomInBtn"  class="ghost"><i class="uil uil-plus-circle"></i></button>
+        <button id="zoomFitBtn" class="ghost" title="Adapter"><i class="uil uil-expand-alt"></i></button>
+      </div>
+      <button class="btn" id="exportBtn"><i class="uil uil-export"></i> Export JSON</button>
+      <button class="btn" id="exportCompactBtn"><i class="uil uil-compress"></i> Export JSON (compact)</button>
+      <button class="btn" id="exportNodeEdgeBtn"><i class="uil uil-share"></i> Export nœud/arête</button>
+      <div class="spacer"></div>
+      <button class="btn" id="logBtn" title="Afficher/Masquer logs"><i class="uil uil-file-alt"></i> Logs</button>
+      <button class="btn" id="themeBtn" title="Thème"><i class="uil uil-brightness-half"></i> Thème</button>
+      <button class="btn" id="helpBtn"><i class="uil uil-question-circle"></i> Aide</button>
+    </header>
+
+    <!-- Canvas + Propriétés -->
+    <div id="wrap">
+      <div id="canvas">
+        <svg id="svg">
+          <defs>
+            <marker id="arrow" viewBox="0 -5 10 10" refX="7.2" refY="0" markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M0,-5L10,0L0,5"></path>
+            </marker>
+            <marker id="arrowSel" viewBox="0 -5 10 10" refX="7.2" refY="0" markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M0,-5L10,0L0,5"></path>
+            </marker>
+          </defs>
+          <g id="zoomRoot">
+            <g class="inline-conns"></g>
+            <g class="edges"></g>
+            <g class="nodes"></g>
+            <g class="overlay"></g>
+          </g>
+        </svg>
+      </div>
+
+      <aside id="prop">
+        <div class="card">
+          <h3 style="margin:4px 0 8px">Propriétés</h3>
+          <div id="noSel">Aucune sélection.</div>
+          <form id="nodeForm" style="display:none">
+            <label>Nom <input name="name" placeholder="ex. P-012"></label>
+            <label>Type
+              <select name="type">
+                <option>PUITS</option>
+                <option>CANALISATION</option>
+                <option>PLATEFORME</option>
+                <option>VANNE</option>
+                <option>POINT_MESURE</option>
+              </select>
+            </label>
+            <div id="grpDiameter" style="display:none">
+              <label>Diamètre (mm) <input name="diameter_mm" type="number" min="0"></label>
+            </div>
+            <div id="grpWell" style="display:none">
+              <label>Canalisation</label>
+              <select id="wellCanalSelect"></select>
+              <label>Position (info)
+                <input id="wellPosInfo" readonly placeholder="— défini dans la canalisation —">
+              </label>
+            </div>
+            <div id="grpCanal" style="display:none">
+              <label>Séquence (amont → aval) – glisser pour réordonner</label>
+              <div class="chips" id="seqList" aria-label="séquence puits/mesures/vannes"></div>
+              <div style="display:flex; gap:8px; margin-top:10px; align-items:center">
+                <input id="cwSearch" list="cwDatalist" placeholder="Puits non attribués…" style="flex:1">
+                <datalist id="cwDatalist"></datalist>
+                <button type="button" class="btn" id="cwAddBtn">Ajouter</button>
+                <button type="button" class="btn" id="cwAddNewBtn">Nouveau puits</button>
+              </div>
+              <div style="display:flex; gap:8px; margin-top:8px; align-items:center">
+                <input id="pmSearch" list="pmDatalist" placeholder="Point de mesure non attribué…" style="flex:1">
+                <datalist id="pmDatalist"></datalist>
+                <button type="button" class="btn" id="pmAddBtn">Ajouter PM</button>
+                <button type="button" class="btn" id="pmAddNewBtn">Nouveau PM</button>
+              </div>
+              <div style="display:flex; gap:8px; margin-top:8px; align-items:center">
+                <input id="vanSearch" list="vanDatalist" placeholder="Vanne non attribuée…" style="flex:1">
+                <datalist id="vanDatalist"></datalist>
+                <button type="button" class="btn" id="vanAddBtn">Ajouter vanne</button>
+                <button type="button" class="btn" id="vanAddNewBtn">Nouvelle vanne</button>
+              </div>
+              <div style="margin-top:14px">
+                <label>Branchements (canalisations enfants) – ordre amont → aval</label>
+                <div class="chips" id="childCanalsList"></div>
+                <small style="color:var(--muted)">Connecte d’abord les canalisations au parent, puis ordonne les puces selon l’ordre le long du parent.</small>
+              </div>
+              <small style="color:var(--muted); display:block; margin-top:8px">
+                Puits ↔ arête <b>Canalisation → Puits</b>. Les PM & Vannes s’insèrent entre les puits.
+              </small>
+              <div id="canalBadges" class="badges"></div>
+            </div>
+            <div id="grpInline" style="display:none">
+              <label>Canalisation</label>
+              <select id="inlCanalSelect"></select>
+              <label>Position (info)
+                <input id="inlPosInfo" readonly placeholder="— défini dans la canalisation —">
+              </label>
+              <label>Offset sur l’arête (m, optionnel)
+                <input id="inlOffsetInput" type="number" step="0.1" placeholder="ex. 12.5">
+              </label>
+            </div>
+            <details id="grpPos" open>
+              <summary>Position & GPS</summary>
+              <label>X <input name="x" type="number" step="1"></label>
+              <label>Y <input name="y" type="number" step="1"></label>
+              <label>Latitude <input name="gps_lat" type="number" step="0.000001"></label>
+              <label>Longitude <input name="gps_lon" type="number" step="0.000001"></label>
+            </details>
+            <button type="button" id="deleteNodeBtn" class="btn danger" style="width:100%; margin-top:10px"><i class="uil uil-trash-alt"></i> Supprimer ce nœud</button>
+          </form>
+          <form id="edgeForm" style="display:none; margin-top:8px">
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px">
+              <div><label>De (amont)<input name="from_name" readonly></label></div>
+              <div><label>Vers (aval)<input name="to_name" readonly></label></div>
+            </div>
+            <label>Actif
+              <select name="active">
+                <option value="true">true</option>
+                <option value="false">false</option>
+              </select>
+            </label>
+            <button type="button" id="deleteEdgeBtn" class="btn danger" style="width:100%; margin-top:8px"><i class="uil uil-trash-alt"></i> Supprimer</button>
+          </form>
+        </div>
+      </aside>
+    </div>
+
+    <!-- Logs -->
+    <div id="logDrawer">
+      <div id="logHeader">
+        <strong>Journal d’agencement</strong>
+        <div class="spacer"></div>
+        <button class="btn" id="logClear"><i class="uil uil-trash-alt"></i> Vider</button>
+        <button class="btn" id="logDownload"><i class="uil uil-download-alt"></i> Exporter</button>
+        <button class="btn" id="logClose"><i class="uil uil-angle-down"></i> Fermer</button>
+      </div>
+      <div id="logBody"></div>
+    </div>
+
+    <!-- Aide -->
+    <dialog id="helpDlg">
+      <article>
+        <header><strong>Aide rapide</strong></header>
+        <ul>
+          <li><b>Agencer</b> : mise en page automatique (ELK, avec repli fallback+).</li>
+          <li><b>Connecter</b> :
+            <ul>
+              <li>Clique une <b>source</b>, puis un <b>tuyau</b> ou un <b>nœud</b>.</li>
+              <li>Canalisation→Canalisation : ordre des <b>enfants</b> dans la fiche du parent.</li>
+            </ul>
+          </li>
+          <li><b>PUITS/PM/Vanne</b> : la <b>position</b> est gérée dans la fiche <b>Canalisation</b> (séquence). Depuis leur fiche, tu peux changer la <b>canalisation</b>.</li>
+          <li><b>Raccourcis</b> : Ctrl/Cmd+Z (Annuler), Ctrl/Cmd+Y (Rétablir), Ctrl/Cmd+C / Ctrl/Cmd+V (Copier/Coller), L (Agencer), C (Connecter).</li>
+        </ul>
+        <footer><button id="helpCloseBtn" class="btn">Fermer</button></footer>
+      </article>
+    </dialog>
+
+    <div id="status"></div>
+    <div id="ctx"></div>
+
     <script defer src="/static/bundle/vendor.js"></script>
     <script defer src="/static/bundle/legacy-editor.js"></script>
   </body>

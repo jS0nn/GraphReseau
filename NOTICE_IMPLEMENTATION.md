@@ -9,11 +9,42 @@ Ce guide décrit, pas à pas, comment installer, configurer, tester en local, bu
 - Docker (pour les tests en conteneur)
 
 ## 2) Authentification Google (ADC)
-- Initialiser les Application Default Credentials (ADC):
-  - `gcloud auth application-default login`
-- (Optionnel) fixer le projet par défaut: `gcloud config set project <GCP_PROJECT_ID>`
-- APIs à activer côté GCP (si besoin):
-  - `gcloud services enable run.googleapis.com sheets.googleapis.com drive.googleapis.com secretmanager.googleapis.com bigquery.googleapis.com storage.googleapis.com --project=<GCP_PROJECT_ID>`
+
+Deux chemins sont possibles. En environnement d’entreprise, l’impersonation de Service Account est recommandée car elle évite la fenêtre OAuth.
+
+### 2.A — RECOMMANDÉ: Impersonation d’un Service Account (sans clé JSON)
+1. Choisir le projet et définir des variables:
+   - `export PROJECT_ID=<GCP_PROJECT_ID>`
+   - `gcloud config set project "$PROJECT_ID"`
+   - `export SA_NAME=editeur-reseau-sa`
+   - `export SA_EMAIL="$SA_NAME@${PROJECT_ID}.iam.gserviceaccount.com"`
+   - `export USER_EMAIL=<votre_email@domaine.com>`
+2. Créer (ou réutiliser) le Service Account:
+   - `gcloud iam service-accounts create "$SA_NAME" --display-name="Éditeur Réseau SA" --project="$PROJECT_ID"`
+3. Donner le droit d’impersonation à votre utilisateur:
+   - `gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" --project="$PROJECT_ID" --member="user:$USER_EMAIL" --role="roles/iam.serviceAccountTokenCreator"`
+   - Si bloqué par la policy d’org, faire le binding au niveau projet: `gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="user:$USER_EMAIL" --role="roles/iam.serviceAccountTokenCreator"`
+4. Activer les APIs nécessaires:
+   - `gcloud services enable iam.googleapis.com iamcredentials.googleapis.com sheets.googleapis.com drive.googleapis.com --project="$PROJECT_ID"`
+5. Partager le Google Sheet avec l’adresse du SA (`$SA_EMAIL`) en Lecteur/Éditeur selon besoin.
+6. Créer les ADC en mode impersonation (pas d’OAuth bloqué):
+   - `gcloud auth application-default login --impersonate-service-account="$SA_EMAIL"`
+   - (Optionnel) fixer le quota project: `gcloud auth application-default set-quota-project "$PROJECT_ID"`
+7. Exporter la variable pour l’application:
+   - `export IMPERSONATE_SERVICE_ACCOUNT="$SA_EMAIL"`
+8. Vérifier:
+   - `gcloud auth print-access-token --impersonate-service-account="$SA_EMAIL" | head -c 20; echo`
+
+### 2.B — Alternative: ADC utilisateur avec scopes explicites (si OAuth autorisé)
+- Révoquer puis se reconnecter avec scopes requis:
+  - `gcloud auth application-default revoke || true`
+  - `gcloud auth application-default login --scopes=https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/drive.readonly`
+- Pourquoi ces scopes ? `cloud-platform` est requis par gcloud, Sheets/Drive sont nécessaires pour l’API Sheets.
+
+Note: Fixer le projet par défaut (utile pour GCP CLIs): `gcloud config set project <GCP_PROJECT_ID>`
+
+APIs à activer côté GCP (si besoin):
+- `gcloud services enable run.googleapis.com sheets.googleapis.com drive.googleapis.com secretmanager.googleapis.com bigquery.googleapis.com storage.googleapis.com iam.googleapis.com iamcredentials.googleapis.com --project=<GCP_PROJECT_ID>`
 
 ## 3) Préparer le Google Sheet
 - Créer un spreadsheet avec 2 onglets: `Nodes` et `Edges`.
@@ -51,10 +82,26 @@ Ce guide décrit, pas à pas, comment installer, configurer, tester en local, bu
   - `npm run build`
   - Résultat: `app/static/bundle/{app.js, app.css, legacy-editor.js, legacy.css}` et `app/static/vendor/{inter, unicons}`
 
+### 5bis) Fichier .env.dev (recommandé)
+Créez un fichier `.env.dev` à la racine pour partager les variables entre terminaux:
+
+```
+IMPERSONATE_SERVICE_ACCOUNT=<votre-SA>@<PROJECT_ID>.iam.gserviceaccount.com  # si vous utilisez l’impersonation
+SHEET_ID_DEFAULT=<SPREADSHEET_ID>
+EMBED_STATIC_KEY=dev-embed-key
+ALLOWED_REFERER_HOSTS="localhost 127.0.0.1"
+ALLOWED_FRAME_ANCESTORS="http://localhost:8000 http://127.0.0.1:8000"
+DATA_SOURCE=sheet
+```
+
+Chargez‑le côté shell quand vous en avez besoin: `set -a; source .env.dev; set +a`
+
 ## 6) Lancer l’API en local
-- `uvicorn app.main:app --reload --port 8080`
+- Avec env file: `uvicorn app.main:app --reload --port 8080 --env-file .env.dev`
 - Contrôle santé:
   - `curl http://127.0.0.1:8080/healthz`
+
+Astuce: uvicorn occupe le terminal. Vous pouvez soit ouvrir un 2e terminal (et `source .env.dev`), soit lancer en arrière‑plan: `uvicorn app.main:app --reload --port 8080 --env-file .env.dev &`
 
 ## 7) Tester l’API Graph (Sheets par défaut)
 - Lecture:
@@ -73,6 +120,14 @@ Ce guide décrit, pas à pas, comment installer, configurer, tester en local, bu
   - Servir ce fichier: `python -m http.server 8000`
   - Ouvrir: `http://localhost:8000/dev-embed.html`
   - Assurez-vous d’avoir exporté `ALLOWED_REFERER_HOSTS` et `ALLOWED_FRAME_ANCESTORS` avec `localhost:8000`.
+
+Note: `dev-embed.html` fonctionne même sans variables shell; le formulaire construit l’URL de l’iframe.
+
+Mode dev (bypass contrôles embed)
+- Pour ouvrir directement l’URL `/embed/editor?...` sans passer par l’iframe locale, vous pouvez désactiver des vérifications en local:
+  - `DISABLE_EMBED_REFERER_CHECK=1` (bypass du Referer)
+  - `DISABLE_EMBED_KEY_CHECK=1` (bypass de la clé `k`) — à éviter sauf debug local
+- Ajoutez ces variables dans `.env.dev` et relancez uvicorn avec `--env-file .env.dev`.
 
 ## 9) Utiliser une autre source de données
 - GCS JSON (ou fichier local):
@@ -103,7 +158,8 @@ Ce guide décrit, pas à pas, comment installer, configurer, tester en local, bu
 
 ## 11) Dépannage
 - 401/403 Google API (Sheets/GCS/BQ):
-  - Relancer `gcloud auth application-default login` et vérifier droits sur la ressource (Sheet partagé avec le compte/SA, GCS OAuth porté sur le projet, BQ dataset autorisé).
+  - Si impersonation: vérifier les bindings IAM (TokenCreator sur le SA), la présence du fichier ADC, et que le Sheet est partagé au SA.
+  - Si ADC utilisateur: refaire `gcloud auth application-default login` avec les scopes requis.
 - 400 `sheet_id required`:
   - Définir `SHEET_ID_DEFAULT` ou passer `?sheet_id=...`.
 - 403 `invalid referer` sur `/embed/editor`:
@@ -119,6 +175,14 @@ Ce guide décrit, pas à pas, comment installer, configurer, tester en local, bu
 - GCS JSON 404/permission:
   - Vérifier `gs://bucket/chemin`, IAM, et que l’URI est correct. En dev: `file:///ABS/PATH/graph.json`.
 
+## 13) Validation impersonation (récap)
+1. `gcloud config get-value account && gcloud config get-value project`
+2. `gcloud iam service-accounts describe "$SA_EMAIL" --project="$PROJECT_ID"`
+3. `gcloud iam service-accounts get-iam-policy "$SA_EMAIL" --project="$PROJECT_ID" | sed -n '1,120p'` (doit contenir `roles/iam.serviceAccountTokenCreator` avec votre user)
+4. `gcloud auth print-access-token --impersonate-service-account="$SA_EMAIL" | head -c 20; echo`
+5. `uvicorn app.main:app --reload --port 8080 --env-file .env.dev`
+6. `curl "http://127.0.0.1:8080/api/graph?source=sheet&sheet_id=$SHEET_ID_DEFAULT"`
+
 ## 12) (Bonus) Déploiement Cloud Run (source)
 - `gcloud run deploy editeur-reseau-api \
     --source . \
@@ -132,3 +196,12 @@ Référence fichiers
 - Backend: `app/main.py`, `app/routers/{api.py,embed.py}`, `app/sheets.py`, `app/datasources.py`, `app/auth_embed.py`, `app/models.py`
 - Frontend: `web/src/*`, build `build.mjs` → `app/static/{bundle,vendor}`
 - Docker: `deploy/Dockerfile`
+### Alternative recommandée (entreprise) — Impersonation du Service Account
+Si votre organisation bloque la fenêtre d’autorisation OAuth (“Accès bloqué”), utilisez l’impersonation de Service Account — aucune fenêtre d’autorisation, pas de JSON de clé:
+
+1. Créez (ou réutilisez) un Service Account (ex: `editeur-reseau-sa@<PROJECT>.iam.gserviceaccount.com`).
+2. Partagez le Google Sheet avec cet email (lecture/écriture selon besoin).
+3. Donnez à votre compte humain le rôle `roles/iam.serviceAccountTokenCreator` sur ce SA.
+4. Connectez l’ADC simple (sans scopes custom): `gcloud auth application-default login`.
+5. Exportez: `export IMPERSONATE_SERVICE_ACCOUNT=editeur-reseau-sa@<PROJECT>.iam.gserviceaccount.com`
+6. Relancez l’API; les clients GCP (Sheets, GCS, BigQuery) minton des jetons via IAM avec les bons scopes automatiquement.

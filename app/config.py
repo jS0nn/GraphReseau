@@ -6,6 +6,13 @@ def getenv(name: str, default: str = "") -> str:
     return os.environ.get(name, default).strip()
 
 
+def getenv_bool(name: str, default: bool = False) -> bool:
+    val = os.environ.get(name)
+    if val is None:
+        return default
+    return str(val).strip().lower() in {"1", "true", "yes", "on"}
+
+
 class Settings:
     # Data source selection
     data_source_default: str = getenv("DATA_SOURCE", "sheet").lower()  # sheet | gcs_json | bigquery
@@ -28,6 +35,12 @@ class Settings:
     bq_nodes_table: str = getenv("BQ_NODES_TABLE", "nodes")
     bq_edges_table: str = getenv("BQ_EDGES_TABLE", "edges")
 
+    # Service Account impersonation (optionnel, recommandé en entreprise)
+    impersonate_service_account: str = getenv(
+        "IMPERSONATE_SERVICE_ACCOUNT",
+        getenv("GOOGLE_IMPERSONATE_SERVICE_ACCOUNT", ""),
+    )
+
     # Embed
     embed_static_key: str = getenv("EMBED_STATIC_KEY", "")
     allowed_frame_ancestors: str = getenv(
@@ -40,6 +53,10 @@ class Settings:
             "lookerstudio.google.com datastudio.google.com sites.google.com",
         ).split()
     )
+
+    # Dev toggles
+    dev_disable_embed_referer: bool = getenv_bool("DISABLE_EMBED_REFERER_CHECK", False)
+    dev_disable_embed_key: bool = getenv_bool("DISABLE_EMBED_KEY_CHECK", False)
 
     # Static dirs
     static_root: str = os.path.join(os.path.dirname(__file__), "static")

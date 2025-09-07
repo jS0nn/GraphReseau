@@ -23,12 +23,17 @@ function makeRunner(){
     getGraph(){
       const params = new URLSearchParams()
       if (q.source) params.set('source', q.source)
-      if (q.sheet_id) params.set('sheet_id', q.sheet_id)
-      if (q.gcs_uri) params.set('gcs_uri', q.gcs_uri)
-      if (q.bq_project) params.set('bq_project', q.bq_project)
-      if (q.bq_dataset) params.set('bq_dataset', q.bq_dataset)
-      if (q.bq_nodes) params.set('bq_nodes', q.bq_nodes)
-      if (q.bq_edges) params.set('bq_edges', q.bq_edges)
+      // Only attach per-source params
+      if (!q.source || q.source === 'sheet' || q.source === 'sheets') {
+        if (q.sheet_id) params.set('sheet_id', q.sheet_id)
+      } else if (q.source === 'gcs_json' || q.source === 'json' || q.source === 'gcs') {
+        if (q.gcs_uri) params.set('gcs_uri', q.gcs_uri)
+      } else if (q.source === 'bigquery' || q.source === 'bq') {
+        if (q.bq_project) params.set('bq_project', q.bq_project)
+        if (q.bq_dataset) params.set('bq_dataset', q.bq_dataset)
+        if (q.bq_nodes) params.set('bq_nodes', q.bq_nodes)
+        if (q.bq_edges) params.set('bq_edges', q.bq_edges)
+      }
       fetch('/api/graph?' + params.toString())
         .then(r => { if(!r.ok) throw new Error(''+r.status); return r.json() })
         .then(data => ok(data))
@@ -37,12 +42,16 @@ function makeRunner(){
     saveGraph(payload){
       const params = new URLSearchParams()
       if (q.source) params.set('source', q.source)
-      if (q.sheet_id) params.set('sheet_id', q.sheet_id)
-      if (q.gcs_uri) params.set('gcs_uri', q.gcs_uri)
-      if (q.bq_project) params.set('bq_project', q.bq_project)
-      if (q.bq_dataset) params.set('bq_dataset', q.bq_dataset)
-      if (q.bq_nodes) params.set('bq_nodes', q.bq_nodes)
-      if (q.bq_edges) params.set('bq_edges', q.bq_edges)
+      if (!q.source || q.source === 'sheet' || q.source === 'sheets') {
+        if (q.sheet_id) params.set('sheet_id', q.sheet_id)
+      } else if (q.source === 'gcs_json' || q.source === 'json' || q.source === 'gcs') {
+        if (q.gcs_uri) params.set('gcs_uri', q.gcs_uri)
+      } else if (q.source === 'bigquery' || q.source === 'bq') {
+        if (q.bq_project) params.set('bq_project', q.bq_project)
+        if (q.bq_dataset) params.set('bq_dataset', q.bq_dataset)
+        if (q.bq_nodes) params.set('bq_nodes', q.bq_nodes)
+        if (q.bq_edges) params.set('bq_edges', q.bq_edges)
+      }
       fetch('/api/graph?' + params.toString(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -68,4 +77,3 @@ window.google.script.run = new Proxy({}, {
     return () => console.warn('[bridge] unknown call', prop)
   }
 })
-

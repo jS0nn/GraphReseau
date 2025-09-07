@@ -5,19 +5,17 @@ from typing import Any, Dict, List, Tuple
 from fastapi import HTTPException
 
 from .models import Edge, Graph, Node
+from .gcp_auth import get_credentials
 
 
 def _client():
     try:
-        import google.auth
         from googleapiclient.discovery import build
-
-        creds, _ = google.auth.default(
-            scopes=[
-                "https://www.googleapis.com/auth/spreadsheets",
-                "https://www.googleapis.com/auth/drive.readonly",
-            ]
-        )
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive.readonly",
+        ]
+        creds = get_credentials(scopes)
         return build("sheets", "v4", credentials=creds, cache_discovery=False)
     except Exception as exc:
         raise HTTPException(status_code=501, detail=f"sheets_unavailable: {exc}")

@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 from .config import settings
 from .models import Graph, Node, Edge
+from .gcp_auth import get_credentials
 from . import sheets as sheets_mod
 
 
@@ -67,7 +68,8 @@ def loadJson(gcs_uri: str | None = None) -> Graph:
     try:
         from google.cloud import storage
 
-        client = storage.Client(project=settings.gcp_project_id or None)
+        creds = get_credentials(["https://www.googleapis.com/auth/devstorage.read_only"])
+        client = storage.Client(project=settings.gcp_project_id or None, credentials=creds)
         bucket = client.bucket(bucket_name)
         blob = bucket.blob(blob_path)
         text = blob.download_as_text()
@@ -93,7 +95,8 @@ def saveJson(graph: Graph, gcs_uri: str | None = None) -> None:
     try:
         from google.cloud import storage
 
-        client = storage.Client(project=settings.gcp_project_id or None)
+        creds = get_credentials(["https://www.googleapis.com/auth/devstorage.read_write"])
+        client = storage.Client(project=settings.gcp_project_id or None, credentials=creds)
         bucket_name, blob_path = _parse_gs_uri(uri)
         bucket = client.bucket(bucket_name)
         blob = bucket.blob(blob_path)
@@ -118,7 +121,8 @@ def loadBQ(
     try:
         from google.cloud import bigquery
 
-        client = bigquery.Client(project=pj)
+        creds = get_credentials(["https://www.googleapis.com/auth/bigquery"])
+        client = bigquery.Client(project=pj, credentials=creds)
         # Select * and coerce to unified UI schema
         q_nodes = f"SELECT * FROM `{pj}.{ds}.{tn}`"
         q_edges = f"SELECT * FROM `{pj}.{ds}.{te}`"
