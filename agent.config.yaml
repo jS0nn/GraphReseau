@@ -1,0 +1,202 @@
+# Contexte global — à coller en tête du projet
+# Nom de projet : Éditeur Réseau – migration Apps Script → Python/Cloud Run
+#
+# Objectif V1
+# - Backend FastAPI sur Cloud Run (scale‑to‑zero, pay‑per‑use).
+# - Aucune VM persistante.
+# - Accès Google Sheets via ADC (pas de JSON de SA).
+# - Frontend = l’éditeur existant D3/ELK sans CDN, splitté (HTML/CSS/JS).
+# - Intégration en iframe dans Looker Studio et Google Sites (pages embed en lecture‑seule).
+# - V1 : utilisateurs du même domaine Google (pas d’admin d’utilisateurs, pas d’externes).
+# V2 : admin des utilisateurs (RBAC), liens d’embed signés court‑terme.
+# V3 : utilisateurs non‑Google (Identity Platform/Firebase Auth).
+#
+# Hypothèses & contraintes
+# - Accès Sheets par Application Default Credentials :
+#   - Local : gcloud auth application-default login
+#   - Prod  : Service Account attaché à Cloud Run (partager Sheets/Drive à ce SA).
+# - Pour l’embed, pas d’auth interactive dans iframe ; V1 = clé statique k=... + CSP frame‑ancestors (Looker/Sites) + vérif Referer.
+# - Aucun CDN (D3, ELK, polices, icônes) → bundle + assets locaux.
+#
+# Livrable V1
+# - /api/graph (GET/POST) ↔ Google Sheets (mêmes colonnes que Apps Script).
+# - /embed/editor?k=...&sheet_id=...&mode=ro (HTML + CSP + lecture‑seule).
+# - Front splitté + build JS (esbuild) + vendorisation des lib (D3, ELK, Inter, Unicons).
+
+schema_version: 1
+
+agent:
+  name: "Éditeur Réseau – Apps Script → Python/Cloud Run"
+  description: "Configuration d'agent pour cadrage, variables, tâches et déploiement V1→V3"
+  owner: "à définir"
+
+project:
+  language: "python"
+  runtime: "python:3.12"
+  framework: "fastapi"
+  hosting: "cloud run"
+  repo_layout:
+    backend_dir: "backend"
+    frontend_dir: "frontend"
+    static_dir: "frontend/public"
+    vendor_dir: "frontend/vendor"
+    build_dir: "frontend/dist"
+
+objectives:
+  v1:
+    - "Backend FastAPI sur Cloud Run (scale‑to‑zero, pay‑per‑use)."
+    - "Aucune VM persistante."
+    - "Accès Google Sheets via ADC (pas de JSON de SA)."
+    - "Frontend D3/ELK sans CDN, bundle + assets locaux."
+    - "Intégration iframe Looker Studio et Google Sites (lecture‑seule)."
+    - "Utilisateurs du même domaine Google (pas d’externes)."
+  v2:
+    - "Admin des utilisateurs (RBAC)."
+    - "Liens d’embed signés court‑terme."
+  v3:
+    - "Utilisateurs non‑Google (Identity Platform / Firebase Auth)."
+
+constraints:
+  - "ADC obligatoire pour Sheets (local: gcloud auth application-default login; prod: SA attaché à Cloud Run)."
+  - "Pas d’auth interactive en iframe."
+  - "Aucun CDN: toutes les librairies, polices et icônes sont servies localement."
+  - "CSP stricte + vérification du Referer pour les pages embed."
+
+deliverables_v1:
+  - "/api/graph (GET/POST) ↔ Google Sheets (schéma aligné Apps Script)."
+  - "/embed/editor?k=...&sheet_id=...&mode=ro (HTML + CSP + lecture‑seule)."
+  - "Front splitté + build JS (esbuild) + vendorisation des libs (D3, ELK, Inter, Unicons)."
+
+google_cloud:
+  project_id_env: "GCP_PROJECT_ID"
+  region_env: "GCP_REGION"
+  run_service_env: "RUN_SERVICE"
+  run_service_default: "editeur-reseau-api"
+  adc:
+    local_cmd: "gcloud auth application-default login"
+    production_note: "Service Account attaché à Cloud Run, partager le Sheet/Drive avec ce SA."
+  required_apis:
+    - "run.googleapis.com"
+    - "sheets.googleapis.com"
+    - "drive.googleapis.com"
+    - "secretmanager.googleapis.com"
+
+auth_embed:
+  strategy: "clé statique + CSP frame-ancestors + vérif Referer"
+  env:
+    embed_key: "EMBED_STATIC_KEY"
+    allowed_frame_ancestors: "ALLOWED_FRAME_ANCESTORS"
+  referer_allowed_hosts:
+    - "lookerstudio.google.com"
+    - "datastudio.google.com"
+    - "sites.google.com"
+  csp_template: >-
+    default-src 'none'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors ${ALLOWED_FRAME_ANCESTORS}; base-uri 'none'; form-action 'none';
+
+sheets:
+  spreadsheet_id_env: "SHEET_ID"
+  access: "Application Default Credentials (ADC)"
+  columns_note: "Les colonnes doivent rester compatibles avec l’Apps Script existant."
+
+api:
+  endpoints:
+    - path: "/api/graph"
+      methods: ["GET", "POST"]
+      notes: "Mappe vers Google Sheets ; valider le schéma I/O."
+    - path: "/embed/editor"
+      methods: ["GET"]
+      query: ["k", "sheet_id", "mode"]
+      notes: "HTML + CSP ; lecture‑seule en V1 ; vérif clé + Referer."
+
+stack:
+  python_deps:
+    runtime:
+      - "fastapi"
+      - "uvicorn[standard]"
+      - "google-auth"
+      - "google-auth-httplib2"
+      - "google-api-python-client"
+      - "pydantic"
+      - "jinja2"
+    dev:
+      - "pytest"
+      - "httpx"
+  node_tools:
+    bundler: "esbuild"
+    vendor_libs: ["d3", "elkjs", "unicons", "inter"]
+
+tasks:
+  - id: "enable-apis"
+    description: "Active les APIs GCP nécessaires."
+    shell:
+      - "gcloud services enable run.googleapis.com sheets.googleapis.com drive.googleapis.com secretmanager.googleapis.com --project=${GCP_PROJECT_ID}"
+
+  - id: "bootstrap"
+    description: "Prépare venv Python et installe deps + esbuild."
+    shell:
+      - "python3 -m venv .venv"
+      - "source .venv/bin/activate && pip install -U pip"
+      - "source .venv/bin/activate && pip install fastapi 'uvicorn[standard]' google-auth google-auth-httplib2 google-api-python-client pydantic jinja2"
+      - "npm i -D esbuild"
+
+  - id: "dev-api"
+    description: "Lance FastAPI localement (ADC via gcloud)."
+    env:
+      - "GOOGLE_CLOUD_PROJECT=${GCP_PROJECT_ID}"
+    shell:
+      - "source .venv/bin/activate && uvicorn backend.main:app --reload --port 8080"
+
+  - id: "build-frontend"
+    description: "Bundle JS + vendor libs localement (sans CDN)."
+    shell:
+      - "node build/esbuild.mjs"
+
+  - id: "docker-build"
+    description: "Construit l’image container pour Cloud Run."
+    shell:
+      - "docker build -t ${GCP_PROJECT_ID}/${RUN_SERVICE:-editeur-reseau-api}:$VERSION -f deploy/Dockerfile ."
+
+  - id: "deploy"
+    description: "Déploie sur Cloud Run (source build)."
+    shell:
+      - "gcloud run deploy ${RUN_SERVICE:-editeur-reseau-api} --source . --region=${GCP_REGION} --project=${GCP_PROJECT_ID} --allow-unauthenticated --set-env-vars=EMBED_STATIC_KEY=${EMBED_STATIC_KEY},ALLOWED_FRAME_ANCESTORS=${ALLOWED_FRAME_ANCESTORS},SHEET_ID=${SHEET_ID}"
+
+env:
+  required:
+    - "GCP_PROJECT_ID"
+    - "GCP_REGION"
+    - "EMBED_STATIC_KEY"
+    - "ALLOWED_FRAME_ANCESTORS"  # ex: "https://lookerstudio.google.com https://sites.google.com"
+    - "SHEET_ID"
+  optional:
+    - "DATA_SOURCE=sheet"  # sheet | gcs_json | bigquery
+    - "RUN_SERVICE=editeur-reseau-api"
+    - "VERSION=dev"
+    - "SHEET_ID_DEFAULT"  # si différent de SHEET_ID
+    - "SHEET_NODES_TAB=nodes"
+    - "SHEET_EDGES_TAB=edges"
+    - "GCS_JSON_URI"      # ex: gs://bucket/path/graph.json
+    - "BQ_PROJECT_ID"
+    - "BQ_DATASET"
+    - "BQ_NODES_TABLE=nodes"
+    - "BQ_EDGES_TABLE=edges"
+
+validation:
+  checks:
+    - "ADC présent: gcloud auth application-default print-access-token"
+    - "CSP contient frame-ancestors attendu (Looker/Sites)."
+    - "GET /api/graph renvoie le schéma attendu."
+    - "Page /embed/editor en lecture‑seule, clé k requise, Referer valide."
+
+notes:
+  - "Aucun CDN: vérifier que d3/elk/polices/icônes sont servies localement."
+  - "Limiter CORS aux origines attendues pour l’API."
+  - "Cloud Logging/Trace pour observabilité minimale."
+
+files_scaffold:
+  - "backend/main.py"
+  - "backend/routers/graph.py"
+  - "frontend/public/index.html"
+  - "build/esbuild.mjs"
+  - "deploy/Dockerfile"
+  - ".gcloudignore"

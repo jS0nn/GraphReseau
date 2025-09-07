@@ -1,0 +1,7 @@
+@import './base.css';
+@import './theme.css';
+
+html, body { background: var(--bg); color: var(--fg); }
+#app { height: 100vh; display: grid; place-items: center; }
+button { background: var(--accent); color: white; border: 0; padding: .5rem .75rem; border-radius: .375rem; }
+

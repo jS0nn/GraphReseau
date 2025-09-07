@@ -1,0 +1,10 @@
+// Vendor entry: d3 + elk
+import * as d3 from 'd3'
+import ELK from 'elkjs/lib/elk.bundled.js'
+
+// Expose to global for legacy code ease
+window.d3 = d3
+window.ELK = ELK
+
+export { d3, ELK }
+

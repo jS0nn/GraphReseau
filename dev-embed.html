@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dev – Iframe embed Éditeur Réseau</title>
+    <style>
+      :root { --fg:#0f172a; --bg:#f8fafc; --bd:#cbd5e1; --accent:#2563eb }
+      html, body { height:100% }
+      body { margin:0; font:14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Arial; color:var(--fg); background:var(--bg) }
+      header { position:sticky; top:0; z-index:1; background:#fff; border-bottom:1px solid var(--bd); padding:12px }
+      fieldset { border:1px solid var(--bd); border-radius:8px; padding:10px; margin:0; }
+      .row { display:grid; grid-template-columns:repeat(6, minmax(0,1fr)); gap:8px; align-items:end; }
+      .row .col { display:flex; flex-direction:column; gap:4px }
+      label { font-size:12px; color:#334155 }
+      input, select { padding:8px 10px; border:1px solid var(--bd); border-radius:6px }
+      button { padding:9px 12px; border:1px solid var(--accent); background:var(--accent); color:#fff; border-radius:6px; cursor:pointer }
+      button.secondary { border-color:var(--bd); background:#fff; color:#111827 }
+      main { padding:12px }
+      iframe { width:100%; height:78vh; border:1px solid var(--bd); border-radius:8px; background:#fff }
+      .hint { font-size:12px; color:#475569 }
+    </style>
+  </head>
+  <body>
+    <header>
+      <form id="cfg">
+        <fieldset>
+          <div class="row" style="margin-bottom:8px">
+            <div class="col" style="grid-column: span 2;">
+              <label for="base">Base URL</label>
+              <input id="base" placeholder="http://127.0.0.1:8080" />
+            </div>
+            <div class="col">
+              <label for="key">Clé `k`</label>
+              <input id="key" placeholder="dev-embed-key" />
+            </div>
+            <div class="col">
+              <label for="sheet">Sheet ID</label>
+              <input id="sheet" placeholder="<SPREADSHEET_ID>" />
+            </div>
+            <div class="col">
+              <label for="mode">Mode</label>
+              <select id="mode">
+                <option value="ro">ro</option>
+              </select>
+            </div>
+            <div class="col">
+              <label for="source">Source</label>
+              <select id="source">
+                <option value="">(par défaut)</option>
+                <option value="sheet">sheet</option>
+                <option value="gcs_json">gcs_json</option>
+                <option value="bigquery">bigquery</option>
+              </select>
+            </div>
+            <div class="col" style="text-align:right">
+              <button type="submit">Ouvrir l’embed</button>
+            </div>
+          </div>
+          <div class="row">
+            <div class="col" style="grid-column: span 2;">
+              <label for="gcs">gcs_uri (ou file:///...)</label>
+              <input id="gcs" placeholder="gs://bucket/path/graph.json" />
+            </div>
+            <div class="col">
+              <label for="bqp">bq_project</label>
+              <input id="bqp" placeholder="(optionnel)" />
+            </div>
+            <div class="col">
+              <label for="bqd">bq_dataset</label>
+              <input id="bqd" placeholder="(optionnel)" />
+            </div>
+            <div class="col">
+              <label for="bqn">bq_nodes</label>
+              <input id="bqn" placeholder="Nodes" />
+            </div>
+            <div class="col">
+              <label for="bqe">bq_edges</label>
+              <input id="bqe" placeholder="Edges" />
+            </div>
+            <div class="col" style="text-align:right">
+              <button type="button" class="secondary" id="save">Enregistrer</button>
+            </div>
+          </div>
+          <div class="hint" style="margin-top:8px">
+            Pensez à autoriser cette page dans l’API: exportez ALLOWED_REFERER_HOSTS="localhost 127.0.0.1" et ALLOWED_FRAME_ANCESTORS="http://localhost:8000 http://127.0.0.1:8000" avant de lancer l’API.
+          </div>
+        </fieldset>
+      </form>
+    </header>
+    <main>
+      <iframe id="frame" title="embed"></iframe>
+    </main>
+    <script>
+      const qs = new URLSearchParams(location.search)
+      const els = {
+        base: document.getElementById('base'), key: document.getElementById('key'), sheet: document.getElementById('sheet'),
+        mode: document.getElementById('mode'), source: document.getElementById('source'), gcs: document.getElementById('gcs'),
+        bqp: document.getElementById('bqp'), bqd: document.getElementById('bqd'), bqn: document.getElementById('bqn'), bqe: document.getElementById('bqe'),
+      }
+      function loadSaved(){
+        const saved = JSON.parse(localStorage.getItem('devEmbedCfg') || '{}')
+        els.base.value  = qs.get('base')  || saved.base  || 'http://127.0.0.1:8080'
+        els.key.value   = qs.get('k')     || saved.key   || 'dev-embed-key'
+        els.sheet.value = qs.get('sheet') || saved.sheet || ''
+        els.mode.value  = qs.get('mode')  || saved.mode  || 'ro'
+        els.source.value= qs.get('source')|| saved.source|| ''
+        els.gcs.value   = qs.get('gcs_uri') || saved.gcs || ''
+        els.bqp.value   = qs.get('bq_project') || saved.bqp || ''
+        els.bqd.value   = qs.get('bq_dataset') || saved.bqd || ''
+        els.bqn.value   = qs.get('bq_nodes')   || saved.bqn || 'Nodes'
+        els.bqe.value   = qs.get('bq_edges')   || saved.bqe || 'Edges'
+      }
+      function save(){
+        const cfg = { base:els.base.value, key:els.key.value, sheet:els.sheet.value, mode:els.mode.value, source:els.source.value,
+          gcs:els.gcs.value, bqp:els.bqp.value, bqd:els.bqd.value, bqn:els.bqn.value, bqe:els.bqe.value }
+        localStorage.setItem('devEmbedCfg', JSON.stringify(cfg))
+      }
+      function openEmbed(ev){
+        ev && ev.preventDefault()
+        const u = new URL('/embed/editor', els.base.value)
+        const p = new URLSearchParams()
+        if (els.key.value) p.set('k', els.key.value)
+        if (els.sheet.value) p.set('sheet_id', els.sheet.value)
+        if (els.mode.value) p.set('mode', els.mode.value)
+        if (els.source.value) p.set('source', els.source.value)
+        if (els.gcs.value) p.set('gcs_uri', els.gcs.value)
+        if (els.bqp.value) p.set('bq_project', els.bqp.value)
+        if (els.bqd.value) p.set('bq_dataset', els.bqd.value)
+        if (els.bqn.value) p.set('bq_nodes', els.bqn.value)
+        if (els.bqe.value) p.set('bq_edges', els.bqe.value)
+        document.getElementById('frame').src = u.toString() + '?' + p.toString()
+      }
+      document.getElementById('cfg').addEventListener('submit', openEmbed)
+      document.getElementById('save').addEventListener('click', ()=>{ save(); openEmbed() })
+      loadSaved(); openEmbed()
+    </script>
+  </body>
+  </html>
+

@@ -1,0 +1,18 @@
+{
+  "name": "editeur-reseau",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "@fontsource/inter": "^5.1.0",
+    "@iconscout/unicons": "^4.0.8",
+    "d3": "^7.9.0",
+    "elkjs": "^0.9.2"
+  },
+  "devDependencies": {
+    "esbuild": "^0.21.5"
+  }
+}
+

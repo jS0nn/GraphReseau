@@ -1,0 +1,215 @@
+from __future__ import annotations
+
+import json
+import os
+from typing import Any, Dict, Tuple
+
+from fastapi import HTTPException
+
+from .config import settings
+from .models import Graph, Node, Edge
+from . import sheets as sheets_mod
+
+
+def _parse_gs_uri(uri: str) -> Tuple[str, str]:
+    if not uri.startswith("gs://"):
+        raise HTTPException(status_code=400, detail="gcs_uri must start with gs://")
+    path = uri[len("gs://") :]
+    parts = path.split("/", 1)
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="gcs_uri must be gs://bucket/path")
+    bucket, blob_path = parts[0], parts[1]
+    return bucket, blob_path
+
+
+# Sheets loader/saver
+def loadSheet(sheet_id: str | None = None, nodes_tab: str | None = None, edges_tab: str | None = None) -> Graph:
+    sid = sheet_id or settings.sheet_id_default
+    if not sid:
+        raise HTTPException(status_code=400, detail="sheet_id required")
+    return sheets_mod.read_nodes_edges(
+        sid,
+        nodes_tab or settings.sheet_nodes_tab,
+        edges_tab or settings.sheet_edges_tab,
+    )
+
+
+def saveSheet(graph: Graph, sheet_id: str | None = None, nodes_tab: str | None = None, edges_tab: str | None = None) -> None:
+    sid = sheet_id or settings.sheet_id_default
+    if not sid:
+        raise HTTPException(status_code=400, detail="sheet_id required")
+    sheets_mod.write_nodes_edges(
+        sid,
+        nodes_tab or settings.sheet_nodes_tab,
+        edges_tab or settings.sheet_edges_tab,
+        graph,
+    )
+
+
+# GCS JSON loader/saver
+def loadJson(gcs_uri: str | None = None) -> Graph:
+    uri = gcs_uri or settings.gcs_json_uri_default
+    if not uri:
+        raise HTTPException(status_code=400, detail="gcs_uri required")
+
+    if uri.startswith("file://") or os.path.isabs(uri):
+        # local dev support
+        path = uri.replace("file://", "")
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"read_local_json_failed: {exc}")
+        return Graph.model_validate(data)
+
+    # gs:// path
+    bucket_name, blob_path = _parse_gs_uri(uri)
+    try:
+        from google.cloud import storage
+
+        client = storage.Client(project=settings.gcp_project_id or None)
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(blob_path)
+        text = blob.download_as_text()
+        data = json.loads(text)
+        return Graph.model_validate(data)
+    except Exception as exc:
+        raise HTTPException(status_code=501, detail=f"gcs_json_unavailable: {exc}")
+
+
+def saveJson(graph: Graph, gcs_uri: str | None = None) -> None:
+    uri = gcs_uri or settings.gcs_json_uri_default
+    if not uri:
+        raise HTTPException(status_code=400, detail="gcs_uri required")
+    payload = json.dumps(graph.model_dump(), ensure_ascii=False)
+    if uri.startswith("file://") or os.path.isabs(uri):
+        path = uri.replace("file://", "")
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(payload)
+            return
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"write_local_json_failed: {exc}")
+    try:
+        from google.cloud import storage
+
+        client = storage.Client(project=settings.gcp_project_id or None)
+        bucket_name, blob_path = _parse_gs_uri(uri)
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(blob_path)
+        blob.upload_from_string(payload, content_type="application/json; charset=utf-8")
+    except Exception as exc:
+        raise HTTPException(status_code=501, detail=f"gcs_write_unavailable: {exc}")
+
+
+# BigQuery loader/saver
+def loadBQ(
+    dataset: str | None = None,
+    nodes_table: str | None = None,
+    edges_table: str | None = None,
+    project_id: str | None = None,
+) -> Graph:
+    ds = dataset or settings.bq_dataset
+    tn = nodes_table or settings.bq_nodes_table
+    te = edges_table or settings.bq_edges_table
+    pj = project_id or settings.bq_project_id or settings.gcp_project_id
+    if not pj or not ds:
+        raise HTTPException(status_code=400, detail="bq project_id and dataset required")
+    try:
+        from google.cloud import bigquery
+
+        client = bigquery.Client(project=pj)
+        # Select * and coerce to unified UI schema
+        q_nodes = f"SELECT * FROM `{pj}.{ds}.{tn}`"
+        q_edges = f"SELECT * FROM `{pj}.{ds}.{te}`"
+        nodes_rows = client.query(q_nodes).result()
+        edges_rows = client.query(q_edges).result()
+
+        def _split_ids(v):
+            if v is None:
+                return []
+            if isinstance(v, list):
+                return [str(x) for x in v if x is not None]
+            if isinstance(v, str):
+                return [p.strip() for p in v.replace(',', ';').split(';') if p.strip()]
+            return []
+
+        # Convert rows to UI schema; accept FR/EN field names
+        def to_nodes():
+            for r in nodes_rows:
+                d = dict(r)
+                yield Node(
+                    id=str(d.get('id')),
+                    name=d.get('name') or d.get('nom') or '',
+                    type=(d.get('type') or 'PUITS'),
+                    branch_id=d.get('branch_id') or d.get('id_branche') or '',
+                    diameter_mm=d.get('diameter_mm') or d.get('diametre_mm'),
+                    collector_well_ids=_split_ids(d.get('collector_well_ids') or d.get('puits_amont')),
+                    well_collector_id=d.get('well_collector_id') or '',
+                    well_pos_index=d.get('well_pos_index'),
+                    pm_collector_id=d.get('pm_collector_id') or d.get('pm_collecteur_id') or '',
+                    pm_pos_index=d.get('pm_pos_index'),
+                    gps_lat=d.get('gps_lat'), gps_lon=d.get('gps_lon'),
+                    x=d.get('x'), y=d.get('y'),
+                )
+
+        def to_edges():
+            for r in edges_rows:
+                d = dict(r)
+                from_id = d.get('from_id') or d.get('source_id')
+                to_id = d.get('to_id') or d.get('cible_id')
+                active = d.get('active') if 'active' in d else d.get('actif')
+                yield Edge(id=d.get('id'), from_id=str(from_id), to_id=str(to_id), active=bool(active) if active is not None else True)
+
+        nodes = [n for n in to_nodes() if getattr(n, "id", None)]
+        edges = [e for e in to_edges() if getattr(e, "source", None) and getattr(e, "target", None)]
+        return Graph(nodes=nodes, edges=edges)
+    except Exception as exc:
+        raise HTTPException(status_code=501, detail=f"bigquery_unavailable: {exc}")
+
+
+def saveBQ(*_args, **_kwargs) -> None:
+    # Not implemented for V1
+    raise HTTPException(status_code=501, detail="bigquery write not implemented")
+
+
+# Generic dispatchers
+def load_graph(
+    source: str | None = None,
+    **kwargs: Any,
+) -> Graph:
+    s = (source or settings.data_source_default or "sheet").lower()
+    if s in {"sheet", "sheets", "google_sheets"}:
+        return loadSheet(
+            sheet_id=kwargs.get("sheet_id"),
+            nodes_tab=kwargs.get("nodes_tab"),
+            edges_tab=kwargs.get("edges_tab"),
+        )
+    if s in {"gcs", "gcs_json", "json"}:
+        return loadJson(gcs_uri=kwargs.get("gcs_uri"))
+    if s in {"bq", "bigquery"}:
+        return loadBQ(
+            dataset=kwargs.get("bq_dataset"),
+            nodes_table=kwargs.get("bq_nodes"),
+            edges_table=kwargs.get("bq_edges"),
+            project_id=kwargs.get("bq_project"),
+        )
+    raise HTTPException(status_code=400, detail=f"unknown data source: {s}")
+
+
+def save_graph(source: str | None = None, graph: Graph | None = None, **kwargs: Any) -> None:
+    if graph is None:
+        raise HTTPException(status_code=400, detail="graph payload required")
+    s = (source or settings.data_source_default or "sheet").lower()
+    if s in {"sheet", "sheets", "google_sheets"}:
+        return saveSheet(
+            graph,
+            sheet_id=kwargs.get("sheet_id"),
+            nodes_tab=kwargs.get("nodes_tab"),
+            edges_tab=kwargs.get("edges_tab"),
+        )
+    if s in {"gcs", "gcs_json", "json"}:
+        return saveJson(graph, gcs_uri=kwargs.get("gcs_uri"))
+    if s in {"bq", "bigquery"}:
+        return saveBQ()
+    raise HTTPException(status_code=400, detail=f"unknown data source: {s}")
