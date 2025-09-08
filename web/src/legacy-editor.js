@@ -2,11 +2,11 @@ import './polyfills.js'
 import { getGraph, saveGraph, getMode } from './api.js'
 
 /*
-  Portage du script Apps Script (legacy) – rendu SVG, interactions, forms, logs, exports, layout ELK+fallback.
-  Hypothèses:
-  - Le DOM est fourni par app/templates/index.html (boutons, forms, svg...).
-  - d3 et ELK sont exposés globalement par vendor.js (window.d3 / window.ELK).
-  - google.script.run est émulé par bridge-gas.js.
+  Portage de l’éditeur depuis Apps Script (legacy) – rendu SVG, interactions, formulaires, logs, exports, layout ELK+fallback.
+  Points clés (migration finalisée côté données):
+  - API native: échanges via getGraph/saveGraph (fetch) définis dans api.js — plus d’appel à google.script.run.
+  - DOM: fourni par app/templates/index.html (boutons, formulaires, SVG, etc.).
+  - d3 et ELK: exposés globalement par vendor.js (window.d3 / window.ELK).
 */
 
 // Utils & état

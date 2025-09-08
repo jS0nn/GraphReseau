@@ -32,6 +32,8 @@ web/
 
 ## Démarrage local
 
+0. Cloner le dépôt
+   - `git clone <VOTRE_REPO_GITHUB_URL> editeur-reseau && cd editeur-reseau`
 1. Python
    - `python -m venv .venv && source .venv/bin/activate`
    - `pip install -r requirements.txt`
@@ -68,7 +70,7 @@ gcloud run deploy editeur-reseau-api \
 
 - CSP inclut `frame-ancestors` (Looker/Sites) et enlève tout `X-Frame-Options`.
 - A2 couvre la lecture/écriture Sheets avec correspondance d'entêtes FR/EN.
-- V1 ne met pas en place l'écriture depuis l'UI; l'API POST est prête.
+- Sauvegarde: l’UI permet la sauvegarde en mode `rw`; l’embed de prod reste en `ro` par défaut. L’API POST est en place (Sheets/GCS JSON).
 - Data source: par défaut `DATA_SOURCE=sheet`; possibles: `sheet`, `gcs_json`, `bigquery`.
 - Env par source:
   - Sheets: `SHEET_ID_DEFAULT`, `SHEET_NODES_TAB`, `SHEET_EDGES_TAB`
@@ -84,9 +86,9 @@ gcloud run deploy editeur-reseau-api \
 - Frontend (build local, sans CDN):
   - Code source dans `web/`, bundlé par `esbuild` dans `app/static/bundle`.
   - `vendor.js` expose D3/ELK sans CDN; polices et icônes copiées en local (`app/static/vendor`).
-  - Deux entrées:
-    - `legacy-editor.js` (portage progressif de l’éditeur Apps Script).
-    - `app.js` (viewer minimal pour tests de bout‑en‑bout).
+  - Entrées JS bundlées:
+    - `editor.js` (éditeur — porte aujourd’hui le portage legacy).
+    - `main.js` (viewer minimal pour tests de bout‑en‑bout).
   - En V1 du portage, l’embed affiche un statut et charge les données; le rendu complet (SVG, modes…) arrive par étapes.
 
 ## L’embed, simplement

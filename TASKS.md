@@ -31,6 +31,23 @@ Statut: à cocher au fur et à mesure. Cible: V1 fonctionnelle (embed RO), sourc
 - [x] Bridge “google.script.run” (transitoire) → API FastAPI
 - [x] Client API natif (web/src/api.js), supprimer bridge‑gas
 
+## Refactor legacy → modules (frontend)
+- [ ] Extraire helpers génériques (utils): `$$`, `vn`, `snap`, `genId`, `incrementName`, `isCanal`
+- [ ] État + historique: `state` (sélection, clipboard), `history` (snapshot/undo/redo)
+- [ ] Rendu SVG: `render/canvas`, `render/edges`, `render/inline`, `render/colors`
+- [ ] Interactions: drag, multi‑sélection, raccourcis, modes (`modes`, `interactions/*`)
+- [ ] Propriétés: formulaires nœud/arête/canal (`ui/forms/*`) + callbacks → state+render
+- [ ] Exports: JSON/compact/node‑edge (`exports.js`) + download helper
+- [ ] Layout: consolider `layout.js` (ELK + fallback) + journaux (`ui/logs`)
+- [ ] Entrée unique propre: `editor.js` assemble les modules; déprécier `legacy-editor.js`
+- [ ] CSS: renommer `web/styles/legacy.css` → `editor.css` (maj `build.mjs` + `app/templates/index.html`)
+
+## Docs & DX
+- [ ] Ajouter `.env.example` minimal (copiable en `.env.dev`)
+- [ ] README: “Quickstart” clonage + étapes (ok)
+- [ ] NOTICE: sorties build corrigées (ok)
+- [ ] Plan de tests manuels (lecture/écriture, layout, embed RO/RW)
+
 ## Build / Infra
 - [x] Build esbuild (bundle + vendor local)
 - [x] Dockerfile multi‑stage (Node build → Python runtime)

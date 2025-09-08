@@ -80,7 +80,7 @@ APIs à activer côté GCP (si besoin):
 - Installer les dépendances frontend et builder les assets locaux (sans CDN):
   - `npm install`
   - `npm run build`
-  - Résultat: `app/static/bundle/{app.js, app.css, legacy-editor.js, legacy.css}` et `app/static/vendor/{inter, unicons}`
+  - Résultat: `app/static/bundle/{vendor.js, polyfills.js, editor.js, main.js, app.css, legacy.css}` et `app/static/vendor/{inter, unicons}`
 
 ### 5bis) Fichier .env.dev (recommandé)
 Créez un fichier `.env.dev` à la racine pour partager les variables entre terminaux:

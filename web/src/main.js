@@ -1,4 +1,3 @@
-import './shim.js'
 import { d3 } from './vendor.js'
 import { setGraph, state } from './state.js'
 import { autoLayout } from './layout.js'
@@ -27,4 +26,3 @@ init().catch(err => {
   const el = document.getElementById('app')
   if (el) el.textContent = 'Erreur de chargement: ' + err.message
 })
-
