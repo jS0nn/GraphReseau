@@ -24,7 +24,7 @@ def embed_editor(
     bq_nodes: Optional[str] = Query(None),
     bq_edges: Optional[str] = Query(None),
 ):
-    if mode != "ro":
+    if mode not in {"ro", "rw"}:
         raise HTTPException(status_code=400, detail="unsupported mode")
 
     check_embed_access(request, k)

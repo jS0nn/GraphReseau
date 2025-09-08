@@ -1,4 +1,5 @@
-import './bridge-gas.js'
+import './polyfills.js'
+import { getGraph, saveGraph, getMode } from './api.js'
 
 /*
   Portage du script Apps Script (legacy) – rendu SVG, interactions, forms, logs, exports, layout ELK+fallback.
@@ -89,6 +90,27 @@ window.addEventListener('keydown',(e)=>{
 window.addEventListener('keyup',(e)=>{ if(e.code==='Space'){ spacePan=false; svg.style('cursor','') } })
 
 // Ajout / suppression / connexions
+function deleteSelection(){
+  if (selectedEdge) {
+    // reuse button handler
+    const btn = document.getElementById('deleteEdgeBtn')
+    if (btn) btn.click();
+    return
+  }
+  if (selectedIds && selectedIds.size) {
+    const targets = nodes.filter(n=>selectedIds.has(n.id))
+    if (!targets.length) return
+    if (!confirm(`Supprimer ${targets.length} élément(s) et leurs liens ?`)) return
+    targets.forEach(n=>deleteNode(n))
+    pushHist(); render(); status('Sélection supprimée')
+    return
+  }
+  if (selectedNode) {
+    if (!confirm(`Supprimer ${selectedNode.name||selectedNode.id} ?`)) return
+    deleteNode(selectedNode); pushHist(); render(); status('Nœud supprimé')
+  }
+}
+
 function defaultName(type){
   const base={PUITS:'P-',CANALISATION:'C-',COLLECTEUR:'C-',PLATEFORME:'PL-',VANNE:'V-',POINT_MESURE:'M-'}[type]||'N-'
   let k=nodes.filter(n=>n.type===type||(type==='CANALISATION'&&n.type==='COLLECTEUR')).length+1
@@ -181,7 +203,12 @@ function showNodeForm(n){
   $$('#grpCanal').style.display=(type==='CANALISATION')?'block':'none'
   $$('#grpWell').style.display=(type==='PUITS')?'block':'none'
   $$('#grpInline').style.display=(type==='POINT_MESURE'||type==='VANNE')?'block':'none'
-  if(type==='CANALISATION') refreshCanalUI(); if(type==='PUITS') refreshWellUI(); if(type==='POINT_MESURE'||type==='VANNE') refreshInlineUI(); $$('#grpPos').open=true
+  try{
+    if(type==='CANALISATION') refreshCanalUI();
+    if(type==='PUITS') refreshWellUI();
+    if(type==='POINT_MESURE'||type==='VANNE') refreshInlineUI();
+  }catch(err){ console.error('[showNodeForm] refresh failed', err, { type, node: n }) }
+  $$('#grpPos').open=true
   $$('#deleteNodeBtn').onclick=()=>{ if(!selectedNode) return; if(confirm(`Supprimer ${selectedNode.name} ?`)){ deleteNode(selectedNode); status('Nœud supprimé') } }
 }
 
@@ -246,14 +273,18 @@ function applySequenceToModel(canal, seq){
 }
 function refreshCanalUI(){
   const canal=selectedNode
+  console.debug('[refreshCanalUI] start', { canal })
   const childEdges = edges.filter(e=>e.from_id===canal.id).map(e=>nodes.find(n=>n.id===e.to_id)).filter(isCanal)
+  console.debug('[refreshCanalUI] childEdges', { count: childEdges.length })
   if(!Array.isArray(canal.child_canal_ids)) canal.child_canal_ids=[]
   canal.child_canal_ids = canal.child_canal_ids.filter(id => childEdges.some(c=>c.id===id))
   const missing = childEdges.filter(c=>!canal.child_canal_ids.includes(c.id)).map(c=>c.id)
   if(missing.length){ missing.sort((a,b)=>vn(nodes.find(n=>n.id===a)?.y,0)-vn(nodes.find(n=>n.id===b)?.y,0)); canal.child_canal_ids = canal.child_canal_ids.concat(missing) }
   canal.collector_well_ids = (canal.collector_well_ids||[]).filter(id => nodes.some(n=>n.id===id && n.type==='PUITS'))
   const seq = buildSequence(canal)
-  const list=$$('#seqList'); list.innerHTML=''
+  console.debug('[refreshCanalUI] seq', { length: seq.length })
+  const list=$$('#seqList'); if (!list) { console.error('[refreshCanalUI] #seqList missing'); return }
+  list.innerHTML=''
   function labelFor(token){ const n = nodes.find(x=>x.id===token.id); if(token.kind==='W') return n?.name||token.id; if(token.kind==='M') return (n?.name||token.id)+' · PM'; if(token.kind==='V') return (n?.name||token.id)+' · Vanne'; return token.id }
   function chipFor(token, idx){
     const chip=document.createElement('div'); chip.className='chip'; chip.draggable=true; chip.dataset.idx=idx; chip.dataset.kind=token.kind; chip.dataset.id=token.id
@@ -276,11 +307,12 @@ function refreshCanalUI(){
     return chip
   }
   seq.forEach((t,i)=> list.appendChild(chipFor(t,i)))
+  console.debug('[refreshCanalUI] chips ready')
 
   const dl=$$('#cwDatalist'); const inp=$$('#cwSearch')
   const availWells=nodes.filter(n=>n.type==='PUITS' && !n.well_collector_id)
-  dl.innerHTML=availWells.map(n=>`<option value="${(n.name||n.id)}" data-id="${n.id}">`).join('')
-  inp.value=''; inp.placeholder = availWells.length ? 'Puits non attribués…' : 'Aucun puits dispo'
+  if (dl) dl.innerHTML=availWells.map(n=>`<option value="${(n.name||n.id)}" data-id="${n.id}">`).join('')
+  if (inp) { inp.value=''; inp.placeholder = availWells.length ? 'Puits non attribués…' : 'Aucun puits dispo' }
   $$('#cwAddBtn').onclick=()=>{
     const val=inp.value.trim(); if(!val) return
     const opt = $$('#cwDatalist').querySelector(`option[value="${CSS.escape(val)}"]`)
@@ -308,8 +340,51 @@ function refreshCanalUI(){
   $$('#pmAddNewBtn').onclick=()=>{ const m={ id:genId('POINT_MESURE'), name:defaultName('POINT_MESURE'), type:'POINT_MESURE', x:snap(vn(canal.x,120)+200), y:snap(vn(canal.y,120)+26), pm_collector_id:canal.id, pm_pos_index:(canal.collector_well_ids||[]).length, pm_offset_m:'' }; nodes.push(m); pushHist(); refreshInlineLists(); refreshCanalUI(); render(); selectSingle(m) }
   $$('#vanAddBtn').onclick=()=>{ const val = $$('#vanSearch').value.trim(); if (!val) return; const opt = $$('#vanDatalist').querySelector(`option[value="${CSS.escape(val)}"]`); const id = opt?.dataset.id; let v = id ? nodes.find(x => x.id===id) : nodes.find(x => x.type==='VANNE' && !x.pm_collector_id && ((x.name && x.name===val) || x.id===val)); if (!v) { alert('Vanne introuvable ou déjà attribuée.'); return; } v.pm_collector_id = canal.id; v.pm_pos_index = (canal.collector_well_ids || []).length; $$('#vanSearch').value=''; pushHist(); refreshInlineLists(); refreshCanalUI(); render() }
   $$('#vanAddNewBtn').onclick=()=>{ const v={ id:genId('VANNE'), name:defaultName('VANNE'), type:'VANNE', x:snap(vn(canal.x,120)+220), y:snap(vn(canal.y,120)-12), pm_collector_id:canal.id, pm_pos_index:(canal.collector_well_ids||[]).length, pm_offset_m:'' }; nodes.push(v); pushHist(); refreshInlineLists(); refreshCanalUI(); render(); selectSingle(v) }
-  const childWrap = document.getElementById('childCanalsList'); childWrap.innerHTML=''
-  (canal.child_canal_ids||[]).forEach((cid,i)=>{ const c = nodes.find(n=>n.id===cid); const chip=document.createElement('div'); chip.className='chip'; chip.draggable=true; chip.dataset.idx=i; chip.dataset.id=cid; chip.innerHTML=`<span class="drag">☰</span><span>${c?.name||cid}</span>`; chip.addEventListener('dragstart',e=>{ chip.classList.add('dragging'); e.dataTransfer.setData('text/plain', i.toString()) }); chip.addEventListener('dragend',()=>chip.classList.remove('dragging')); chip.addEventListener('dragover',e=>e.preventDefault()); chip.addEventListener('drop',e=>{ e.preventDefault(); const from=+e.dataTransfer.getData('text/plain'); const to=+chip.dataset.idx; if(from===to) return; const arr = canal.child_canal_ids.slice(); const mv=arr.splice(from,1)[0]; arr.splice(to,0,mv); canal.child_canal_ids = arr; pushHist(); refreshCanalUI(); render() }); childWrap.appendChild(chip) })
+  try {
+    const childWrap = document.getElementById('childCanalsList')
+    if (!childWrap) { console.error('[refreshCanalUI] #childCanalsList missing'); return }
+    childWrap.innerHTML = ''
+
+    const childIds = Array.isArray(canal.child_canal_ids) ? canal.child_canal_ids.slice() : []
+    for (let i = 0; i < childIds.length; i++) {
+      const cid = childIds[i]
+      const c = nodes.find(n => n.id === cid)
+
+      const chip = document.createElement('div')
+      chip.className = 'chip'
+      chip.draggable = true
+      chip.dataset.idx = String(i)
+      chip.dataset.id = cid
+      chip.innerHTML = `<span class="drag">☰</span><span>${(c && c.name) || cid}</span>`
+
+      chip.addEventListener('dragstart', (e) => {
+        try { chip.classList.add('dragging'); e.dataTransfer.setData('text/plain', String(i)) } catch (ex) { console.error('[childCanals] dragstart', ex) }
+      })
+      chip.addEventListener('dragend', () => chip.classList.remove('dragging'))
+      chip.addEventListener('dragover', (e) => { try { e.preventDefault() } catch (ex) { console.error('[childCanals] dragover', ex) } })
+      chip.addEventListener('drop', (e) => {
+        try {
+          e.preventDefault()
+          const from = +e.dataTransfer.getData('text/plain')
+          const to = +chip.dataset.idx
+          if (from === to) return
+          const arr = Array.isArray(canal.child_canal_ids) ? canal.child_canal_ids.slice() : []
+          const mv = arr.splice(from, 1)[0]
+          if (mv !== undefined) {
+            arr.splice(to, 0, mv)
+            canal.child_canal_ids = arr
+            pushHist(); refreshCanalUI(); render()
+          }
+        } catch (ex) {
+          console.error('[childCanals] drop', ex)
+        }
+      })
+      if (typeof childWrap.appendChild === 'function') childWrap.appendChild(chip)
+      else console.error('[childCanals] appendChild not a function on', childWrap)
+    }
+  } catch (e) {
+    console.error('[refreshCanalUI] childCanalsList build failed', e, { ids: canal.child_canal_ids })
+  }
 }
 function refreshInlineUI(){
   const dev=selectedNode; const selC=$$('#inlCanalSelect'); const posI=$$('#inlPosInfo'); const offI=$$('#inlOffsetInput')
@@ -357,6 +432,7 @@ function render(){
   gEdges.selectAll('.edge').each(function(d){ const g=d3.select(this); const a=nodes.find(n=>n.id===d.from_id), b=nodes.find(n=>n.id===d.to_id); if(!a||!b) return; let col=null; if(isCanal(b)) col = canalColor.get(b.id); else if(isCanal(a)) col = canalColor.get(a.id); const pts=edgePolyline(d); const path=`M${pts[0].x},${pts[0].y} L${pts[1].x},${pts[1].y} L${pts[2].x},${pts[2].y} L${pts[3].x-7.2},${pts[3].y}`; const isSel=selectedEdge && selectedEdge.id===d.id; g.select('path.line').attr('d',path).attr('marker-end',isSel?'url(#arrowSel)':'url(#arrow)').attr('stroke', col || getComputedStyle(document.body).getPropertyValue('--edge-color')); g.select('path.hit').attr('d',path) })
   gNodes.selectAll('.node').each(function(nd){ const g=d3.select(this); if(isCanal(nd)){ const col = canalColor.get(nd.id) || getComputedStyle(document.body).getPropertyValue('--stroke'); g.select('rect.box').attr('stroke', col).attr('stroke-width', 1.6) }else{ g.select('rect.box').attr('stroke', getComputedStyle(document.body).getPropertyValue('--stroke')).attr('stroke-width', 1.0) } })
   drawInlineConnectors()
+  updateHUD()
 }
 
 function drawInlineConnectors(){ gInline.selectAll('*').remove(); nodes.forEach(dev=>{ if((dev.type!=='POINT_MESURE' && dev.type!=='VANNE') || !dev.pm_collector_id) return; const canal = nodes.find(n=>n.id===dev.pm_collector_id); if(!canal) return; const devCenter = { x: vn(dev.x,120)+90, y: vn(dev.y,120)+26 }; const anchor = anchorOnNodeRect(canal, devCenter.x, devCenter.y); const col = canalColor.get(canal.id) || getComputedStyle(document.body).getPropertyValue('--edge-color'); gInline.append('path').attr('class', dev.type==='VANNE' ? 'valve-connector' : 'pm-connector').attr('d', `M${anchor.x},${anchor.y} L${devCenter.x},${devCenter.y}`).attr('stroke', col) }) }
@@ -417,26 +493,104 @@ document.getElementById('modeDelete').onclick=()=>setMode('delete')
 const addBtn=$$('#addBtn'), addMenu=$$('#addMenu')
 addBtn.onclick=()=>{ const r=addBtn.getBoundingClientRect(); addMenu.style.left=`${r.left}px`; addMenu.style.top=`${r.bottom+6}px`; addMenu.classList.toggle('open') }
 document.addEventListener('click',(e)=>{ if(!addBtn.contains(e.target)&&!addMenu.contains(e.target)) addMenu.classList.remove('open') })
-addMenu.querySelectorAll('.item').forEach(it=>it.onclick=()=>{ addNode(it.dataset.add); addMenu.classList.remove('open') })
+addMenu.querySelectorAll('.item').forEach(it=>it.onclick=()=>{
+  try{
+    const t = (it.dataset.add || 'PUITS').toString().toUpperCase()
+    addNode(t)
+    addMenu.classList.remove('open')
+  }catch(err){
+    console.error('[addMenu] addNode failed', err, { dataset: { ...it.dataset } })
+    status('Erreur: ajout échoué (voir console)')
+  }
+})
 
 document.getElementById('helpBtn').onclick=()=>$$('#helpDlg').showModal()
 document.getElementById('helpCloseBtn').onclick=()=>$$('#helpDlg').close()
 document.getElementById('layoutBtn').onclick=autoLayout
+document.getElementById('deleteEdgeBtn').onclick=()=>{
+  if (!selectedEdge) { status('Aucune arête sélectionnée'); return }
+  if (!confirm('Supprimer cette arête ?')) return
+  const e = selectedEdge
+  const from = nodes.find(n=>n.id===e.from_id)
+  const to = nodes.find(n=>n.id===e.to_id)
+  if (from && to) {
+    if (isCanal(from) && to.type==='PUITS'){
+      if (Array.isArray(from.collector_well_ids)){
+        from.collector_well_ids = from.collector_well_ids.filter(id=>id!==to.id)
+        from.collector_well_ids.forEach((id,i)=>{ const w=nodes.find(n=>n.id===id); if(w){ w.well_pos_index=i+1; w.well_collector_id=from.id } })
+      }
+    }
+    if (isCanal(from) && isCanal(to)){
+      if (Array.isArray(from.child_canal_ids)){
+        from.child_canal_ids = from.child_canal_ids.filter(id=>id!==to.id)
+      }
+    }
+  }
+  edges = edges.filter(x=>x!==e)
+  selectedEdge = null
+  pushHist(); render(); status('Arête supprimée')
+}
 
-document.getElementById('loadBtn').onclick=()=>{ status('Chargement…'); window.google.script.run.withSuccessHandler(graph=>{ nodes=(graph.nodes||[]).map(n=>({...n,type:(n.type==='COLLECTEUR'?'CANALISATION':(n.type||'PUITS'))})); edges=graph.edges||[]; pushHist(); clearSelection(); render(); zoomFit(); status('Chargé.') }).withFailureHandler(err=>{ console.error(err); status('Erreur de chargement') }).getGraph() }
-document.getElementById('saveBtn').onclick=()=>{ const modeParam = new URLSearchParams(location.search).get('mode') || 'ro'; if(modeParam==='ro'){ alert('Mode lecture‑seule.'); return } status('Sauvegarde…'); window.google.script.run.withSuccessHandler(res=>{ status(`Sauvé (${res.nodes} nœuds, ${res.edges} tuyaux).`) }).withFailureHandler(err=>{ console.error(err); status('Erreur sauvegarde') }).saveGraph({nodes,edges}) }
+document.getElementById('loadBtn').onclick=async ()=>{
+  try{
+    status('Chargement…')
+    const graph = await getGraph()
+    nodes=(graph.nodes||[]).map(n=>({...n,type:(n.type==='COLLECTEUR'?'CANALISATION':(n.type||'PUITS'))}))
+    edges=graph.edges||[]
+    pushHist(); clearSelection(); render(); zoomFit(); status('Chargé.')
+  }catch(err){ console.error(err); status('Erreur de chargement') }
+}
+document.getElementById('saveBtn').onclick=async ()=>{
+  const modeParam = getMode()
+  if(modeParam==='ro'){ alert('Mode lecture‑seule.'); return }
+  try{
+    status('Sauvegarde…')
+    const res = await saveGraph({nodes,edges})
+    status(`Sauvé (${res.nodes ?? nodes.length} nœuds, ${res.edges ?? edges.length} tuyaux).`)
+  }catch(err){ console.error(err); status('Erreur sauvegarde') }
+}
 
 // Init
+function isLocal(){ return ['localhost','127.0.0.1'].includes(location.hostname) }
+function ensureHUD(){
+  if (!isLocal()) return
+  if (!document.getElementById('hud')){
+    const hud = document.createElement('div')
+    hud.id = 'hud'
+    document.body.appendChild(hud)
+  }
+}
+function updateHUD(){
+  if (!isLocal()) return
+  const el = document.getElementById('hud')
+  if (el) el.textContent = `${nodes.length} nœuds · ${edges.length} arêtes`
+}
+
 function init(){
   document.body.dataset.theme = document.body.dataset.theme || 'dark'
   adjustWrapTop()
-  const modeParam = new URLSearchParams(location.search).get('mode') || 'ro'
+  const modeParam = getMode()
   if (modeParam === 'ro') document.getElementById('saveBtn')?.classList.add('hidden')
-  window.google.script.run.withSuccessHandler(graph=>{
+  ensureHUD()
+  getGraph().then(graph=>{
     nodes=(graph.nodes||[]).map(n=>({...n,type:(n.type==='COLLECTEUR'?'CANALISATION':(n.type||'PUITS'))}))
     edges=graph.edges||[]
-    pushHist(); clearSelection(); render(); zoomFit(); status('Prêt.')
-  }).withFailureHandler(err=>{ console.error(err); status('Erreur init') }).getGraph()
+    pushHist(); clearSelection(); render(); zoomFit(); updateHUD(); status('Prêt.')
+  }).catch(err=>{ console.error(err); status('Erreur init') })
 }
 
 document.addEventListener('DOMContentLoaded', init)
+
+// Expose minimal debug API in local dev only
+try{
+  if (['localhost','127.0.0.1'].includes(location.hostname)){
+    window.ER = {
+      addNode,
+      showNodeForm,
+      refreshCanalUI,
+      render,
+      get nodes(){ return nodes },
+      get edges(){ return edges },
+    }
+  }
+}catch(_e){}

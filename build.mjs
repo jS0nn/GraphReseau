@@ -9,6 +9,9 @@ const webDir = path.join(root, 'web')
 const outBundleDir = path.join(root, 'app', 'static', 'bundle')
 const outVendorDir = path.join(root, 'app', 'static', 'vendor')
 
+// Build mode
+const DEV = Boolean(process.env.BUILD_DEV)
+
 async function exists(p){ try { await stat(p); return true } catch { return false } }
 
 async function copyVendorAssets(){
@@ -30,15 +33,16 @@ async function buildJS(){
   await build({
     entryPoints: [
       path.join(webDir, 'src', 'vendor.js'),
+      path.join(webDir, 'src', 'polyfills.js'),
       path.join(webDir, 'src', 'main.js'),
-      path.join(webDir, 'src', 'legacy-editor.js'),
+      path.join(webDir, 'src', 'editor.js'),
     ],
     bundle: true,
     splitting: false,
     format: 'iife',
     target: 'es2019',
-    minify: true,
-    sourcemap: true,
+    minify: !DEV,
+    sourcemap: DEV ? 'inline' : true,
     outdir: outBundleDir,
     entryNames: '[name]',
     loader: { '.ttf': 'file', '.woff': 'file', '.woff2': 'file' },
@@ -53,7 +57,7 @@ async function buildCSS(){
       path.join(webDir, 'styles', 'legacy.css'),
     ],
     bundle: true,
-    minify: true,
+    minify: !DEV,
     outdir: outBundleDir,
     entryNames: '[name]',
     loader: { '.css': 'css' },
