@@ -237,6 +237,16 @@ def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Grap
         {"range": f"{edges_tab}!A1", "values": edge_values},
     ]
 
+    # Clear both tabs before writing to avoid stale trailing rows
+    try:
+        svc.spreadsheets().values().batchClear(
+            spreadsheetId=sheet_id,
+            body={"ranges": [f"{nodes_tab}!A:Z", f"{edges_tab}!A:Z"]},
+        ).execute()
+    except Exception:
+        # Be permissive: if clear fails, continue with write (will overwrite header + data)
+        pass
+
     svc.spreadsheets().values().batchUpdate(
         spreadsheetId=sheet_id,
         body={"valueInputOption": "RAW", "data": data},

@@ -11,7 +11,7 @@
   --edge-hit: 28px; --pm-dash: 5 4; --valve-dash: 2 6; --log-border:#2b3f69; --prop-width:420px;
 }
 body[data-theme="light"]{
-  --bg:#f6f8fc; --panel:#ffffff; --muted:#5b6b83; --text:#1d2433;
+  --bg:#f6f8fc; --panel:#ffffff; --muted:#374151; --text:#1d2433;
   --node:#eef3fb; --stroke:#b8c9e6; --grid:rgba(0,0,0,.06);
   --edge-color:#3a5ea8; --edge-color-sel:#1945a8; --accent:#245ef5;
   --chip:#eaf1ff; --badge-bg:#eaf1ff; --badge-stroke:#b7cffc;
@@ -19,6 +19,14 @@ body[data-theme="light"]{
   --btn-bg-hover:#dce9ff; --btn-bd-hover:#bcd0f2; --btn-ghost-bg:transparent; --btn-ghost-fg:#1d2433;
   --c-puits:#ffffff; --c-cana:#f4fbff; --c-plat:#fff5ea; --c-vanne:#f5f2ff; --c-pm:#f2f7ff; --log-border:#e5ecfb;
 }
+/* Light theme readability adjustments */
+body[data-theme="light"] .card{ color: var(--text) }
+body[data-theme="light"] label{ color: var(--muted) }
+body[data-theme="light"] #noSel{ color: var(--muted) }
+body[data-theme="light"] .menu{ color: var(--text); background:#fff; border-color:#dbe4f6 }
+body[data-theme="light"] .menu .item:hover{ background:#eef3ff }
+/* Improve label readability in light mode */
+body[data-theme="light"] label{ color: var(--muted) }
 html,body{height:100%}
 body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text);overflow:hidden}
 header.appbar{position:relative; z-index:2; min-height:56px; display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:8px 12px; background:linear-gradient(180deg, rgba(26,39,68,.9), rgba(23,36,61,.9)); border-bottom:1px solid #2b3f69; box-shadow:var(--shadow)}
@@ -40,6 +48,7 @@ body.prop-collapsed #wrap{ grid-template-columns:1fr 0 }
 svg{width:2400px; height:1600px}
 .node rect.box{rx:10; ry:10; stroke:var(--stroke); fill:var(--node); filter: drop-shadow(0 2px 16px rgba(0,0,0,.22))}
 .node.selected rect.box{stroke:var(--accent); stroke-width:2}
+.node.halo rect.box{ stroke: var(--accent); stroke-width: 2; filter: drop-shadow(0 0 8px rgba(106,168,255,.35)) }
 .node.PUITS rect.box{fill:var(--c-puits)}
 .node.CANALISATION rect.box{fill:var(--c-cana)}
 .node.PLATEFORME rect.box{fill:var(--c-plat)}
@@ -63,9 +72,16 @@ input,select{width:100%; background:#182a4a; border:1px solid #37578f; color:#ff
 input[readonly]{opacity:.85}
 body[data-theme="light"] input, body[data-theme="light"] select{background:#f7faff; color:#1d2433; border-color:#bcd0f2}
 details summary{cursor:pointer}
+/* Details grouping styles */
+#prop #nodeForm details{ margin:10px 0 }
+#prop #nodeForm details > summary{ font-weight:600; color:var(--text) }
+#prop #nodeForm details details{ margin-left:12px; padding-left:10px; border-left:1px dashed var(--stroke) }
+#prop #nodeForm details details > summary{ font-weight:500 }
 .danger{color:#ff9a9a}
 .chips{display:flex; flex-wrap:wrap; gap:6px; margin-top:6px}
 .chip{display:inline-flex; align-items:center; gap:6px; padding:6px 8px; background:var(--chip); border:1px solid #3b5d98; border-radius:10px}
+.chip.ghost{ background:transparent; border-style:dashed; opacity:.9 }
+.chip.ghost:hover{ background:var(--btn-bg-hover); border-color:var(--btn-bd-hover); opacity:1 }
 .chip .drag{cursor:grab}
 .chip.dragging{opacity:.7}
 .badges{display:flex; gap:6px; margin-top:6px}
@@ -79,7 +95,12 @@ details summary{cursor:pointer}
 .log-info{color:#b9d4ff}
 .log-warn{color:#ffd88a}
 .log-error{color:#ffb0b0}
-# Étendre le journal sur toute la largeur si panneau propriétés replié
+/* Light theme: stronger log colors */
+body[data-theme="light"] #logDrawer{ background:#fff }
+body[data-theme="light"] .log-info{ color:#1f2937 }
+body[data-theme="light"] .log-warn{ color:#92400e }
+body[data-theme="light"] .log-error{ color:#b91c1c }
+/* Étendre le journal sur toute la largeur si panneau propriétés replié */
 body.prop-collapsed #logDrawer{ right:0; }
 #status{position:absolute; left:12px; bottom:12px; background:#1b2b4b; color:#dfe9ff; padding:8px 12px; border-radius:10px; border:1px solid #2f4b7d}
 body[data-theme="light"] #status{background:#fff; color:#1d2433; border-color:#e5ecfb}

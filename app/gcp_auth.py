@@ -8,9 +8,10 @@ from .config import settings
 def get_credentials(scopes: Sequence[str]):
     """Return google-auth Credentials with proper scopes.
 
-    If IMPERSONATE_SERVICE_ACCOUNT/GOOGLE_IMPERSONATE_SERVICE_ACCOUNT is set,
-    mint an access token via IAM service account impersonation with the target scopes.
-    Otherwise, fall back to Application Default Credentials with the requested scopes.
+    - If IMPERSONATE_SERVICE_ACCOUNT is set, try to impersonate that SA.
+    - If the current ADC are already impersonating the same SA, reuse them directly
+      (avoid double-impersonation which can fail without self TokenCreator).
+    - Otherwise, return ADC with the requested scopes.
     """
     try:
         import google.auth
@@ -21,9 +22,19 @@ def get_credentials(scopes: Sequence[str]):
     target_scopes = list(scopes) if scopes else ["https://www.googleapis.com/auth/cloud-platform"]
     imp_sa = (settings.impersonate_service_account or "").strip()
 
+    # Always get base ADC with target scopes first
+    base_creds, _ = google.auth.default(scopes=target_scopes)
+
     if imp_sa:
-        # Base credentials (user or workstation) with cloud-platform are enough to mint impersonated tokens
-        base_creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        # If ADC are already impersonated for the same SA, reuse them
+        try:
+            # ImpersonatedCredentials exposes service_account_email for the target principal
+            if getattr(base_creds, "service_account_email", None) == imp_sa:
+                return base_creds
+        except Exception:
+            pass
+
+        # Otherwise, mint an access token via IAM service account impersonation
         return ImpersonatedCredentials(
             source_credentials=base_creds,
             target_principal=imp_sa,
@@ -31,7 +42,5 @@ def get_credentials(scopes: Sequence[str]):
             lifetime=3600,
         )
 
-    # No impersonation: request ADC with needed scopes
-    creds, _ = google.auth.default(scopes=target_scopes)
-    return creds
-
+    # No impersonation requested: use ADC as-is
+    return base_creds

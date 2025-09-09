@@ -62,6 +62,7 @@ gcloud run deploy editeur-reseau-api \
   --source . \
   --region=$GCP_REGION \
   --project=$GCP_PROJECT_ID \
+  --service-account="editeur-reseau-sa@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
   --allow-unauthenticated \
   --set-env-vars=EMBED_STATIC_KEY=...,ALLOWED_FRAME_ANCESTORS="https://lookerstudio.google.com https://sites.google.com",SHEET_ID_DEFAULT=...,DATA_SOURCE=sheet
 ```
@@ -124,14 +125,28 @@ DISABLE_EMBED_REFERER_CHECK=1
 Lancer l’API avec: `uvicorn app.main:app --reload --port 8080 --env-file .env.dev`.
 
 ## Impersonation (résumé)
-- Créez un Service Account et autorisez votre utilisateur à l’impersoner:
-  - `gcloud iam service-accounts create editeur-reseau-sa --display-name="Éditeur Réseau SA"`
-  - `gcloud iam service-accounts add-iam-policy-binding editeur-reseau-sa@<PROJECT>.iam.gserviceaccount.com --member="user:<you@domain>" --role="roles/iam.serviceAccountTokenCreator"`
-  - `gcloud services enable iam.googleapis.com iamcredentials.googleapis.com sheets.googleapis.com drive.googleapis.com`
-  - Partagez le Sheet avec le SA.
-  - `gcloud auth application-default login --impersonate-service-account=editeur-reseau-sa@<PROJECT>.iam.gserviceaccount.com`
-  - `export IMPERSONATE_SERVICE_ACCOUNT=editeur-reseau-sa@<PROJECT>.iam.gserviceaccount.com`
-  - Test: `curl "http://127.0.0.1:8080/api/graph?source=sheet&sheet_id=$SHEET_ID_DEFAULT"`
+### Stratégie recommandée (local + Cloud Run)
+- Utiliser une seule identité SA partout.
+  - Local: ADC déjà impersonés vers le SA cible.
+    - `gcloud auth application-default login --impersonate-service-account="editeur-reseau-sa@${GCP_PROJECT_ID}.iam.gserviceaccount.com"`
+    - Ne définissez PAS `IMPERSONATE_SERVICE_ACCOUNT` (laissez vide) pour éviter une ré‑impersonation côté app.
+  - Cloud Run: exécuter le service avec ce même SA (`--service-account=...`).
+  - Partager le Google Sheet avec ce SA (lecture/écriture).
+
+### Alternative (impersonation dans l’app)
+- Garder des ADC utilisateur classiques et laisser l’app impersoner.
+  - Donner à votre utilisateur le rôle `roles/iam.serviceAccountTokenCreator` sur le SA cible:
+    - `gcloud iam service-accounts add-iam-policy-binding "editeur-reseau-sa@${GCP_PROJECT_ID}.iam.gserviceaccount.com" --project "$GCP_PROJECT_ID" --member "user:$(gcloud config get-value account)" --role roles/iam.serviceAccountTokenCreator`
+  - Définir `IMPERSONATE_SERVICE_ACCOUNT=editeur-reseau-sa@${GCP_PROJECT_ID}.iam.gserviceaccount.com` dans `.env.dev`.
+  - Cloud Run: si vous utilisez aussi l’impersonation, donner le rôle TokenCreator au runtime SA sur le SA cible et définir la même variable d’env.
+
+### Rôles & APIs
+- APIs à activer (une fois): `iam.googleapis.com`, `iamcredentials.googleapis.com`, `sheets.googleapis.com`, `drive.googleapis.com`.
+- Rôle requis: `roles/iam.serviceAccountTokenCreator` (sur le SA ciblé) pour l’identité qui mint le token (votre user local ou le runtime SA Cloud Run).
+
+### Notes pratiques
+- Placeholders `<...>`: remplacez-les, ou utilisez des variables shell (ex: `$GCP_PROJECT_ID`). Ne laissez pas les chevrons.
+- Quota project: `gcloud auth application-default set-quota-project "$GCP_PROJECT_ID"` peut échouer si vos ADC ne sont pas des credentials utilisateur — ce n’est pas bloquant pour Sheets.
 
 ## Deux serveurs en dev: qui fait quoi ?
 - Uvicorn (port 8080): votre application (API + embed + assets).

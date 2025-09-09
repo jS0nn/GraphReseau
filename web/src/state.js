@@ -1,10 +1,471 @@
+import { genIdWithTime as genId, snap as snapToGrid, isCanal, vn, incrementName, defaultName } from './utils.js'
+
+// Global editor state (graph + UI)
 export const state = {
   nodes: [],
   edges: [],
+  selection: { nodeId: null, edgeId: null, multi: new Set() },
+  clipboard: null,
+  mode: 'select',
+  gridStep: 8,
+  _spawnIndex: 0,
 }
 
+// Simple pub/sub to propagate updates
+const listeners = new Set()
+export function subscribe(fn){ listeners.add(fn); return () => listeners.delete(fn) }
+function notify(event, payload){ for (const fn of listeners) fn(event, payload, state) }
+
+// Graph setters
 export function setGraph(graph){
-  state.nodes = graph.nodes || []
-  state.edges = graph.edges || []
+  // Normalize nodes
+  const rawNodes = Array.isArray(graph?.nodes) ? graph.nodes.slice() : []
+  const nodes = rawNodes.map(n => {
+    const m = { ...n }
+    if(m && m.type==='COLLECTEUR') m.type='CANALISATION'
+    // Coerce numeric fields to number or null to avoid '' roundtrip
+    const numKeys = ['x','y','diameter_mm','gps_lat','gps_lon','well_pos_index','pm_pos_index','pm_offset_m']
+    numKeys.forEach(k => {
+      if(m[k] === '' || m[k] === undefined) m[k] = null
+      else if(m[k] != null){ const v = +m[k]; m[k] = Number.isFinite(v) ? v : null }
+    })
+    return m
+  })
+  state.nodes = nodes
+  // Normalize edges to canonical from_id/to_id
+  const rawEdges = Array.isArray(graph?.edges) ? graph.edges.slice() : []
+  state.edges = rawEdges.map(e => ({ id: e.id, from_id: e.from_id ?? e.source, to_id: e.to_id ?? e.target, active: e.active !== false }))
+  clearSelection()
+  notify('graph:set')
 }
 
+export function getGraph(){ return { nodes: state.nodes, edges: state.edges } }
+
+// Selection helpers
+export function clearSelection(){
+  state.selection.nodeId = null
+  state.selection.edgeId = null
+  state.selection.multi = new Set()
+  notify('selection:clear')
+}
+
+export function selectNodeById(id){
+  state.selection.nodeId = id
+  state.selection.edgeId = null
+  state.selection.multi = new Set(id ? [id] : [])
+  notify('selection:node', id)
+}
+
+export function selectEdgeById(id){
+  state.selection.edgeId = id
+  state.selection.nodeId = null
+  state.selection.multi = new Set()
+  notify('selection:edge', id)
+}
+
+export function setMultiSelection(ids){
+  const s = new Set(ids || [])
+  state.selection.multi = s
+  state.selection.nodeId = s.size===1 ? Array.from(s)[0] : null
+  state.selection.edgeId = null
+  notify('selection:multi', Array.from(s))
+}
+
+export function toggleMultiSelection(id){
+  const s = state.selection.multi || new Set()
+  if(s.has(id)) s.delete(id); else s.add(id)
+  state.selection.multi = s
+  state.selection.nodeId = null
+  state.selection.edgeId = null
+  notify('selection:multi', Array.from(s))
+}
+
+// Modes
+export function setMode(m){ state.mode = m; notify('mode:set', m) }
+export function getMode(){ return state.mode }
+
+// Clipboard (copy/paste nodes only for now)
+export function copySelection(){
+  const ids = new Set(Array.from(state.selection.multi || []))
+  const selected = state.nodes.filter(n => ids.has(n.id))
+  const selEdges = state.edges.filter(e => ids.has(e.source??e.from_id) && ids.has(e.target??e.to_id))
+  state.clipboard = { nodes: JSON.parse(JSON.stringify(selected)), edges: JSON.parse(JSON.stringify(selEdges)) }
+  notify('clipboard:copy', { count: selected.length })
+}
+
+export function pasteClipboard(offset = { x: 24, y: 24 }){
+  const clip = state.clipboard
+  let clipNodes = [], clipEdges = []
+  if(Array.isArray(clip)) clipNodes = clip
+  else if(clip && Array.isArray(clip.nodes)) { clipNodes = clip.nodes; clipEdges = Array.isArray(clip.edges)? clip.edges : [] }
+  if (!Array.isArray(clipNodes) || !clipNodes.length) return []
+  const existingNames = new Set(state.nodes.map(x => x.name).filter(Boolean))
+  const idMap = new Map()
+  // Vary paste offset slightly per call to avoid stacking
+  const pi = (state._spawnIndex = (state._spawnIndex||0) + 1)
+  const extra = { x: (pi%7)*8, y: (pi%11)*8 }
+  const clones = clipNodes.map((n) => {
+    const baseName = n.name || n.id || 'N'
+    const newName = incrementName(baseName, Array.from(existingNames))
+    existingNames.add(newName)
+    const node = {
+      ...n,
+      id: genId((n.type||'N').toUpperCase()),
+      name: newName,
+      x: snapToGrid((+n.x || 0) + (offset.x||0) + extra.x, state.gridStep),
+      y: snapToGrid((+n.y || 0) + (offset.y||0) + extra.y, state.gridStep),
+    }
+    // Reset dependent relations; keep for canals to rebuild later
+    if(node.type==='PUITS'){ node.well_collector_id=''; node.well_pos_index='' }
+    if(node.type==='POINT_MESURE'||node.type==='VANNE'){ node.pm_collector_id=''; node.pm_pos_index=''; node.pm_offset_m='' }
+    if(isCanal(node)){ node.collector_well_ids=[]; node.child_canal_ids=[] }
+    idMap.set(n.id, node.id)
+    return node
+  })
+  state.nodes.push(...clones)
+  // Recreate edges among clones
+  clipEdges.forEach(e => {
+    const a = idMap.get(e.source??e.from_id)
+    const b = idMap.get(e.target??e.to_id)
+    if(a && b) state.edges.push({ id: genId('E'), source:a, target:b, active: (e.active!==false) })
+  })
+  // Rebuild canal sequences/children for cloned canals
+  clipNodes.forEach(src => {
+    if(!isCanal(src)) return
+    const dstId = idMap.get(src.id)
+    if(!dstId) return
+    const dst = state.nodes.find(n=>n.id===dstId)
+    if(!dst) return
+    const newWells = (src.collector_well_ids||[]).map(wid => idMap.get(wid)).filter(Boolean)
+    dst.collector_well_ids = newWells.slice()
+    dst.collector_well_ids.forEach((wid,i)=>{
+      const w = state.nodes.find(n=>n.id===wid)
+      if(w){ w.well_collector_id = dst.id; w.well_pos_index = i+1 }
+      if(w && !state.edges.some(e=> (e.source??e.from_id)===dst.id && (e.target??e.to_id)===wid)) state.edges.push({ id: genId('E'), source: dst.id, target: wid, active: true })
+    })
+    const newChild = (src.child_canal_ids||[]).map(cid => idMap.get(cid)).filter(Boolean)
+    dst.child_canal_ids = newChild.slice()
+    newChild.forEach(cid => { if(!state.edges.some(e=> (e.source??e.from_id)===dst.id && (e.target??e.to_id)===cid)) state.edges.push({ id: genId('E'), source: dst.id, target: cid, active:true }) })
+  })
+  state.selection.multi = new Set(clones.map(n => n.id))
+  state.selection.nodeId = clones[0]?.id || null
+  notify('clipboard:paste', { count: clones.length })
+  return clones
+}
+
+// Mutators used by interactions
+export function moveNode(id, dx, dy, { snap=true } = {}){
+  const n = state.nodes.find(n => n.id === id)
+  if (!n) return
+  const nx = (+n.x || 0) + dx
+  const ny = (+n.y || 0) + dy
+  n.x = snap ? snapToGrid(nx, state.gridStep) : nx
+  n.y = snap ? snapToGrid(ny, state.gridStep) : ny
+  notify('node:move', { id, x: n.x, y: n.y })
+}
+
+export function updateNode(id, patch){
+  const n = state.nodes.find(n => n.id === id)
+  if (!n) return
+  Object.assign(n, patch || {})
+  notify('node:update', { id, patch })
+}
+
+export function addNode(partial = {}){
+  const type = (partial.type==='COLLECTEUR') ? 'CANALISATION' : (partial.type || 'PUITS')
+  // Choose a spawn position if none provided: simple grid walk avoiding overlap
+  function nextSpawn(){
+    const i = state._spawnIndex++
+    const gx = 120 + (i % 8) * 60
+    const gy = 120 + Math.floor(i / 8) * 80
+    // if conflict (too close), shift a bit
+    const tooClose = (x,y)=> state.nodes.some(n => Math.abs((+n.x||0)-x) < 40 && Math.abs((+n.y||0)-y) < 40)
+    let x=gx, y=gy, guard=0
+    while(tooClose(x,y) && guard++<64){ x+= state.gridStep*2; y+= state.gridStep*2 }
+    return { x, y }
+  }
+  const pos = (partial.x==null || partial.y==null) ? nextSpawn() : { x: partial.x, y: partial.y }
+  const base = { id: genId(type||'N'), type, name: defaultName(type, state.nodes), x: pos.x, y: pos.y }
+  const node = Object.assign(base, partial || {})
+  node.type = type
+  state.nodes.push(node)
+  notify('node:add', node)
+  return node
+}
+
+export function removeNode(id){
+  const n = state.nodes.find(x=>x.id===id)
+  if(!n) return
+  // Cleanup relationships like legacy
+  if(n.type==='PUITS'){
+    state.nodes.filter(isCanal).forEach(c => {
+      if(Array.isArray(c.collector_well_ids)){
+        c.collector_well_ids = c.collector_well_ids.filter(wid => wid !== n.id)
+        c.collector_well_ids.forEach((wid,i)=>{
+          const w = state.nodes.find(nn=>nn.id===wid)
+          if(w){ w.well_pos_index = i+1; w.well_collector_id = c.id }
+        })
+      }
+    })
+    state.edges = state.edges.filter(e => (e.to_id??e.target) !== n.id)
+  }
+  if(n.type==='POINT_MESURE' || n.type==='VANNE'){
+    n.pm_collector_id = ''
+    n.pm_pos_index = ''
+    n.pm_offset_m = ''
+  }
+  if(isCanal(n)){
+    state.nodes.forEach(x=>{
+      if(x.type==='PUITS' && x.well_collector_id===n.id){ x.well_collector_id=''; x.well_pos_index='' }
+      if((x.type==='POINT_MESURE'||x.type==='VANNE') && x.pm_collector_id===n.id){ x.pm_collector_id=''; x.pm_pos_index=''; x.pm_offset_m='' }
+    })
+    state.nodes.filter(isCanal).forEach(c=>{ if(Array.isArray(c.child_canal_ids)) c.child_canal_ids = c.child_canal_ids.filter(cid=>cid!==n.id) })
+    state.edges = state.edges.filter(e => (e.from_id??e.source)!==n.id && (e.to_id??e.target)!==n.id)
+  }
+  // Remove the node
+  state.nodes = state.nodes.filter(x=>x.id!==id)
+  notify('node:remove', { id })
+}
+
+export function removeNodes(ids){
+  (ids||[]).forEach(id => removeNode(id))
+}
+
+export function addEdge(source, target, partial = {}){
+  const edge = { id: genId('E'), from_id: source, to_id: target, active: (partial?.active!==false), ...partial }
+  state.edges.push(edge)
+  notify('edge:add', edge)
+  return edge
+}
+
+export function removeEdge(id){
+  const i = state.edges.findIndex(e => e.id === id)
+  if (i < 0) return
+  const e = state.edges[i]
+  const from = e.source ?? e.from_id
+  const to = e.target ?? e.to_id
+  state.edges.splice(i, 1)
+  // Cleanup relationships
+  const fromNode = state.nodes.find(n=>n.id===from)
+  const toNode = state.nodes.find(n=>n.id===to)
+  if(fromNode && toNode){
+    // canal -> well
+    if(isCanal(fromNode) && toNode.type==='PUITS'){
+      if(Array.isArray(fromNode.collector_well_ids)){
+        fromNode.collector_well_ids = fromNode.collector_well_ids.filter(x=>x!==toNode.id)
+        fromNode.collector_well_ids.forEach((wid, idx)=>{
+          const w = state.nodes.find(n=>n.id===wid)
+          if(w){ w.well_pos_index = idx+1; w.well_collector_id = fromNode.id }
+        })
+      }
+      toNode.well_collector_id = ''
+      toNode.well_pos_index = ''
+    }
+    // canal -> canal
+    if(isCanal(fromNode) && isCanal(toNode)){
+      if(Array.isArray(fromNode.child_canal_ids)) fromNode.child_canal_ids = fromNode.child_canal_ids.filter(x=>x!==toNode.id)
+    }
+  }
+  notify('edge:remove', { id })
+}
+
+// Domain-aware connect helpers
+function ensureEdgeExists(fromId, toId){
+  const exists = state.edges.some(e => (e.source??e.from_id)===fromId && (e.target??e.to_id)===toId)
+  if (exists) return null
+  return addEdge(fromId, toId, { active: true })
+}
+
+function ensureChildOrder(parent, child){
+  if(!Array.isArray(parent.child_canal_ids)) parent.child_canal_ids = []
+  // Keep only child ids that are still real canal children via an edge
+  parent.child_canal_ids = parent.child_canal_ids.filter(id => state.edges.some(e => (e.source??e.from_id)===parent.id && (e.target??e.to_id)===id && isCanal(state.nodes.find(n=>n.id===id))))
+  if(!parent.child_canal_ids.includes(child.id)) parent.child_canal_ids.push(child.id)
+  parent.child_canal_ids.sort((a,b)=>{
+    const ya = vn(state.nodes.find(n=>n.id===a)?.y, 0)
+    const yb = vn(state.nodes.find(n=>n.id===b)?.y, 0)
+    return ya - yb
+  })
+}
+
+function appendWellToCanal(canal, well){
+  // Remove from other canals first to keep a single collector per well
+  state.nodes.filter(isCanal).forEach(c => {
+    if(c.id===canal.id) return
+    if(Array.isArray(c.collector_well_ids)){
+      c.collector_well_ids = c.collector_well_ids.filter(id => id !== well.id)
+    }
+  })
+  if(!Array.isArray(canal.collector_well_ids)) canal.collector_well_ids = []
+  if(!canal.collector_well_ids.includes(well.id)) canal.collector_well_ids.push(well.id)
+  // Keep only existing wells
+  canal.collector_well_ids = canal.collector_well_ids.filter(id => state.nodes.some(n => n.id===id && n.type==='PUITS'))
+  // Re-number wells and set back-reference
+  canal.collector_well_ids.forEach((id,i)=>{
+    const w = state.nodes.find(n => n.id === id)
+    if(w){ w.well_pos_index = i+1; w.well_collector_id = canal.id }
+  })
+}
+
+function attachInlineToCanal(dev, canal){
+  dev.pm_collector_id = canal.id
+  const wells = (canal.collector_well_ids||[])
+    .map(id => state.nodes.find(n=>n.id===id))
+    .filter(Boolean)
+    .sort((a,b)=> vn(a.y,0)-vn(b.y,0))
+  // Place inline on segment according to vertical position: count wells above dev
+  const above = wells.filter(w => vn(w.y,0) <= vn(dev.y,0)).length
+  dev.pm_pos_index = Math.min(Math.max(above, 0), Math.max(wells.length, 0))
+}
+
+export function connectByRules(sourceId, targetId){
+  const a = state.nodes.find(n => n.id === sourceId)
+  const b = state.nodes.find(n => n.id === targetId)
+  if(!a || !b || a.id===b.id) return { ok:false }
+  const isInline = n => n?.type==='POINT_MESURE' || n?.type==='VANNE'
+  const isWell = n => n?.type==='PUITS'
+  const isOther = n => n && !isInline(n) && !isWell(n) && !isCanal(n)
+  // Inline ↔ Canalisation
+  if((isInline(a) && isCanal(b)) || (isInline(b) && isCanal(a))){
+    const dev = isInline(a) ? a : b
+    const canal = isCanal(a) ? a : b
+    attachInlineToCanal(dev, canal)
+    notify('node:update', { id: dev.id, patch: { pm_collector_id: canal.id, pm_pos_index: dev.pm_pos_index } })
+    return { ok:true, type:'inline', nodeId: dev.id }
+  }
+  // Inline ↔ Well (infer canal from well and place before this well)
+  if((isInline(a) && isWell(b)) || (isInline(b) && isWell(a))){
+    const dev = isInline(a) ? a : b
+    const well = isWell(a) ? a : b
+    const canal = state.nodes.find(n => n.id === well.well_collector_id) || state.nodes.find(n => isCanal(n) && Array.isArray(n.collector_well_ids) && n.collector_well_ids.includes(well.id))
+    if(!canal) return { ok:false }
+    dev.pm_collector_id = canal.id
+    const idx = Math.max(0, (well.well_pos_index ? (+well.well_pos_index-1) : 0))
+    dev.pm_pos_index = idx
+    notify('node:update', { id: dev.id, patch: { pm_collector_id: canal.id, pm_pos_index: dev.pm_pos_index } })
+    return { ok:true, type:'inline', nodeId: dev.id }
+  }
+  // Puits ↔ Canalisation
+  if((isWell(a) && isCanal(b)) || (isWell(b) && isCanal(a))){
+    const well = isWell(a) ? a : b
+    const canal = isCanal(a) ? a : b
+    ensureEdgeExists(canal.id, well.id)
+    appendWellToCanal(canal, well)
+    notify('node:update', { id: well.id, patch: { well_collector_id: canal.id, well_pos_index: well.well_pos_index } })
+    return { ok:true, type:'well', nodeId: well.id }
+  }
+  // Canalisation → Canalisation
+  if(isCanal(a) && isCanal(b)){
+    ensureEdgeExists(a.id, b.id)
+    ensureChildOrder(a, b)
+    notify('graph:update')
+    return { ok:true, type:'canal', nodeId: b.id }
+  }
+  // Other ↔ Canalisation (e.g., PLATEFORME)
+  if(isOther(a) && isCanal(b)){
+    ensureEdgeExists(a.id, b.id)
+    notify('graph:update')
+    return { ok:true, type:'other', nodeId: a.id }
+  }
+  if(isCanal(a) && isOther(b)){
+    ensureEdgeExists(b.id, a.id)
+    notify('graph:update')
+    return { ok:true, type:'other', nodeId: b.id }
+  }
+  return { ok:false }
+}
+
+// Exposed helpers for UI operations
+export function moveWellToCanal(wellId, canalId, { position } = {}){
+  const well = state.nodes.find(n=>n.id===wellId && n.type==='PUITS')
+  const canal = state.nodes.find(n=>n.id===canalId && isCanal(n))
+  if(!well || !canal) return
+  // Remove existing canal->well edges from other canals and any well-originating edges
+  state.edges = state.edges.filter(e => {
+    const from = e.from_id ?? e.source
+    const to = e.to_id ?? e.target
+    if(from === well.id) return false
+    if(to === well.id && isCanal(state.nodes.find(n=>n.id===from)) && from !== canal.id) return false
+    return true
+  })
+  appendWellToCanal(canal, well)
+  ensureEdgeExists(canal.id, well.id)
+  // Reinsert at position if provided
+  if(typeof position==='number'){
+    const arr = Array.isArray(canal.collector_well_ids) ? canal.collector_well_ids.slice() : []
+    const cur = arr.indexOf(well.id)
+    if(cur>=0){ arr.splice(cur,1); arr.splice(Math.max(0, Math.min(arr.length, position)), 0, well.id) }
+    canal.collector_well_ids = arr
+    arr.forEach((id,i)=>{ const w=state.nodes.find(n=>n.id===id); if(w){ w.well_pos_index = i+1; w.well_collector_id = canal.id }})
+  }
+  notify('node:update', { id: well.id, patch: { well_collector_id: canal.id, well_pos_index: well.well_pos_index } })
+  notify('sequence:update', { canalId })
+}
+
+export function moveInlineToCanal(inlineId, canalId, posIndex){
+  const dev = state.nodes.find(n=>n.id===inlineId && (n.type==='POINT_MESURE' || n.type==='VANNE'))
+  const canal = state.nodes.find(n=>n.id===canalId && isCanal(n))
+  if(!dev || !canal) return
+  dev.pm_collector_id = canal.id
+  dev.pm_pos_index = Math.max(0, +posIndex||0)
+  notify('node:update', { id: dev.id, patch: { pm_collector_id: canal.id, pm_pos_index: dev.pm_pos_index } })
+  notify('sequence:update', { canalId })
+}
+
+export function reorderChildCanals(parentId, orderedIds){
+  const parent = state.nodes.find(n=>n.id===parentId && isCanal(n))
+  if(!parent) return
+  const valid = orderedIds.filter(id => state.edges.some(e => (e.source??e.from_id)===parent.id && (e.target??e.to_id)===id && isCanal(state.nodes.find(n=>n.id===id))))
+  parent.child_canal_ids = valid
+  notify('node:update', { id: parent.id, patch: { child_canal_ids: valid.slice() } })
+}
+
+export function reorderInlines(canalId, segmentIndex, orderedInlineIds){
+  const canal = state.nodes.find(n=>n.id===canalId && isCanal(n))
+  if(!canal) return
+  const ids = orderedInlineIds.filter(id => {
+    const x = state.nodes.find(n=>n.id===id)
+    return x && (x.type==='POINT_MESURE' || x.type==='VANNE')
+  })
+  ids.forEach((id,i)=>{
+    const d = state.nodes.find(n=>n.id===id)
+    d.pm_collector_id = canal.id
+    d.pm_pos_index = Math.max(0, +segmentIndex||0)
+    d.pm_order = i+1
+  })
+  notify('graph:update')
+}
+
+// Build/apply canal sequence (legacy-like W/M/V tokens)
+export function buildCanalSequence(canalId){
+  const c = state.nodes.find(n=>n.id===canalId && isCanal(n))
+  if(!c) return []
+  const wells = (c.collector_well_ids||[]).slice()
+  const pms = state.nodes.filter(n=> n.type==='POINT_MESURE' && n.pm_collector_id===c.id)
+  const vans= state.nodes.filter(n=> n.type==='VANNE' && n.pm_collector_id===c.id)
+  const seq=[]
+  for(let i=0;i<=wells.length;i++){
+    pms.filter(m => (+m.pm_pos_index||0)===i).forEach(m=>seq.push({kind:'M', id:m.id}))
+    vans.filter(v => (+v.pm_pos_index||0)===i).forEach(v=>seq.push({kind:'V', id:v.id}))
+    if(i<wells.length) seq.push({kind:'W', id:wells[i]})
+  }
+  return seq
+}
+
+export function applyCanalSequence(canalId, seq){
+  const c = state.nodes.find(n=>n.id===canalId && isCanal(n))
+  if(!c) return
+  // Apply wells order
+  c.collector_well_ids = seq.filter(t=>t.kind==='W').map(t=>t.id)
+  c.collector_well_ids.forEach((id,i)=>{ const w=state.nodes.find(n=>n.id===id); if(w){ w.well_collector_id=c.id; w.well_pos_index=i+1 } })
+  // Apply inline positions (count wells before)
+  let wellsBefore=0
+  seq.forEach(t=>{
+    if(t.kind==='W'){ wellsBefore++ }
+    else{
+      const dev = state.nodes.find(n=>n.id===t.id && (n.type==='POINT_MESURE'||n.type==='VANNE'))
+      if(dev){ dev.pm_collector_id = c.id; dev.pm_pos_index = wellsBefore }
+    }
+  })
+  notify('sequence:update', { canalId })
+}

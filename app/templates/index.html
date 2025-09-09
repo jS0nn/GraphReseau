@@ -6,7 +6,7 @@
     <title>Éditeur Réseau — Embed</title>
     <link rel="stylesheet" href="/static/vendor/inter/index.css">
     <link rel="stylesheet" href="/static/vendor/unicons/css/line.css">
-    <link rel="stylesheet" href="/static/bundle/legacy.css">
+    <link rel="stylesheet" href="/static/bundle/editor.css">
     <link rel="stylesheet" href="/static/bundle/app.css">
   </head>
   <body data-theme="dark" class="prop-collapsed">
@@ -71,58 +71,66 @@
           <h3 style="margin:4px 0 8px">Propriétés</h3>
           <div id="noSel">Aucune sélection.</div>
           <form id="nodeForm" style="display:none">
-            <label>Nom <input name="name" placeholder="ex. P-012"></label>
-            <label>Type
-              <select name="type">
-                <option>PUITS</option>
-                <option>CANALISATION</option>
-                <option>PLATEFORME</option>
-                <option>VANNE</option>
-                <option>POINT_MESURE</option>
-              </select>
-            </label>
-            <div id="grpDiameter" style="display:none">
-              <label>Diamètre (mm) <input name="diameter_mm" type="number" min="0"></label>
-            </div>
-            <div id="grpWell" style="display:none">
+            <details id="grpGeneral" open>
+              <summary>Général</summary>
+              <label>Nom <input name="name" placeholder="ex. P-012"></label>
+              <label>Type
+                <select name="type">
+                  <option>PUITS</option>
+                  <option>CANALISATION</option>
+                  <option>PLATEFORME</option>
+                  <option>VANNE</option>
+                  <option>POINT_MESURE</option>
+                </select>
+              </label>
+              <div id="grpDiameter" style="display:none">
+                <label>Diamètre (mm) <input name="diameter_mm" type="number" min="0"></label>
+              </div>
+            </details>
+            <details id="grpWell" open style="display:none">
+              <summary>Puits — Affectation</summary>
               <label>Canalisation</label>
               <select id="wellCanalSelect"></select>
               <label>Position (info)
                 <input id="wellPosInfo" readonly placeholder="— défini dans la canalisation —">
               </label>
-            </div>
-            <div id="grpCanal" style="display:none">
-              <label>Séquence (amont → aval) – glisser pour réordonner</label>
-              <div class="chips" id="seqList" aria-label="séquence puits/mesures/vannes"></div>
-              <div style="display:flex; gap:8px; margin-top:10px; align-items:center">
-                <input id="cwSearch" list="cwDatalist" placeholder="Puits non attribués…" style="flex:1">
-                <datalist id="cwDatalist"></datalist>
-                <button type="button" class="btn" id="cwAddBtn">Ajouter</button>
-                <button type="button" class="btn" id="cwAddNewBtn">Nouveau puits</button>
-              </div>
-              <div style="display:flex; gap:8px; margin-top:8px; align-items:center">
-                <input id="pmSearch" list="pmDatalist" placeholder="Point de mesure non attribué…" style="flex:1">
-                <datalist id="pmDatalist"></datalist>
-                <button type="button" class="btn" id="pmAddBtn">Ajouter PM</button>
-                <button type="button" class="btn" id="pmAddNewBtn">Nouveau PM</button>
-              </div>
-              <div style="display:flex; gap:8px; margin-top:8px; align-items:center">
-                <input id="vanSearch" list="vanDatalist" placeholder="Vanne non attribuée…" style="flex:1">
-                <datalist id="vanDatalist"></datalist>
-                <button type="button" class="btn" id="vanAddBtn">Ajouter vanne</button>
-                <button type="button" class="btn" id="vanAddNewBtn">Nouvelle vanne</button>
-              </div>
-              <div style="margin-top:14px">
-                <label>Branchements (canalisations enfants) – ordre amont → aval</label>
+            </details>
+            <details id="grpCanal" open style="display:none">
+              <summary>Canalisation</summary>
+              <details id="grpSeq">
+                <summary>Ordre (amont → aval)</summary>
+                <div class="chips" id="seqList" aria-label="séquence puits/mesures/vannes"></div>
+                <small style="color:var(--muted); display:block; margin-top:8px">
+                  Puits ↔ arête <b>Canalisation → Puits</b>. Les PM & Vannes s’insèrent entre les puits.
+                </small>
+              </details>
+              <details id="grpUnassigned">
+                <summary>Ajouter</summary>
+                <div style="display:flex; align-items:center; gap:8px; margin-top:6px">
+                  <div style="min-width:140px; color:var(--muted)">Puits <span id="unassignedWellsCount"></span></div>
+                  <div class="chips" id="unassignedWells"></div>
+                  <button type="button" class="btn" id="cwAddNewBtn">Nouveau puits</button>
+                </div>
+                <div style="display:flex; align-items:center; gap:8px; margin-top:6px">
+                  <div style="min-width:140px; color:var(--muted)">Points de mesure <span id="unassignedPMsCount"></span></div>
+                  <div class="chips" id="unassignedPMs"></div>
+                  <button type="button" class="btn" id="pmAddNewBtn">Nouveau PM</button>
+                </div>
+                <div style="display:flex; align-items:center; gap:8px; margin-top:6px">
+                  <div style="min-width:140px; color:var(--muted)">Vannes <span id="unassignedVannesCount"></span></div>
+                  <div class="chips" id="unassignedVannes"></div>
+                  <button type="button" class="btn" id="vanAddNewBtn">Nouvelle vanne</button>
+                </div>
+              </details>
+              <details id="grpBranches">
+                <summary>Branchements</summary>
                 <div class="chips" id="childCanalsList"></div>
                 <small style="color:var(--muted)">Connecte d’abord les canalisations au parent, puis ordonne les puces selon l’ordre le long du parent.</small>
-              </div>
-              <small style="color:var(--muted); display:block; margin-top:8px">
-                Puits ↔ arête <b>Canalisation → Puits</b>. Les PM & Vannes s’insèrent entre les puits.
-              </small>
+              </details>
               <div id="canalBadges" class="badges"></div>
-            </div>
-            <div id="grpInline" style="display:none">
+            </details>
+            <details id="grpInline" open style="display:none">
+              <summary>PM / Vanne — Affectation</summary>
               <label>Canalisation</label>
               <select id="inlCanalSelect"></select>
               <label>Position (info)
@@ -131,7 +139,7 @@
               <label>Offset sur l’arête (m, optionnel)
                 <input id="inlOffsetInput" type="number" step="0.1" placeholder="ex. 12.5">
               </label>
-            </div>
+            </details>
             <details id="grpPos" open>
               <summary>Position & GPS</summary>
               <label>X <input name="x" type="number" step="1"></label>
@@ -161,7 +169,7 @@
     <!-- Logs -->
     <div id="logDrawer">
       <div id="logHeader">
-        <strong>Journal d’agencement</strong>
+        <strong>Journal des actions</strong>
         <div class="spacer"></div>
         <button class="btn" id="logClear"><i class="uil uil-trash-alt"></i> Vider</button>
         <button class="btn" id="logDownload"><i class="uil uil-download-alt"></i> Exporter</button>

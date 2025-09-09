@@ -38,16 +38,48 @@ export async function getGraph() {
     const txt = await res.text().catch(() => '')
     throw new Error(`GET /api/graph ${res.status} ${txt}`)
   }
-  return await res.json()
+  const data = await res.json()
+  // Ensure node numeric fields are coerced on initial load (defense-in-depth)
+  if(Array.isArray(data?.nodes)){
+    data.nodes.forEach(m => {
+      const numKeys = ['diameter_mm','gps_lat','gps_lon','well_pos_index','pm_pos_index','pm_offset_m']
+      numKeys.forEach(k => { if(m[k]==='') m[k]=null })
+    })
+  }
+  return data
+}
+
+function sanitizeGraph(graph){
+  const nodes = Array.isArray(graph?.nodes) ? graph.nodes.map(n => {
+    const m = { ...n }
+    // Normalize numbers: convert '' to null; retain numbers
+    const numKeys = ['diameter_mm','gps_lat','gps_lon','well_pos_index','pm_pos_index','pm_offset_m']
+    numKeys.forEach(k => {
+      if(m[k] === '' || m[k] === undefined) m[k] = null
+      else if(m[k] != null) {
+        const v = +m[k]
+        m[k] = Number.isFinite(v) ? v : null
+      }
+    })
+    return m
+  }) : []
+  const edges = Array.isArray(graph?.edges) ? graph.edges.map(e => ({
+    id: e.id,
+    from_id: e.from_id ?? e.source,
+    to_id: e.to_id ?? e.target,
+    active: e.active !== false,
+  })) : []
+  return { nodes, edges }
 }
 
 export async function saveGraph(graph) {
   const q = parseSearch()
   const params = buildParamsForSource(q)
+  const payload = sanitizeGraph(graph || {})
   const res = await fetch('/api/graph?' + params.toString(), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(graph || {}),
+    body: JSON.stringify(payload),
   })
   if (!res.ok) {
     const txt = await res.text().catch(() => '')
@@ -59,4 +91,3 @@ export async function saveGraph(graph) {
 export function getMode() {
   return parseSearch().mode || 'ro'
 }
-

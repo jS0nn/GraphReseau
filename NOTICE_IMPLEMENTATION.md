@@ -25,7 +25,7 @@ Deux chemins sont possibles. En environnement d’entreprise, l’impersonation 
    - `gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" --project="$PROJECT_ID" --member="user:$USER_EMAIL" --role="roles/iam.serviceAccountTokenCreator"`
    - Si bloqué par la policy d’org, faire le binding au niveau projet: `gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="user:$USER_EMAIL" --role="roles/iam.serviceAccountTokenCreator"`
 4. Activer les APIs nécessaires:
-   - `gcloud services enable iam.googleapis.com iamcredentials.googleapis.com sheets.googleapis.com drive.googleapis.com --project="$PROJECT_ID"`
+ - `gcloud services enable iam.googleapis.com iamcredentials.googleapis.com sheets.googleapis.com drive.googleapis.com --project="$PROJECT_ID"`
 5. Partager le Google Sheet avec l’adresse du SA (`$SA_EMAIL`) en Lecteur/Éditeur selon besoin.
 6. Créer les ADC en mode impersonation (pas d’OAuth bloqué):
    - `gcloud auth application-default login --impersonate-service-account="$SA_EMAIL"`
@@ -41,7 +41,9 @@ Deux chemins sont possibles. En environnement d’entreprise, l’impersonation 
   - `gcloud auth application-default login --scopes=https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/drive.readonly`
 - Pourquoi ces scopes ? `cloud-platform` est requis par gcloud, Sheets/Drive sont nécessaires pour l’API Sheets.
 
-Note: Fixer le projet par défaut (utile pour GCP CLIs): `gcloud config set project <GCP_PROJECT_ID>`
+Notes:
+- Fixer le projet par défaut (utile pour GCP CLIs): `gcloud config set project <GCP_PROJECT_ID>`
+- Dans les fichiers `.env*` chargés par l'app (uvicorn `--env-file`), utilisez `GCP_PROJECT_ID` (l'app lit `GCP_PROJECT_ID` ou `GOOGLE_CLOUD_PROJECT`). La variable `PROJECT_ID` est gardée pour commodité avec les commandes `gcloud`.
 
 APIs à activer côté GCP (si besoin):
 - `gcloud services enable run.googleapis.com sheets.googleapis.com drive.googleapis.com secretmanager.googleapis.com bigquery.googleapis.com storage.googleapis.com iam.googleapis.com iamcredentials.googleapis.com --project=<GCP_PROJECT_ID>`
@@ -55,6 +57,21 @@ APIs à activer côté GCP (si besoin):
     - `id, source_id, cible_id, actif`
 - Récupérer l’ID du sheet (dans l’URL), par exemple `1AbC...XYZ`.
 - En local (ADC via votre compte), aucun partage spécifique requis.
+
+### 2.C — Stratégies locales vs Cloud Run (recommandé)
+- Objectif: éviter les surprises et les 403. Utilisez une seule identité SA partout.
+- Local (recommandé): ADC déjà impersonés vers le même SA que celui utilisé en prod.
+  - `gcloud auth application-default login --impersonate-service-account="$SA_EMAIL"`
+  - Ne définissez pas `IMPERSONATE_SERVICE_ACCOUNT` côté app (laissez vide) pour éviter une ré‑impersonation.
+- Cloud Run (prod): exécutez le service avec ce même SA (flag `--service-account="$SA_EMAIL"`).
+- Alternative (si vous devez impersoner un autre SA):
+  - Local: gardez des ADC utilisateur; donnez à votre user `roles/iam.serviceAccountTokenCreator` sur le SA cible; mettez `IMPERSONATE_SERVICE_ACCOUNT=$SA_EMAIL` dans `.env.dev`.
+  - Cloud Run: donnez au runtime SA `roles/iam.serviceAccountTokenCreator` sur le SA cible; définissez `IMPERSONATE_SERVICE_ACCOUNT=$SA_EMAIL` dans les env.
+- Toujours partager le Google Sheet avec `$SA_EMAIL` (lecture/écriture).
+
+Notes:
+- Les placeholders `<...>` sont des exemples: remplacez-les ou utilisez des variables (ex: `$GCP_PROJECT_ID`).
+- `gcloud auth application-default set-quota-project` peut échouer si les ADC ne sont pas des credentials utilisateur — ce n’est pas bloquant pour Sheets.
 
 ## 4) Variables d’environnement
 - Minimales (Sheets):
@@ -80,7 +97,7 @@ APIs à activer côté GCP (si besoin):
 - Installer les dépendances frontend et builder les assets locaux (sans CDN):
   - `npm install`
   - `npm run build`
-  - Résultat: `app/static/bundle/{vendor.js, polyfills.js, editor.js, main.js, app.css, legacy.css}` et `app/static/vendor/{inter, unicons}`
+  - Résultat: `app/static/bundle/{vendor.js, polyfills.js, editor.js, main.js, app.css, editor.css}` et `app/static/vendor/{inter, unicons}`
 
 ### 5bis) Fichier .env.dev (recommandé)
 Créez un fichier `.env.dev` à la racine pour partager les variables entre terminaux:
@@ -188,6 +205,7 @@ Mode dev (bypass contrôles embed)
     --source . \
     --region=$GCP_REGION \
     --project=$GCP_PROJECT_ID \
+    --service-account="$SA_EMAIL" \
     --allow-unauthenticated \
     --set-env-vars=DATA_SOURCE=sheet,EMBED_STATIC_KEY=...,ALLOWED_FRAME_ANCESTORS="https://lookerstudio.google.com https://sites.google.com",SHEET_ID_DEFAULT=...`
 - Pour utiliser GCS JSON ou BQ par défaut, ajuster `DATA_SOURCE` et variables associées.

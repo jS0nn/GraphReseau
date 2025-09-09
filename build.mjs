@@ -36,6 +36,9 @@ async function buildJS(){
       path.join(webDir, 'src', 'polyfills.js'),
       path.join(webDir, 'src', 'main.js'),
       path.join(webDir, 'src', 'editor.js'),
+      // Ensure dynamic imports exist as standalone bundles for runtime
+      path.join(webDir, 'src', 'editor.boot.js'),
+      path.join(webDir, 'src', 'legacy-editor.js'),
     ],
     bundle: true,
     splitting: false,
@@ -54,7 +57,7 @@ async function buildCSS(){
   await build({
     entryPoints: [
       path.join(webDir, 'styles', 'app.css'),
-      path.join(webDir, 'styles', 'legacy.css'),
+      path.join(webDir, 'styles', 'editor.css'),
     ],
     bundle: true,
     minify: !DEV,
