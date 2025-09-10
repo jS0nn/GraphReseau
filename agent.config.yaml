@@ -36,11 +36,11 @@ project:
   framework: "fastapi"
   hosting: "cloud run"
   repo_layout:
-    backend_dir: "backend"
-    frontend_dir: "frontend"
-    static_dir: "frontend/public"
-    vendor_dir: "frontend/vendor"
-    build_dir: "frontend/dist"
+    app_dir: "app"
+    frontend_dir: "web"
+    static_dir: "app/static"
+    vendor_dir: "app/static/vendor"
+    build_dir: "app/static/bundle"
 
 objectives:
   v1:
@@ -80,6 +80,10 @@ google_cloud:
     - "sheets.googleapis.com"
     - "drive.googleapis.com"
     - "secretmanager.googleapis.com"
+    - "bigquery.googleapis.com"
+    - "storage.googleapis.com"
+    - "iam.googleapis.com"
+    - "iamcredentials.googleapis.com"
 
 auth_embed:
   strategy: "clé statique + CSP frame-ancestors + vérif Referer"
@@ -94,7 +98,7 @@ auth_embed:
     default-src 'none'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors ${ALLOWED_FRAME_ANCESTORS}; base-uri 'none'; form-action 'none';
 
 sheets:
-  spreadsheet_id_env: "SHEET_ID"
+  spreadsheet_id_env: "SHEET_ID_DEFAULT"
   access: "Application Default Credentials (ADC)"
   columns_note: "Les colonnes doivent rester compatibles avec l’Apps Script existant."
 
@@ -144,12 +148,12 @@ tasks:
     env:
       - "GOOGLE_CLOUD_PROJECT=${GCP_PROJECT_ID}"
     shell:
-      - "source .venv/bin/activate && uvicorn backend.main:app --reload --port 8080"
+      - "source .venv/bin/activate && uvicorn app.main:app --reload --port 8080 --env-file .env.dev"
 
   - id: "build-frontend"
     description: "Bundle JS + vendor libs localement (sans CDN)."
     shell:
-      - "node build/esbuild.mjs"
+      - "node build.mjs"
 
   - id: "docker-build"
     description: "Construit l’image container pour Cloud Run."
@@ -159,7 +163,7 @@ tasks:
   - id: "deploy"
     description: "Déploie sur Cloud Run (source build)."
     shell:
-      - "gcloud run deploy ${RUN_SERVICE:-editeur-reseau-api} --source . --region=${GCP_REGION} --project=${GCP_PROJECT_ID} --allow-unauthenticated --set-env-vars=EMBED_STATIC_KEY=${EMBED_STATIC_KEY},ALLOWED_FRAME_ANCESTORS=${ALLOWED_FRAME_ANCESTORS},SHEET_ID=${SHEET_ID}"
+      - "gcloud run deploy ${RUN_SERVICE:-editeur-reseau-api} --source . --region=${GCP_REGION} --project=${GCP_PROJECT_ID} --allow-unauthenticated --set-env-vars=DATA_SOURCE=sheet,EMBED_STATIC_KEY=${EMBED_STATIC_KEY},ALLOWED_FRAME_ANCESTORS=${ALLOWED_FRAME_ANCESTORS},SHEET_ID_DEFAULT=${SHEET_ID_DEFAULT}"
 
 env:
   required:
@@ -167,14 +171,14 @@ env:
     - "GCP_REGION"
     - "EMBED_STATIC_KEY"
     - "ALLOWED_FRAME_ANCESTORS"  # ex: "https://lookerstudio.google.com https://sites.google.com"
-    - "SHEET_ID"
+    - "SHEET_ID_DEFAULT"
   optional:
     - "DATA_SOURCE=sheet"  # sheet | gcs_json | bigquery
     - "RUN_SERVICE=editeur-reseau-api"
     - "VERSION=dev"
-    - "SHEET_ID_DEFAULT"  # si différent de SHEET_ID
-    - "SHEET_NODES_TAB=nodes"
-    - "SHEET_EDGES_TAB=edges"
+    - "SHEET_NODES_TAB=Nodes"
+    - "SHEET_EDGES_TAB=Edges"
+    - "ALLOWED_REFERER_HOSTS"
     - "GCS_JSON_URI"      # ex: gs://bucket/path/graph.json
     - "BQ_PROJECT_ID"
     - "BQ_DATASET"
@@ -194,9 +198,10 @@ notes:
   - "Cloud Logging/Trace pour observabilité minimale."
 
 files_scaffold:
-  - "backend/main.py"
-  - "backend/routers/graph.py"
-  - "frontend/public/index.html"
-  - "build/esbuild.mjs"
+  - "app/main.py"
+  - "app/routers/api.py"
+  - "app/routers/embed.py"
+  - "web/index.html"
+  - "build.mjs"
   - "deploy/Dockerfile"
   - ".gcloudignore"

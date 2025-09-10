@@ -5,6 +5,7 @@ function parseSearch() {
   return {
     source: p.get('source'),
     sheet_id: p.get('sheet_id'),
+    site_id: p.get('site_id'),
     gcs_uri: p.get('gcs_uri'),
     bq_project: p.get('bq_project'),
     bq_dataset: p.get('bq_dataset'),
@@ -27,6 +28,7 @@ function buildParamsForSource(q) {
     if (q.bq_nodes) params.set('bq_nodes', q.bq_nodes)
     if (q.bq_edges) params.set('bq_edges', q.bq_edges)
   }
+  if (q.site_id) params.set('site_id', q.site_id)
   return params
 }
 
@@ -53,7 +55,10 @@ function sanitizeGraph(graph){
   const nodes = Array.isArray(graph?.nodes) ? graph.nodes.map(n => {
     const m = { ...n }
     // Normalize numbers: convert '' to null; retain numbers
-    const numKeys = ['diameter_mm','gps_lat','gps_lon','well_pos_index','pm_pos_index','pm_offset_m']
+    // Always reflect current UI positions into x_ui/y_ui for persistence
+    if(m.x != null) m.x_ui = m.x
+    if(m.y != null) m.y_ui = m.y
+    const numKeys = ['diameter_mm','gps_lat','gps_lon','well_pos_index','pm_pos_index','pm_offset_m','x_ui','y_ui']
     numKeys.forEach(k => {
       if(m[k] === '' || m[k] === undefined) m[k] = null
       else if(m[k] != null) {

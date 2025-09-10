@@ -39,6 +39,10 @@
               <input id="sheet" placeholder="<SPREADSHEET_ID>" />
             </div>
             <div class="col">
+              <label for="site">site_id (optionnel)</label>
+              <input id="site" placeholder="356c469e" />
+            </div>
+            <div class="col">
               <label for="mode">Mode</label>
               <select id="mode">
                 <option value="ro">ro</option>
@@ -96,7 +100,7 @@
       const qs = new URLSearchParams(location.search)
       const els = {
         base: document.getElementById('base'), key: document.getElementById('key'), sheet: document.getElementById('sheet'),
-        mode: document.getElementById('mode'), source: document.getElementById('source'), gcs: document.getElementById('gcs'),
+        site: document.getElementById('site'), mode: document.getElementById('mode'), source: document.getElementById('source'), gcs: document.getElementById('gcs'),
         bqp: document.getElementById('bqp'), bqd: document.getElementById('bqd'), bqn: document.getElementById('bqn'), bqe: document.getElementById('bqe'),
       }
       function loadSaved(){
@@ -104,6 +108,7 @@
         els.base.value  = qs.get('base')  || saved.base  || 'http://127.0.0.1:8080'
         els.key.value   = qs.get('k')     || saved.key   || 'dev-embed-key'
         els.sheet.value = qs.get('sheet') || saved.sheet || ''
+        els.site.value  = qs.get('site_id') || saved.site || '356c469e'
         els.mode.value  = qs.get('mode')  || saved.mode  || 'ro'
         els.source.value= qs.get('source')|| saved.source|| ''
         els.gcs.value   = qs.get('gcs_uri') || saved.gcs || ''
@@ -113,7 +118,7 @@
         els.bqe.value   = qs.get('bq_edges')   || saved.bqe || 'Edges'
       }
       function save(){
-        const cfg = { base:els.base.value, key:els.key.value, sheet:els.sheet.value, mode:els.mode.value, source:els.source.value,
+        const cfg = { base:els.base.value, key:els.key.value, sheet:els.sheet.value, site:els.site.value, mode:els.mode.value, source:els.source.value,
           gcs:els.gcs.value, bqp:els.bqp.value, bqd:els.bqd.value, bqn:els.bqn.value, bqe:els.bqe.value }
         localStorage.setItem('devEmbedCfg', JSON.stringify(cfg))
       }
@@ -123,6 +128,7 @@
         const p = new URLSearchParams()
         if (els.key.value) p.set('k', els.key.value)
         if (els.sheet.value) p.set('sheet_id', els.sheet.value)
+        if (els.site.value) p.set('site_id', els.site.value)
         if (els.mode.value) p.set('mode', els.mode.value)
         if (els.source.value) p.set('source', els.source.value)
         // Only attach params relevant to the chosen source

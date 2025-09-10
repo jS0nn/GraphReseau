@@ -1,6 +1,4 @@
-// Entry point: load modular editor by default; legacy via ?legacy=1
-function wantsLegacy(){ try{ return new URLSearchParams(location.search).get('legacy') === '1' }catch{ return false } }
-
+// Entry point: load modular editor only (legacy removed)
 function loadScript(src){
   return new Promise((resolve, reject) => {
     const s = document.createElement('script')
@@ -11,11 +9,6 @@ function loadScript(src){
     document.head.appendChild(s)
   })
 }
-
-if (wantsLegacy()) {
-  loadScript('/static/bundle/legacy-editor.js')
-} else {
-  loadScript('/static/bundle/editor.boot.js').then(()=>{
-    if (window.EditorBoot?.boot) window.EditorBoot.boot()
-  }).catch(err => { console.error('Failed to load editor.boot', err) })
-}
+loadScript('/static/bundle/editor.boot.js').then(()=>{
+  if (window.EditorBoot?.boot) window.EditorBoot.boot()
+}).catch(err => { console.error('Failed to load editor.boot', err) })

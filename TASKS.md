@@ -18,6 +18,7 @@ Statut: à cocher au fur et à mesure. Cible: V1 fonctionnelle (embed RO), sourc
 - [x] POST /api/graph — Sheets (écrit FR V5 / FR V2)
 - [x] GET/POST — GCS JSON (gs:// ou file:/// en dev)
 - [x] GET — BigQuery (tables compatibles FR/EN)
+- [x] Correction filtre arêtes BigQuery (from_id/to_id)
 - [ ] POST — BigQuery (délibérément hors périmètre V1)
 
 ## Sécurité / Embed
@@ -30,6 +31,7 @@ Statut: à cocher au fur et à mesure. Cible: V1 fonctionnelle (embed RO), sourc
 ## Sources & Bridge
 - [x] Bridge “google.script.run” (transitoire) → API FastAPI
 - [x] Client API natif (web/src/api.js), supprimer bridge‑gas
+ - [x] Retirer backend legacy initial (`backend/`)
 
 ## Refactor legacy → modules (frontend)
 - [x] Extraire helpers génériques (utils): `$$`, `vn`, `snap`, `genId`, `incrementName`, `isCanal`
@@ -39,7 +41,7 @@ Statut: à cocher au fur et à mesure. Cible: V1 fonctionnelle (embed RO), sourc
 - [x] Propriétés: formulaires nœud/arête/canal (`ui/forms/*`) + callbacks → state+render
 - [x] Exports: JSON/compact/node‑edge (`exports.js`) + download helper
 - [x] Layout: consolider `layout.js` (ELK + fallback) + journaux (`ui/logs`)
-- [x] Entrée unique propre: `editor.js` assemble les modules; déprécier `legacy-editor.js`
+- [x] Entrée unique propre: `editor.js` assemble les modules; déprécier puis supprimer `legacy-editor.js`
 - [x] CSS: renommer `web/styles/legacy.css` → `editor.css` (maj `build.mjs` + `app/templates/index.html`)
 
 ## Docs & DX

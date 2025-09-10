@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Any, Dict, Tuple
 
 from fastapi import HTTPException
@@ -23,6 +24,16 @@ def _parse_gs_uri(uri: str) -> Tuple[str, str]:
     return bucket, blob_path
 
 
+def _clean_sheet_id(s: str | None) -> str:
+    if not s:
+        return ""
+    t = str(s).strip()
+    # Remove trailing slash and URL-encoded slash (%2F)
+    t = t.rstrip("/")
+    t = re.sub(r"(%2F)+$", "", t, flags=re.IGNORECASE)
+    return t.strip()
+
+
 # Sheets loader/saver
 def loadSheet(
     sheet_id: str | None = None,
@@ -30,7 +41,7 @@ def loadSheet(
     edges_tab: str | None = None,
     site_id: str | None = None,
 ) -> Graph:
-    sid = sheet_id or settings.sheet_id_default
+    sid = _clean_sheet_id(sheet_id or settings.sheet_id_default)
     if not sid:
         raise HTTPException(status_code=400, detail="sheet_id required")
     return sheets_mod.read_nodes_edges(
@@ -42,7 +53,7 @@ def loadSheet(
 
 
 def saveSheet(graph: Graph, sheet_id: str | None = None, nodes_tab: str | None = None, edges_tab: str | None = None) -> None:
-    sid = sheet_id or settings.sheet_id_default
+    sid = _clean_sheet_id(sheet_id or settings.sheet_id_default)
     if not sid:
         raise HTTPException(status_code=400, detail="sheet_id required")
     sheets_mod.write_nodes_edges(
@@ -89,6 +100,39 @@ def saveJson(graph: Graph, gcs_uri: str | None = None) -> None:
     uri = gcs_uri or settings.gcs_json_uri_default
     if not uri:
         raise HTTPException(status_code=400, detail="gcs_uri required")
+
+    # Preserve existing canonical positions (x, y) by merging from the
+    # current JSON when available; only x_ui/y_ui should change from the UI.
+    try:
+        existing: Graph | None = None
+        if uri.startswith("file://") or os.path.isabs(uri):
+            path = uri.replace("file://", "")
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as rf:
+                    existing = Graph.model_validate(json.load(rf))
+        else:
+            from google.cloud import storage
+
+            creds_ro = get_credentials(["https://www.googleapis.com/auth/devstorage.read_only"])
+            client_ro = storage.Client(project=settings.gcp_project_id or None, credentials=creds_ro)
+            bucket_name, blob_path = _parse_gs_uri(uri)
+            bucket = client_ro.bucket(bucket_name)
+            blob = bucket.blob(blob_path)
+            if blob.exists(client_ro):
+                text = blob.download_as_text()
+                existing = Graph.model_validate(json.loads(text))
+        if existing is not None:
+            by_id = {n.id: n for n in (existing.nodes or [])}
+            for n in graph.nodes or []:
+                prev = by_id.get(n.id)
+                if prev is not None:
+                    # Only preserve canonical x/y; UI saves manage x_ui/y_ui
+                    n.x = prev.x
+                    n.y = prev.y
+    except Exception:
+        # Non-fatal: if merge fails, continue with provided payload
+        pass
+
     payload = json.dumps(graph.model_dump(), ensure_ascii=False)
     if uri.startswith("file://") or os.path.isabs(uri):
         path = uri.replace("file://", "")

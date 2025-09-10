@@ -1,13 +1,15 @@
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 
 
 class Node(BaseModel):
     id: str
     name: Optional[str] = ""
-    type: Optional[str] = "PUITS"
+    type: Optional[str] = "OUVRAGE"
     branch_id: Optional[str] = ""
     diameter_mm: Optional[float] = None
+    sdr_ouvrage: Optional[str] = ""
+    commentaire: Optional[str] = ""
     collector_well_ids: List[str] = []
     well_collector_id: Optional[str] = ""
     well_pos_index: Optional[int] = None
@@ -17,6 +19,9 @@ class Node(BaseModel):
     gps_lon: Optional[float] = None
     x: Optional[float] = None
     y: Optional[float] = None
+    x_ui: Optional[float] = None
+    y_ui: Optional[float] = None
+    extras: Optional[Dict[str, Any]] = None
 
 
 class Edge(BaseModel):

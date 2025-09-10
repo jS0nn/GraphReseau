@@ -96,7 +96,7 @@ Fichier d’exemple: `.env.example` (copiable en `.env.dev`).
   - `styles/`: `app.css`, `editor.css`, thème de base
   - `index.html`: page de dev (charge `web/src/*` directement)
 - Build (esbuild): `npm run build`
-  - Entrées: `web/src/vendor.js`, `polyfills.js`, `main.js`, `editor.js`, `editor.boot.js`, `legacy-editor.js`
+  - Entrées: `web/src/vendor.js`, `polyfills.js`, `main.js`, `editor.js`, `editor.boot.js`
   - Sorties: `app/static/bundle/*.js|*.css`, assets `app/static/vendor/*`
 - Pages servies par l’API (prod/dev): `app/templates/index.html` charge les bundles `/static/bundle/*`.
 
@@ -139,7 +139,7 @@ Vérifications utiles
   - `templates/index.html`: HTML d’embed qui charge les bundles
   - `static/`: bundles et assets copiés par le build
 - `web/` (frontend source — dev)
-  - `src/`: `editor.js`, `editor.boot.js`, `legacy-editor.js`, `render/*`, `interactions/*`, `state.js`, `api.js`, etc.
+  - `src/`: `editor.js`, `editor.boot.js`, `render/*`, `interactions/*`, `state.js`, `api.js`, etc.
   - `styles/`: `app.css`, `editor.css`, `theme.css`, `base.css`
   - `index.html`: page de dev locale
 - `build.mjs`: script esbuild (bundle JS/CSS + copie des vendors)

@@ -58,6 +58,12 @@ class Settings:
     dev_disable_embed_referer: bool = getenv_bool("DISABLE_EMBED_REFERER_CHECK", False)
     dev_disable_embed_key: bool = getenv_bool("DISABLE_EMBED_KEY_CHECK", False)
 
+    # Optional default site filter for Sheets (dev convenience)
+    site_id_filter_default: str = getenv("SITE_ID_FILTER_DEFAULT", "")
+
+    # Enforce that a site must be specified (either via query `site_id` or via SITE_ID_FILTER_DEFAULT)
+    require_site_id: bool = getenv_bool("REQUIRE_SITE_ID", False)
+
     # Static dirs
     static_root: str = os.path.join(os.path.dirname(__file__), "static")
     templates_root: str = os.path.join(os.path.dirname(__file__), "templates")

@@ -3,8 +3,17 @@ import { setGraph, state } from './state.js'
 import { autoLayout } from './layout.js'
 import { renderNodes } from './render/render-nodes.js'
 
+function parseSearch(){
+  const p = new URLSearchParams(location.search)
+  return { sheet_id: p.get('sheet_id'), site_id: p.get('site_id') }
+}
+
 async function fetchGraph(sheetId){
-  const url = sheetId ? `/api/graph?sheet_id=${encodeURIComponent(sheetId)}` : '/api/graph'
+  const q = parseSearch()
+  const params = new URLSearchParams()
+  if (sheetId || q.sheet_id) params.set('sheet_id', sheetId || q.sheet_id)
+  if (q.site_id) params.set('site_id', q.site_id)
+  const url = params.toString() ? `/api/graph?${params.toString()}` : '/api/graph'
   const res = await fetch(url)
   if (!res.ok) throw new Error('Failed to load graph')
   return await res.json()

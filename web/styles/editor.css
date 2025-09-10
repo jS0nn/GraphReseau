@@ -7,7 +7,11 @@
   --btn-bg:#21355b; --btn-bd:#304a7a; --btn-fg:#f2f7ff;
   --btn-bg-hover:#28426f; --btn-bd-hover:#3f66a5;
   --btn-ghost-bg:transparent; --btn-ghost-fg:#f2f7ff;
-  --c-puits:#183553; --c-cana:#1b3d46; --c-plat:#3b2f1d; --c-vanne:#2c2b40; --c-pm:#20385c;
+  --c-puits:#18608c; /* ouvrages */
+  --c-cana:#1b3d46; /* canalisations */
+  --c-plat:#5c3a1d; /* général */
+  --c-vanne:#2c2b40;
+  --c-pm:#20385c;
   --edge-hit: 28px; --pm-dash: 5 4; --valve-dash: 2 6; --log-border:#2b3f69; --prop-width:420px;
 }
 body[data-theme="light"]{
@@ -17,7 +21,7 @@ body[data-theme="light"]{
   --chip:#eaf1ff; --badge-bg:#eaf1ff; --badge-stroke:#b7cffc;
   --btn-bg:#eaf1ff; --btn-bd:#c7d7f7; --btn-fg:#1d2433;
   --btn-bg-hover:#dce9ff; --btn-bd-hover:#bcd0f2; --btn-ghost-bg:transparent; --btn-ghost-fg:#1d2433;
-  --c-puits:#ffffff; --c-cana:#f4fbff; --c-plat:#fff5ea; --c-vanne:#f5f2ff; --c-pm:#f2f7ff; --log-border:#e5ecfb;
+  --c-puits:#ffffff; --c-cana:#f4fbff; --c-plat:#fff0d6; --c-vanne:#f5f2ff; --c-pm:#f2f7ff; --log-border:#e5ecfb;
 }
 /* Light theme readability adjustments */
 body[data-theme="light"] .card{ color: var(--text) }
@@ -50,8 +54,10 @@ svg{width:2400px; height:1600px}
 .node.selected rect.box{stroke:var(--accent); stroke-width:2}
 .node.halo rect.box{ stroke: var(--accent); stroke-width: 2; filter: drop-shadow(0 0 8px rgba(106,168,255,.35)) }
 .node.PUITS rect.box{fill:var(--c-puits)}
+.node.OUVRAGE rect.box{fill:var(--c-puits)}
 .node.CANALISATION rect.box{fill:var(--c-cana)}
 .node.PLATEFORME rect.box{fill:var(--c-plat)}
+.node.GENERAL rect.box{fill:var(--c-plat)}
 .node.VANNE rect.box{fill:var(--c-vanne)}
 .node.POINT_MESURE rect.box{fill:var(--c-pm)}
 .node rect.hit{fill:transparent; stroke:none; pointer-events:all}
@@ -78,7 +84,7 @@ details summary{cursor:pointer}
 #prop #nodeForm details details{ margin-left:12px; padding-left:10px; border-left:1px dashed var(--stroke) }
 #prop #nodeForm details details > summary{ font-weight:500 }
 .danger{color:#ff9a9a}
-.chips{display:flex; flex-wrap:wrap; gap:6px; margin-top:6px}
+.chips{display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; min-width:0}
 .chip{display:inline-flex; align-items:center; gap:6px; padding:6px 8px; background:var(--chip); border:1px solid #3b5d98; border-radius:10px}
 .chip.ghost{ background:transparent; border-style:dashed; opacity:.9 }
 .chip.ghost:hover{ background:var(--btn-bg-hover); border-color:var(--btn-bd-hover); opacity:1 }

@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "build:dev": "BUILD_DEV=1 node build.mjs"
+    "build:dev": "BUILD_DEV=1 node build.mjs",
+    "migrate:nodes": "bash scripts/migrate_nodes_npm.sh"
   },
   "dependencies": {
     "@fontsource/inter": "^5.1.0",

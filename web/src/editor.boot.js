@@ -39,20 +39,47 @@ function updateHUD(){
 function setStatus(msg){ const el=document.getElementById('status'); if(el) el.textContent = msg||'' }
 
 function computeZoomFitTransform(containerEl, nodes){
-  if(!nodes.length) return { k:1, x:0, y:0 }
-  const xs1 = nodes.map(n => (+n.x||0))
-  const xs2 = nodes.map(n => (+n.x||0) + NODE_SIZE.w)
-  const ys1 = nodes.map(n => (+n.y||0))
-  const ys2 = nodes.map(n => (+n.y||0) + NODE_SIZE.h)
-  const minX = Math.min(...xs1) - 40
-  const maxX = Math.max(...xs2) + 40
-  const minY = Math.min(...ys1) - 40
-  const maxY = Math.max(...ys2) + 40
   const w = containerEl.clientWidth || 1200
   const h = containerEl.clientHeight || 800
-  const scale = Math.min(w/Math.max(1, (maxX-minX)), h/Math.max(1, (maxY-minY)), 2)
-  const tx = (w - scale*(maxX-minX))/2 - scale*minX
-  const ty = (h - scale*(maxY-minY))/2 - scale*minY
+  const M = 60 // margin around content
+
+  // Try to use actual rendered content bbox (nodes+edges), independent of current zoom
+  try{
+    const root = document.getElementById('zoomRoot')
+    if(root){
+      const prev = root.getAttribute('transform')
+      if(prev) root.removeAttribute('transform')
+      const bbox = root.getBBox() // may throw if nothing rendered
+      if(prev) root.setAttribute('transform', prev)
+      if(bbox && isFinite(bbox.width) && isFinite(bbox.height)){
+        const minX = bbox.x - M
+        const minY = bbox.y - M
+        const bw = Math.max(1, bbox.width + 2*M)
+        const bh = Math.max(1, bbox.height + 2*M)
+        const scale = Math.min(w / bw, h / bh)
+        const tx = (w - scale * bw)/2 - scale * minX
+        const ty = (h - scale * bh)/2 - scale * minY
+        return { k: scale, x: tx, y: ty }
+      }
+    }
+  }catch{/* fallback to nodes extents below */}
+
+  // Fallback: compute from node positions
+  if(!nodes.length) return { k:1, x:0, y:0 }
+  const valid = nodes.filter(n => Number.isFinite(+n.x) && Number.isFinite(+n.y))
+  const xs1 = (valid.length?valid:nodes).map(n => (+n.x||0))
+  const xs2 = (valid.length?valid:nodes).map(n => (+n.x||0) + NODE_SIZE.w)
+  const ys1 = (valid.length?valid:nodes).map(n => (+n.y||0))
+  const ys2 = (valid.length?valid:nodes).map(n => (+n.y||0) + NODE_SIZE.h)
+  const minX = Math.min(...xs1) - M
+  const maxX = Math.max(...xs2) + M
+  const minY = Math.min(...ys1) - M
+  const maxY = Math.max(...ys2) + M
+  const bw = Math.max(1, (maxX - minX))
+  const bh = Math.max(1, (maxY - minY))
+  const scale = Math.min(w / bw, h / bh)
+  const tx = (w - scale * bw)/2 - scale * minX
+  const ty = (h - scale * bh)/2 - scale * minY
   return { k: scale, x: tx, y: ty }
 }
 
@@ -69,7 +96,7 @@ function bindToolbar(canvas){
     const d3 = window.d3
     canvas.svg.transition().duration(220).call(canvas.zoom.transform, d3.zoomIdentity.translate(t.x, t.y).scale(t.k))
   })
-  byId('layoutBtn')?.addEventListener('click', async ()=>{ await autoLayout(state.nodes, state.edges); renderAll(canvas); applyZoomFit(canvas) })
+  byId('layoutBtn')?.addEventListener('click', async ()=>{ await autoLayout(state.nodes, state.edges); renderAll(canvas) })
   byId('exportBtn')?.addEventListener('click', ()=> downloadJSON(toJSON(getStateGraph()), 'graph.json'))
   byId('exportCompactBtn')?.addEventListener('click', ()=> downloadJSON(toCompact(getStateGraph()), 'graph.compact.json'))
   byId('exportNodeEdgeBtn')?.addEventListener('click', ()=> downloadJSON(toNodeEdge(getStateGraph()), 'graph.node-edge.json'))
@@ -97,7 +124,7 @@ function bindToolbar(canvas){
     addMenu.querySelectorAll('[data-add]')?.forEach(item=>{
       item.addEventListener('click', ()=>{
         addMenu.classList.remove('open')
-        const type = (item.getAttribute('data-add') || 'PUITS').toUpperCase()
+        const type = (item.getAttribute('data-add') || 'OUVRAGE').toUpperCase()
         const node = addNode({ type })
         selectNodeById(node.id)
       })
@@ -197,6 +224,9 @@ function attachInteractions(canvas){
   // Capture delete even when focus is in inputs if a selection exists
   document.addEventListener('keydown', (e)=>{
     if(e.key!=='Delete' && e.key!=='Backspace') return
+    // Never treat Delete/Backspace as a delete when typing in a form field
+    const tag = document.activeElement?.tagName||''
+    if(/(INPUT|TEXTAREA|SELECT)/.test(tag)) return
     if(!(state.selection?.edgeId || (state.selection?.multi && state.selection.multi.size))) return
     e.preventDefault(); deleteSelection()
   }, true)
@@ -214,20 +244,11 @@ export async function boot(){
   bindToolbar(canvas)
   adjustWrapTop(); window.addEventListener('resize', adjustWrapTop)
 
-  // Render on state changes + auto zoom-fit + hist triggers
+  // Render on state changes (no auto zoom-fit here)
   subscribe(function(evt, payload){
     if(evt==='graph:set' || evt.startsWith('node:') || evt.startsWith('edge:') || evt.startsWith('selection:')){
       renderAll(canvas)
     }
-    try{
-      if(evt==='edge:add' || evt==='graph:set') requestZoomFit(canvas)
-      if(evt==='graph:update') requestZoomFit(canvas)
-      if(evt==='sequence:update') requestZoomFit(canvas)
-      if(evt==='node:update'){
-        const p = (payload&&payload.patch) || {}
-        if('collector_well_ids' in p || 'child_canal_ids' in p || 'pm_pos_index' in p || 'pm_order' in p || 'well_collector_id' in p || 'well_pos_index' in p || 'pm_collector_id' in p || 'pm_offset_m' in p) requestZoomFit(canvas)
-      }
-    }catch{}
   })
 
   // Load graph
@@ -262,13 +283,7 @@ export async function boot(){
     requestAnimationFrame(()=> requestAnimationFrame(()=> applyZoomFit(canvas)))
   }catch{}
 
-  // Re-apply on resize
-  window.addEventListener('resize', ()=> requestZoomFit(canvas, 100))
-  // Observe container size changes (e.g., fonts, panel toggles)
-  try{
-    const ro = new ResizeObserver(()=> requestZoomFit(canvas, 120))
-    const cnv = document.getElementById('canvas'); if(cnv) ro.observe(cnv)
-  }catch{}
+  // No auto-fit on resize/DOM changes per request
 
   attachInteractions(canvas)
   attachMarquee(canvas.svg, canvas.gOverlay)

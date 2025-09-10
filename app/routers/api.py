@@ -21,6 +21,7 @@ def get_graph(
     bq_dataset: Optional[str] = Query(None),
     bq_nodes: Optional[str] = Query(None),
     bq_edges: Optional[str] = Query(None),
+    site_id: Optional[str] = Query(None, description="Optional site filter (matches column idSite1 when present in Sheets)"),
 ):
     return load_graph(
         source=source,
@@ -32,6 +33,7 @@ def get_graph(
         bq_dataset=bq_dataset,
         bq_nodes=bq_nodes,
         bq_edges=bq_edges,
+        site_id=site_id,
     )
 
 
@@ -47,6 +49,7 @@ def post_graph(
     bq_dataset: Optional[str] = Query(None),
     bq_nodes: Optional[str] = Query(None),
     bq_edges: Optional[str] = Query(None),
+    site_id: Optional[str] = Query(None, description="Optional site filter (matches column idSite1 when present in Sheets)"),
 ):
     save_graph(
         source=source,
@@ -59,5 +62,6 @@ def post_graph(
         bq_dataset=bq_dataset,
         bq_nodes=bq_nodes,
         bq_edges=bq_edges,
+        site_id=site_id,
     )
     return {"ok": True}

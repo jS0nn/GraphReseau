@@ -1,4 +1,6 @@
 import { genIdWithTime as genId, snap as snapToGrid, isCanal, vn, incrementName, defaultName } from './utils.js'
+import { computeCenterFromNodes, setGeoCenter, uiPosFromNodeGPS } from './geo.js'
+export { setGeoScale, setGeoCenter } from './geo.js'
 
 // Global editor state (graph + UI)
 export const state = {
@@ -27,12 +29,40 @@ export function setGraph(graph){
     if(m && (m.type==='GÉNÉRAL' || m.type==='Général' || m.type==='general')) m.type='GENERAL'
     if(m && m.type==='PUITS') m.type='OUVRAGE'
     // Coerce numeric fields to number or null to avoid '' roundtrip
-    const numKeys = ['x','y','diameter_mm','gps_lat','gps_lon','well_pos_index','pm_pos_index','pm_offset_m']
+    const numKeys = ['x','y','diameter_mm','gps_lat','gps_lon','well_pos_index','pm_pos_index','pm_offset_m','x_ui','y_ui']
     numKeys.forEach(k => {
-      if(m[k] === '' || m[k] === undefined) m[k] = null
-      else if(m[k] != null){ const v = +m[k]; m[k] = Number.isFinite(v) ? v : null }
+      const val = m[k]
+      if(val === '' || val === undefined || val === null){ m[k] = null; return }
+      if(typeof val === 'number'){ m[k] = Number.isFinite(val) ? val : null; return }
+      if(typeof val === 'string'){
+        const s = val.trim().replace(',', '.')
+        const norm = s.replace(/[^0-9.\-]/g, '')
+        const v = parseFloat(norm)
+        m[k] = Number.isFinite(v) ? v : null
+        return
+      }
+      const v = +val
+      m[k] = Number.isFinite(v) ? v : null
     })
+    // Use x_ui/y_ui as position sources when present
+    if(m.x == null && m.x_ui != null) m.x = m.x_ui
+    if(m.y == null && m.y_ui != null) m.y = m.y_ui
     return m
+  })
+  // If x/y are missing or incoherent (extreme), derive from GPS when available
+  // Heuristic threshold: values beyond ±100k px are considered incoherent for UI
+  const XY_ABS_MAX = 100000
+  try{
+    const center = computeCenterFromNodes(nodes)
+    if(center) setGeoCenter(center.centerLat, center.centerLon)
+  }catch{}
+  nodes.forEach(m => {
+    const xBad = !(Number.isFinite(m.x)) || Math.abs(+m.x||0) > XY_ABS_MAX
+    const yBad = !(Number.isFinite(m.y)) || Math.abs(+m.y||0) > XY_ABS_MAX
+    if((xBad || yBad)){
+      const pos = uiPosFromNodeGPS(m)
+      if(pos){ m.x = snapToGrid(pos.x, state.gridStep); m.y = snapToGrid(pos.y, state.gridStep) }
+    }
   })
   state.nodes = nodes
   // Normalize edges to canonical from_id/to_id
@@ -205,6 +235,27 @@ export function pasteClipboard(offset = { x: 24, y: 24 }){
   state.selection.nodeId = clones[0]?.id || null
   notify('clipboard:paste', { count: clones.length })
   return clones
+}
+
+// Public helper: recompute node UI positions from GPS
+// - If force=true, recompute for all nodes with gps_lat/gps_lon
+// - Else, only for nodes with missing/abnormal x/y
+export function applyGPSPositions({ force=false } = {}){
+  const XY_ABS_MAX = 100000
+  try{
+    const center = computeCenterFromNodes(state.nodes)
+    if(center) setGeoCenter(center.centerLat, center.centerLon)
+  }catch{}
+  let changed = false
+  state.nodes.forEach(m => {
+    const xBad = force || !(Number.isFinite(m.x)) || Math.abs(+m.x||0) > XY_ABS_MAX
+    const yBad = force || !(Number.isFinite(m.y)) || Math.abs(+m.y||0) > XY_ABS_MAX
+    if((xBad || yBad)){
+      const pos = uiPosFromNodeGPS(m)
+      if(pos){ m.x = snapToGrid(pos.x, state.gridStep); m.y = snapToGrid(pos.y, state.gridStep); changed = true }
+    }
+  })
+  if(changed) notify('graph:update')
 }
 
 // Mutators used by interactions

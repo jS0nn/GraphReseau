@@ -26,24 +26,26 @@ export function initForms(){
       const n = state.nodes.find(n=>n.id===nid)
       if(!n){ showNone(); return }
       showNode()
-      const T = (n.type||'PUITS').toUpperCase()
-      setDisplay('grpDiameter', (T==='PUITS'||T==='CANALISATION'||T==='VANNE'))
+      const T = (n.type||'OUVRAGE').toUpperCase()
+      setDisplay('grpDiameter', (T==='OUVRAGE'||T==='CANALISATION'))
       setDisplay('grpCanal', T==='CANALISATION')
-      setDisplay('grpWell', T==='PUITS')
+      setDisplay('grpWell', T==='OUVRAGE')
       setDisplay('grpInline', (T==='POINT_MESURE'||T==='VANNE'))
       nodeForm.name.value = n.name||''
-      nodeForm.type.value = (n.type||'PUITS')
-      nodeForm.x.value = Math.round(+n.x||0)
-      nodeForm.y.value = Math.round(+n.y||0)
+      nodeForm.type.value = (n.type||'OUVRAGE')
+      nodeForm.x_UI.value = Math.round(+(n.x ?? 0))
+      nodeForm.y_UI.value = Math.round(+(n.y ?? 0))
       if('diameter_mm' in n && nodeForm.diameter_mm) nodeForm.diameter_mm.value = (n.diameter_mm===''||n.diameter_mm==null)?'':n.diameter_mm
+      if('sdr_ouvrage' in n && nodeForm.sdr_ouvrage) nodeForm.sdr_ouvrage.value = (n.sdr_ouvrage===''||n.sdr_ouvrage==null)?'':n.sdr_ouvrage
       if('gps_lat' in n && nodeForm.gps_lat) nodeForm.gps_lat.value = (n.gps_lat===''||n.gps_lat==null)?'':n.gps_lat
       if('gps_lon' in n && nodeForm.gps_lon) nodeForm.gps_lon.value = (n.gps_lon===''||n.gps_lon==null)?'':n.gps_lon
+      if('commentaire' in n && nodeForm.commentaire) nodeForm.commentaire.value = n.commentaire||''
       // Canalisation extras: render simple children list + add shortcuts
       const seq = document.getElementById('seqList')
       if(seq){
         seq.innerHTML = ''
         if(T==='CANALISATION') renderCanalSequence(n, seq)
-        if(T==='PUITS') renderWellSection(n)
+        if(T==='OUVRAGE') renderWellSection(n)
         if(T==='POINT_MESURE' || T==='VANNE') renderInlineSection(n)
       }
     } else if(eid){
@@ -82,8 +84,12 @@ export function initForms(){
         y: nodeForm.y.value===''? '' : +nodeForm.y.value,
       }
       if(nodeForm.diameter_mm) patch.diameter_mm = (nodeForm.diameter_mm.value===''? '' : +nodeForm.diameter_mm.value)
+      if(nodeForm.x_UI) patch.x_ui = (nodeForm.x_UI.value===''? '' : +nodeForm.x_UI.value)
+      if(nodeForm.y_UI) patch.y_ui = (nodeForm.y_UI.value===''? '' : +nodeForm.y_UI.value)
+      if(nodeForm.sdr_ouvrage) patch.sdr_ouvrage = nodeForm.sdr_ouvrage.value
       if(nodeForm.gps_lat) patch.gps_lat = (nodeForm.gps_lat.value===''? '' : +nodeForm.gps_lat.value)
       if(nodeForm.gps_lon) patch.gps_lon = (nodeForm.gps_lon.value===''? '' : +nodeForm.gps_lon.value)
+      if(nodeForm.commentaire) patch.commentaire = nodeForm.commentaire.value
       updateNode(id, patch)
     })
   }
@@ -152,7 +158,7 @@ function renderCanalSequence(canal, seqContainer){
     row.innerHTML=''
     const tokens = buildCanalSequence(canal.id)
     tokens.forEach((t, idx)=>{
-      const n = state.nodes.find(x=>x.id===t.id) || { id:t.id, type: (t.kind==='W'?'PUITS': 'POINT_MESURE') }
+      const n = state.nodes.find(x=>x.id===t.id) || { id:t.id, type: (t.kind==='W'?'OUVRAGE': 'POINT_MESURE') }
       const el = chipWithRm(t.kind, n, (node)=>{
         if(!confirm('Retirer cet élément de la séquence ?')) return
         if(t.kind==='W'){
@@ -198,12 +204,51 @@ function renderCanalSequence(canal, seqContainer){
     const wellsCount = document.getElementById('unassignedWellsCount')
     const pmsCount = document.getElementById('unassignedPMsCount')
     const vannesCount = document.getElementById('unassignedVannesCount')
+
+    const norm = (s)=> String(s||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase()
+    const filterBy = (list, q)=>{
+      const qq = norm(q||'').trim()
+      if(!qq) return list
+      // Support simple substring matching (all tokens)
+      const tokens = qq.split(/\s+/).filter(Boolean)
+      return list.filter(n => {
+        const hay = norm(n.name||n.id)
+        return tokens.every(t => hay.includes(t))
+      })
+    }
+    const MAX_CHIPS = 250 // cap DOM for performance
+
     if(wellsWrap){
+      const search = document.getElementById('cwSearch')
+      const q = search ? search.value : ''
       wellsWrap.innerHTML=''
-      const available = state.nodes.filter(n => n.type==='PUITS' && !n.well_collector_id)
-      if(wellsCount) wellsCount.textContent = available.length ? `(${available.length})` : '(0)'
-      if(!available.length){ const sm=document.createElement('small'); sm.style.color='var(--muted)'; sm.textContent='Aucun'; wellsWrap.appendChild(sm) }
-      available.forEach(n=>{
+      const isAssignedToAnyCanal = (n)=> state.edges.some(e => {
+        const from = state.nodes.find(x=> x.id===(e.source??e.from_id))
+        const to   = state.nodes.find(x=> x.id===(e.target??e.to_id))
+        return from && to && (to.id===n.id) && (from?.type==='CANALISATION' || from?.type==='COLLECTEUR')
+      })
+      const all = state.nodes.filter(n => n.type==='OUVRAGE' && !isAssignedToAnyCanal(n))
+      const available = filterBy(all, q)
+      if(wellsCount) wellsCount.textContent = available.length ? `(${available.length}${q?`/${all.length}`:''})` : '(0)'
+      if(search && !search.__wired__){
+        search.__wired__ = true
+        search.oninput = ()=> rebuildUnassigned()
+        search.onkeydown = (e)=>{
+          if(e.key==='Escape'){ search.value=''; rebuildUnassigned(); return }
+          if(e.key==='Enter'){
+            const first = available[0]
+            if(first){
+              const pos = Array.isArray(canal.collector_well_ids) ? canal.collector_well_ids.length : 0
+              moveWellToCanal(first.id, canal.id, { position: pos })
+              updateNode(canal.id, { __touch: Date.now() })
+              search.select()
+              rebuild(); rebuildUnassigned()
+            }
+          }
+        }
+      }
+      if(!available.length){ const sm=document.createElement('small'); sm.style.color='var(--muted)'; sm.textContent=q? 'Aucun résultat' : 'Aucun'; wellsWrap.appendChild(sm) }
+      available.slice(0, MAX_CHIPS).forEach(n=>{
         const c = chip(`➕ ${n.name||n.id}`); c.classList.add('ghost'); c.style.cursor='pointer'; c.title='Ajouter à cette canalisation'
         c.onclick = ()=>{
           moveWellToCanal(n.id, canal.id, { position: (canal.collector_well_ids||[]).length })
@@ -212,13 +257,30 @@ function renderCanalSequence(canal, seqContainer){
         }
         wellsWrap.appendChild(c)
       })
+      if(available.length>MAX_CHIPS){ const sm=document.createElement('small'); sm.style.color='var(--muted)'; sm.textContent=`(+${available.length-MAX_CHIPS} autres — affinez la recherche)`; wellsWrap.appendChild(sm) }
     }
     if(pmsWrap){
+      const search = document.getElementById('pmSearch')
+      const q = search ? search.value : ''
       pmsWrap.innerHTML=''
-      const available = state.nodes.filter(n => n.type==='POINT_MESURE' && !n.pm_collector_id)
-      if(pmsCount) pmsCount.textContent = available.length ? `(${available.length})` : '(0)'
-      if(!available.length){ const sm=document.createElement('small'); sm.style.color='var(--muted)'; sm.textContent='Aucun'; pmsWrap.appendChild(sm) }
-      available.forEach(n=>{
+      const all = state.nodes.filter(n => n.type==='POINT_MESURE' && !n.pm_collector_id)
+      const available = filterBy(all, q)
+      if(pmsCount) pmsCount.textContent = available.length ? `(${available.length}${q?`/${all.length}`:''})` : '(0)'
+      if(search && !search.__wired__){ search.__wired__=true; search.oninput = ()=> rebuildUnassigned(); search.onkeydown = (e)=>{
+        if(e.key==='Escape'){ search.value=''; rebuildUnassigned(); return }
+        if(e.key==='Enter'){
+          const first = available[0]
+          if(first){
+            const pos = Array.isArray(canal.collector_well_ids) ? canal.collector_well_ids.length : 0
+            moveInlineToCanal(first.id, canal.id, pos)
+            updateNode(canal.id, { __touch: Date.now() })
+            search.select()
+            rebuild(); rebuildUnassigned()
+          }
+        }
+      } }
+      if(!available.length){ const sm=document.createElement('small'); sm.style.color='var(--muted)'; sm.textContent=q? 'Aucun résultat' : 'Aucun'; pmsWrap.appendChild(sm) }
+      available.slice(0, MAX_CHIPS).forEach(n=>{
         const c = chip(`➕ ${n.name||n.id}`); c.classList.add('ghost'); c.style.cursor='pointer'; c.title='Ajouter à cette canalisation'
         c.onclick = ()=>{
           const pos = Array.isArray(canal.collector_well_ids) ? canal.collector_well_ids.length : 0
@@ -228,13 +290,30 @@ function renderCanalSequence(canal, seqContainer){
         }
         pmsWrap.appendChild(c)
       })
+      if(available.length>MAX_CHIPS){ const sm=document.createElement('small'); sm.style.color='var(--muted)'; sm.textContent=`(+${available.length-MAX_CHIPS} autres — affinez la recherche)`; pmsWrap.appendChild(sm) }
     }
     if(vannesWrap){
+      const search = document.getElementById('vanSearch')
+      const q = search ? search.value : ''
       vannesWrap.innerHTML=''
-      const available = state.nodes.filter(n => n.type==='VANNE' && !n.pm_collector_id)
-      if(vannesCount) vannesCount.textContent = available.length ? `(${available.length})` : '(0)'
-      if(!available.length){ const sm=document.createElement('small'); sm.style.color='var(--muted)'; sm.textContent='Aucun'; vannesWrap.appendChild(sm) }
-      available.forEach(n=>{
+      const all = state.nodes.filter(n => n.type==='VANNE' && !n.pm_collector_id)
+      const available = filterBy(all, q)
+      if(vannesCount) vannesCount.textContent = available.length ? `(${available.length}${q?`/${all.length}`:''})` : '(0)'
+      if(search && !search.__wired__){ search.__wired__=true; search.oninput = ()=> rebuildUnassigned(); search.onkeydown = (e)=>{
+        if(e.key==='Escape'){ search.value=''; rebuildUnassigned(); return }
+        if(e.key==='Enter'){
+          const first = available[0]
+          if(first){
+            const pos = Array.isArray(canal.collector_well_ids) ? canal.collector_well_ids.length : 0
+            moveInlineToCanal(first.id, canal.id, pos)
+            updateNode(canal.id, { __touch: Date.now() })
+            search.select()
+            rebuild(); rebuildUnassigned()
+          }
+        }
+      } }
+      if(!available.length){ const sm=document.createElement('small'); sm.style.color='var(--muted)'; sm.textContent=q? 'Aucun résultat' : 'Aucun'; vannesWrap.appendChild(sm) }
+      available.slice(0, MAX_CHIPS).forEach(n=>{
         const c = chip(`➕ ${n.name||n.id}`); c.classList.add('ghost'); c.style.cursor='pointer'; c.title='Ajouter à cette canalisation'
         c.onclick = ()=>{
           const pos = Array.isArray(canal.collector_well_ids) ? canal.collector_well_ids.length : 0
@@ -244,6 +323,7 @@ function renderCanalSequence(canal, seqContainer){
         }
         vannesWrap.appendChild(c)
       })
+      if(available.length>MAX_CHIPS){ const sm=document.createElement('small'); sm.style.color='var(--muted)'; sm.textContent=`(+${available.length-MAX_CHIPS} autres — affinez la recherche)`; vannesWrap.appendChild(sm) }
     }
   }
   rebuildUnassigned()
@@ -301,7 +381,7 @@ function renderCanalSequence(canal, seqContainer){
     const btnNewW = document.getElementById('cwAddNewBtn')
     if(btnNewW){
       btnNewW.onclick = ()=>{
-        const w = addNode({ type:'PUITS', x:(canal.x||0)+40, y:(canal.y||0)+120 })
+        const w = addNode({ type:'OUVRAGE', x:(canal.x||0)+40, y:(canal.y||0)+120 })
         moveWellToCanal(w.id, canal.id, { position: (canal.collector_well_ids||[]).length })
         updateNode(canal.id, { __touch: Date.now() })
       }
@@ -345,7 +425,7 @@ function renderWellSection(well){
         // Apply move first
         moveWellToCanal(well.id, newId, { position: pos })
         // Status uses intended destination + end-position (pos+1)
-        setStatus(`Puits ajouté à ${(dst?.name||dst?.id||'—')} (#${pos+1})`)
+        setStatus(`Ouvrage ajouté à ${(dst?.name||dst?.id||'—')} (#${pos+1})`)
         // Keep selection on the well (triggers refresh)
         try{ selectNodeById(well.id) }catch{}
       }

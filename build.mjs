@@ -38,7 +38,6 @@ async function buildJS(){
       path.join(webDir, 'src', 'editor.js'),
       // Ensure dynamic imports exist as standalone bundles for runtime
       path.join(webDir, 'src', 'editor.boot.js'),
-      path.join(webDir, 'src', 'legacy-editor.js'),
     ],
     bundle: true,
     splitting: false,

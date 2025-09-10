@@ -21,8 +21,8 @@ export function toCompact(graph){
     diameter_mm: n.diameter_mm ?? undefined,
     collector_well_ids: isCanal(n) ? (n.collector_well_ids || []) : undefined,
     child_canal_ids: isCanal(n) ? (n.child_canal_ids || []) : undefined,
-    well_collector_id: n.type==='PUITS' ? (n.well_collector_id || '') : undefined,
-    well_pos_index: n.type==='PUITS' ? (+n.well_pos_index || null) : undefined,
+    well_collector_id: n.type==='OUVRAGE' ? (n.well_collector_id || '') : undefined,
+    well_pos_index: n.type==='OUVRAGE' ? (+n.well_pos_index || null) : undefined,
     pm_collector_id: (n.type==='POINT_MESURE'||n.type==='VANNE') ? (n.pm_collector_id || '') : undefined,
     pm_pos_index: (n.type==='POINT_MESURE'||n.type==='VANNE') ? (+n.pm_pos_index || 0) : undefined,
     pm_offset_m: (n.type==='POINT_MESURE'||n.type==='VANNE') ? (n.pm_offset_m || '') : undefined,
@@ -34,7 +34,7 @@ export function toNodeEdge(graph){
   const nodes = graph.nodes || []
   const edges = graph.edges || []
   const Nmap = new Map(nodes.map(n => [n.id, n]))
-  const isWell = n => n?.type==='PUITS'
+  const isWell = n => n?.type==='OUVRAGE'
   const isCan  = n => n?.type==='CANALISATION' || n?.type==='COLLECTEUR'
   const isOther= n => n && !isWell(n) && !isCan(n)
   const compiledNodes = []

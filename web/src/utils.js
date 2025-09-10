@@ -62,7 +62,7 @@ export function download(data, name, mime='application/json'){
 // Default name by type (legacy-like)
 export function defaultName(type, nodes){
   const T = (type==='COLLECTEUR') ? 'CANALISATION' : (type||'N')
-  const baseMap = { PUITS:'puit', CANALISATION:'cana', COLLECTEUR:'cana', PLATEFORME:'pl', VANNE:'vanne', POINT_MESURE:'pm' }
+  const baseMap = { OUVRAGE:'ouvr', CANALISATION:'cana', COLLECTEUR:'cana', GENERAL:'gen', VANNE:'vanne', POINT_MESURE:'pm' }
   const base = baseMap[T] || 'n'
   const exists = (name) => Array.isArray(nodes) && nodes.some(n=> (n.name||'').toLowerCase() === name.toLowerCase())
   let k = 1

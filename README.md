@@ -53,6 +53,19 @@ Endpoints:
     - Sheets: `source=sheet&sheet_id=...&nodes_tab=nodes&edges_tab=edges`
     - GCS JSON: `source=gcs_json&gcs_uri=gs://bucket/path/graph.json` (ou `file:///path/graph.json` en dev)
     - BigQuery: `source=bigquery&bq_project=...&bq_dataset=...&bq_nodes=nodes&bq_edges=edges`
+  - Filtrage optionnel par site (si la colonne `idSite1` est présente dans le Sheet): `&site_id=<ID_SITE>`
+  - Contrôle strict (recommandé): définir `REQUIRE_SITE_ID=1` pour exiger qu'un `site_id` soit fourni (ou via `SITE_ID_FILTER_DEFAULT`).
+
+### Migration depuis un Sheet existant (colonnes métier)
+- Script: `scripts/migrate_nodes_from_sheet.py`
+- Utilisation (Linux/macOS):
+  - `SOURCE_SHEET_ID=1gDB6Y8NbaNl_ZWgAlrdMlAQ41AekYdIca6eexkzxQkw SITE_ID_FILTER=356c469e npm run migrate:nodes`
+  - ou directement: `python scripts/migrate_nodes_from_sheet.py --source-sheet-id <SRC_ID> --dest-sheet-id "$SHEET_ID_DEFAULT" --site-id-filter 356c469e`
+- Le script écrit l’onglet `Nodes` au format FR V5 et ajoute à droite les colonnes métiers: `idOuvragReseauBiogaz,idSite1,site,Regroupement,Canalisation,Casier,emplacement,typeDePointDeMesure,commentaire,diametreExterieur,diametreInterieur,sdrOuvrage,actif,lat,long,dateAjoutligne`.
+- Pour les tests de dev, vous pouvez définir `SITE_ID_FILTER_DEFAULT=356c469e` dans `.env.dev` (utilisé comme filtre par défaut si aucun `site_id` n’est fourni).
+  - En dev, vous pouvez aussi mettre `REQUIRE_SITE_ID=1` dans `.env.dev` pour obliger la sélection d'un site à la lecture/écriture Sheets.
+
+Note: les sauvegardes depuis l’UI écrivent l’onglet `Nodes` au format FR V5 (en-têtes normalisés) et n’incluent pas les colonnes métiers ajoutées par le script de migration. Évitez d’écraser ces colonnes ou travaillez sur une copie dédiée si nécessaire.
 - Embed: `GET /embed/editor?k=dev-embed-key&sheet_id=...&mode=ro`
 
 ## Déploiement Cloud Run (source)
@@ -88,9 +101,9 @@ gcloud run deploy editeur-reseau-api \
   - Code source dans `web/`, bundlé par `esbuild` dans `app/static/bundle`.
   - `vendor.js` expose D3/ELK sans CDN; polices et icônes copiées en local (`app/static/vendor`).
   - Entrées JS bundlées:
-    - `editor.js` (éditeur — porte aujourd’hui le portage legacy).
+    - `editor.js` (éditeur modulaire — UI principale).
     - `main.js` (viewer minimal pour tests de bout‑en‑bout).
-  - En V1 du portage, l’embed affiche un statut et charge les données; le rendu complet (SVG, modes…) arrive par étapes.
+  - L’éditeur modulaire est complet (rendu SVG, interactions, formulaires, layout, exports) — aucun fallback legacy.
 
 ## L’embed, simplement
 - Quoi: une page HTML spécifique, intégrable en iframe (Looker Studio, Google Sites) pour consulter l’éditeur en lecture seule.

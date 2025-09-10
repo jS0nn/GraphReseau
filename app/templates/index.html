@@ -24,9 +24,9 @@
       <div class="menu-add">
         <button class="btn" id="addBtn"><i class="uil uil-plus"></i> Ajouter</button>
         <div class="menu" id="addMenu">
-          <div class="item" data-add="PUITS"><i class="uil uil-water"></i> Puits</div>
+          <div class="item" data-add="OUVRAGE"><i class="uil uil-water"></i> Ouvrage</div>
           <div class="item" data-add="CANALISATION"><i class="uil uil-circuit"></i> Canalisation</div>
-          <div class="item" data-add="PLATEFORME"><i class="uil uil-constructor"></i> Plateforme</div>
+          <div class="item" data-add="GENERAL"><i class="uil uil-constructor"></i> Général</div>
           <div class="item" data-add="VANNE"><i class="uil uil-sliders-v"></i> Vanne</div>
           <div class="item" data-add="POINT_MESURE"><i class="uil uil-analytics"></i> Point de mesure</div>
         </div>
@@ -76,19 +76,23 @@
               <label>Nom <input name="name" placeholder="ex. P-012"></label>
               <label>Type
                 <select name="type">
-                  <option>PUITS</option>
+                  <option>OUVRAGE</option>
                   <option>CANALISATION</option>
-                  <option>PLATEFORME</option>
+                  <option>GENERAL</option>
                   <option>VANNE</option>
                   <option>POINT_MESURE</option>
                 </select>
               </label>
               <div id="grpDiameter" style="display:none">
-                <label>Diamètre (mm) <input name="diameter_mm" type="number" min="0"></label>
+                <label>Diamètre extérieur (mm) <input name="diameter_mm" type="number" min="0"></label>
+                <label>SDR <input name="sdr_ouvrage" placeholder="ex. SDR11 ou 11"></label>
               </div>
+              <label>Commentaire
+                <textarea name="commentaire" rows="2" placeholder="Notes libres"></textarea>
+              </label>
             </details>
             <details id="grpWell" open style="display:none">
-              <summary>Puits — Affectation</summary>
+              <summary>Ouvrage — Affectation</summary>
               <label>Canalisation</label>
               <select id="wellCanalSelect"></select>
               <label>Position (info)
@@ -101,25 +105,28 @@
                 <summary>Ordre (amont → aval)</summary>
                 <div class="chips" id="seqList" aria-label="séquence puits/mesures/vannes"></div>
                 <small style="color:var(--muted); display:block; margin-top:8px">
-                  Puits ↔ arête <b>Canalisation → Puits</b>. Les PM & Vannes s’insèrent entre les puits.
+                  Ouvrage ↔ arête <b>Canalisation → Ouvrage</b>. Les PM & Vannes s’insèrent entre les ouvrages.
                 </small>
               </details>
               <details id="grpUnassigned">
                 <summary>Ajouter</summary>
-                <div style="display:flex; align-items:center; gap:8px; margin-top:6px">
-                  <div style="min-width:140px; color:var(--muted)">Puits <span id="unassignedWellsCount"></span></div>
-                  <div class="chips" id="unassignedWells"></div>
-                  <button type="button" class="btn" id="cwAddNewBtn">Nouveau puits</button>
+                <div style="display:grid; grid-template-columns:1fr; gap:6px; margin-top:6px">
+                  <div style="color:var(--muted)">Ouvrages <span id="unassignedWellsCount"></span></div>
+                  <input id="cwSearch" placeholder="Rechercher… (ex. p1)" aria-label="Recherche ouvrages" />
+                  <div class="chips" id="unassignedWells" style="max-height: 180px; overflow:auto; min-height:36px"></div>
+                  <div style="display:flex; justify-content:flex-end"><button type="button" class="btn" id="cwAddNewBtn">Nouvel ouvrage</button></div>
                 </div>
-                <div style="display:flex; align-items:center; gap:8px; margin-top:6px">
-                  <div style="min-width:140px; color:var(--muted)">Points de mesure <span id="unassignedPMsCount"></span></div>
-                  <div class="chips" id="unassignedPMs"></div>
-                  <button type="button" class="btn" id="pmAddNewBtn">Nouveau PM</button>
+                <div style="display:grid; grid-template-columns:1fr; gap:6px; margin-top:6px">
+                  <div style="color:var(--muted)">Points de mesure <span id="unassignedPMsCount"></span></div>
+                  <input id="pmSearch" placeholder="Rechercher… (ex. p1)" aria-label="Recherche points de mesure" />
+                  <div class="chips" id="unassignedPMs" style="max-height: 180px; overflow:auto; min-height:36px"></div>
+                  <div style="display:flex; justify-content:flex-end"><button type="button" class="btn" id="pmAddNewBtn">Nouveau PM</button></div>
                 </div>
-                <div style="display:flex; align-items:center; gap:8px; margin-top:6px">
-                  <div style="min-width:140px; color:var(--muted)">Vannes <span id="unassignedVannesCount"></span></div>
-                  <div class="chips" id="unassignedVannes"></div>
-                  <button type="button" class="btn" id="vanAddNewBtn">Nouvelle vanne</button>
+                <div style="display:grid; grid-template-columns:1fr; gap:6px; margin-top:6px">
+                  <div style="color:var(--muted)">Vannes <span id="unassignedVannesCount"></span></div>
+                  <input id="vanSearch" placeholder="Rechercher… (ex. v1)" aria-label="Recherche vannes" />
+                  <div class="chips" id="unassignedVannes" style="max-height: 180px; overflow:auto; min-height:36px"></div>
+                  <div style="display:flex; justify-content:flex-end"><button type="button" class="btn" id="vanAddNewBtn">Nouvelle vanne</button></div>
                 </div>
               </details>
               <details id="grpBranches">
@@ -142,8 +149,8 @@
             </details>
             <details id="grpPos" open>
               <summary>Position & GPS</summary>
-              <label>X <input name="x" type="number" step="1"></label>
-              <label>Y <input name="y" type="number" step="1"></label>
+              <label>X <input name="x_UI" type="number" step="1"></label>
+              <label>Y <input name="y_UI" type="number" step="1"></label>
               <label>Latitude <input name="gps_lat" type="number" step="0.000001"></label>
               <label>Longitude <input name="gps_lon" type="number" step="0.000001"></label>
             </details>
@@ -190,7 +197,7 @@
               <li>Canalisation→Canalisation : ordre des <b>enfants</b> dans la fiche du parent.</li>
             </ul>
           </li>
-          <li><b>PUITS/PM/Vanne</b> : la <b>position</b> est gérée dans la fiche <b>Canalisation</b> (séquence). Depuis leur fiche, tu peux changer la <b>canalisation</b>.</li>
+          <li><b>OUVRAGE/PM/Vanne</b> : la <b>position</b> est gérée dans la fiche <b>Canalisation</b> (séquence). Depuis leur fiche, tu peux changer la <b>canalisation</b>.</li>
           <li><b>Raccourcis</b> : Ctrl/Cmd+Z (Annuler), Ctrl/Cmd+Y (Rétablir), Ctrl/Cmd+C / Ctrl/Cmd+V (Copier/Coller), L (Agencer), C (Connecter).</li>
         </ul>
         <footer><button id="helpCloseBtn" class="btn">Fermer</button></footer>

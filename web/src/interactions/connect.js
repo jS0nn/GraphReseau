@@ -10,8 +10,8 @@ function highlightPotentialTargets(gNodes, on){
     if(!on || !src) return false
     const T = (src.type||'').toUpperCase()
     const DT = (d.type||'').toUpperCase()
-    if(T==='PUITS') return DT==='CANALISATION' || DT==='COLLECTEUR'
-    if(T==='CANALISATION' || T==='COLLECTEUR') return DT==='PUITS' || DT==='POINT_MESURE' || DT==='VANNE' || DT==='CANALISATION' || DT==='COLLECTEUR'
+    if(T==='OUVRAGE') return DT==='CANALISATION' || DT==='COLLECTEUR'
+    if(T==='CANALISATION' || T==='COLLECTEUR') return DT==='OUVRAGE' || DT==='POINT_MESURE' || DT==='VANNE' || DT==='CANALISATION' || DT==='COLLECTEUR'
     if(T==='POINT_MESURE' || T==='VANNE') return DT==='CANALISATION' || DT==='COLLECTEUR'
     return true
   })

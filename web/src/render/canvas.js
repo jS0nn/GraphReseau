@@ -25,7 +25,8 @@ export function initCanvas(){
       // Other events: default allow
       return true
     })
-    .scaleExtent([0.25, 2])
+    // Allow wider zoom range so zoom-fit can always include all elements
+    .scaleExtent([0.02, 5])
     .on('zoom', (e)=> root.attr('transform', e.transform))
   svg.call(zoom)
 
