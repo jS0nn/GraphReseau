@@ -23,6 +23,9 @@ export function setGraph(graph){
   const nodes = rawNodes.map(n => {
     const m = { ...n }
     if(m && m.type==='COLLECTEUR') m.type='CANALISATION'
+    if(m && m.type==='PLATEFORME') m.type='GENERAL'
+    if(m && (m.type==='GÉNÉRAL' || m.type==='Général' || m.type==='general')) m.type='GENERAL'
+    if(m && m.type==='PUITS') m.type='OUVRAGE'
     // Coerce numeric fields to number or null to avoid '' roundtrip
     const numKeys = ['x','y','diameter_mm','gps_lat','gps_lon','well_pos_index','pm_pos_index','pm_offset_m']
     numKeys.forEach(k => {
@@ -35,6 +38,57 @@ export function setGraph(graph){
   // Normalize edges to canonical from_id/to_id
   const rawEdges = Array.isArray(graph?.edges) ? graph.edges.slice() : []
   state.edges = rawEdges.map(e => ({ id: e.id, from_id: e.from_id ?? e.source, to_id: e.to_id ?? e.target, active: e.active !== false }))
+
+  // Fix direction for OUVRAGE↔CANALISATION edges: must be CANALISATION → OUVRAGE
+  state.edges.forEach(e => {
+    const a = state.nodes.find(n=>n.id===(e.from_id??e.source))
+    const b = state.nodes.find(n=>n.id===(e.to_id??e.target))
+    const isWell = (n)=> n?.type==='OUVRAGE'
+    if(isWell(a) && isCanal(b)){
+      const tmp = e.from_id; e.from_id = e.to_id; e.to_id = tmp
+    }
+    // Also handle potential legacy 'COLLECTEUR' types not remapped yet
+    if(isWell(a) && (b?.type==='COLLECTEUR')){
+      const tmp = e.from_id; e.from_id = e.to_id; e.to_id = tmp
+    }
+  })
+
+  // Derive collector relationships from edges if missing/empty
+  const byId = new Map(state.nodes.map(n=>[n.id, n]))
+  // Reset derived fields to avoid stale data
+  state.nodes.forEach(n => {
+    if(isCanal(n)){
+      n.collector_well_ids = Array.isArray(n.collector_well_ids) ? n.collector_well_ids.slice() : []
+    }
+    if(n.type==='OUVRAGE'){
+      n.well_collector_id = n.well_collector_id || ''
+      n.well_pos_index = n.well_pos_index || null
+    }
+  })
+  // Build mapping canal -> [wells]
+  const canalToWells = new Map()
+  state.edges.forEach(e => {
+    const from = byId.get(e.from_id)
+    const to = byId.get(e.to_id)
+    if(isCanal(from) && to?.type==='OUVRAGE'){
+      (canalToWells.get(from.id) || canalToWells.set(from.id, []) && canalToWells.get(from.id)).push(to.id)
+    }
+  })
+  canalToWells.forEach((arr, canalId) => {
+    const canal = byId.get(canalId)
+    if(!canal) return
+    // Use existing ordering if present, else sort by Y for stability
+    const uniq = Array.from(new Set(arr))
+    if(!Array.isArray(canal.collector_well_ids) || canal.collector_well_ids.length===0){
+      uniq.sort((a,b)=> (byId.get(a)?.y??0) - (byId.get(b)?.y??0))
+      canal.collector_well_ids = uniq
+    }
+    // Set back-references + position index
+    canal.collector_well_ids.forEach((wid, i) => {
+      const w = byId.get(wid)
+      if(w && w.type==='OUVRAGE'){ w.well_collector_id = canal.id; w.well_pos_index = i+1 }
+    })
+  })
   clearSelection()
   notify('graph:set')
 }
@@ -172,7 +226,7 @@ export function updateNode(id, patch){
 }
 
 export function addNode(partial = {}){
-  const type = (partial.type==='COLLECTEUR') ? 'CANALISATION' : (partial.type || 'PUITS')
+  const type = (partial.type==='COLLECTEUR') ? 'CANALISATION' : (partial.type || 'OUVRAGE')
   // Choose a spawn position if none provided: simple grid walk avoiding overlap
   function nextSpawn(){
     const i = state._spawnIndex++
@@ -197,7 +251,7 @@ export function removeNode(id){
   const n = state.nodes.find(x=>x.id===id)
   if(!n) return
   // Cleanup relationships like legacy
-  if(n.type==='PUITS'){
+  if(n.type==='OUVRAGE'){
     state.nodes.filter(isCanal).forEach(c => {
       if(Array.isArray(c.collector_well_ids)){
         c.collector_well_ids = c.collector_well_ids.filter(wid => wid !== n.id)
@@ -216,7 +270,7 @@ export function removeNode(id){
   }
   if(isCanal(n)){
     state.nodes.forEach(x=>{
-      if(x.type==='PUITS' && x.well_collector_id===n.id){ x.well_collector_id=''; x.well_pos_index='' }
+      if(x.type==='OUVRAGE' && x.well_collector_id===n.id){ x.well_collector_id=''; x.well_pos_index='' }
       if((x.type==='POINT_MESURE'||x.type==='VANNE') && x.pm_collector_id===n.id){ x.pm_collector_id=''; x.pm_pos_index=''; x.pm_offset_m='' }
     })
     state.nodes.filter(isCanal).forEach(c=>{ if(Array.isArray(c.child_canal_ids)) c.child_canal_ids = c.child_canal_ids.filter(cid=>cid!==n.id) })
@@ -250,7 +304,7 @@ export function removeEdge(id){
   const toNode = state.nodes.find(n=>n.id===to)
   if(fromNode && toNode){
     // canal -> well
-    if(isCanal(fromNode) && toNode.type==='PUITS'){
+    if(isCanal(fromNode) && toNode.type==='OUVRAGE'){
       if(Array.isArray(fromNode.collector_well_ids)){
         fromNode.collector_well_ids = fromNode.collector_well_ids.filter(x=>x!==toNode.id)
         fromNode.collector_well_ids.forEach((wid, idx)=>{
@@ -299,7 +353,7 @@ function appendWellToCanal(canal, well){
   if(!Array.isArray(canal.collector_well_ids)) canal.collector_well_ids = []
   if(!canal.collector_well_ids.includes(well.id)) canal.collector_well_ids.push(well.id)
   // Keep only existing wells
-  canal.collector_well_ids = canal.collector_well_ids.filter(id => state.nodes.some(n => n.id===id && n.type==='PUITS'))
+  canal.collector_well_ids = canal.collector_well_ids.filter(id => state.nodes.some(n => n.id===id && n.type==='OUVRAGE'))
   // Re-number wells and set back-reference
   canal.collector_well_ids.forEach((id,i)=>{
     const w = state.nodes.find(n => n.id === id)
@@ -323,7 +377,7 @@ export function connectByRules(sourceId, targetId){
   const b = state.nodes.find(n => n.id === targetId)
   if(!a || !b || a.id===b.id) return { ok:false }
   const isInline = n => n?.type==='POINT_MESURE' || n?.type==='VANNE'
-  const isWell = n => n?.type==='PUITS'
+  const isWell = n => n?.type==='OUVRAGE'
   const isOther = n => n && !isInline(n) && !isWell(n) && !isCanal(n)
   // Inline ↔ Canalisation
   if((isInline(a) && isCanal(b)) || (isInline(b) && isCanal(a))){
@@ -377,7 +431,7 @@ export function connectByRules(sourceId, targetId){
 
 // Exposed helpers for UI operations
 export function moveWellToCanal(wellId, canalId, { position } = {}){
-  const well = state.nodes.find(n=>n.id===wellId && n.type==='PUITS')
+  const well = state.nodes.find(n=>n.id===wellId && n.type==='OUVRAGE')
   const canal = state.nodes.find(n=>n.id===canalId && isCanal(n))
   if(!well || !canal) return
   // Remove existing canal->well edges from other canals and any well-originating edges

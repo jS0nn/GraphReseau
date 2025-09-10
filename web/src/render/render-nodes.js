@@ -11,7 +11,8 @@ export function renderNodes(gNodes, nodes){
   for(const n of nodes){ if(n && n.id && !seen.has(n.id)){ seen.add(n.id); unique.push(n) } }
   const sel = gNodes.selectAll('g.node').data(unique, d => d.id)
 
-  const enter = sel.enter().append('g').attr('class', d => `node ${d.type||''}`)
+  const cls = (t) => String(t||'').toUpperCase()
+  const enter = sel.enter().append('g').attr('class', d => `node ${cls(d.type)}`)
     .attr('transform', d => `translate(${d.x||0},${d.y||0})`)
 
   // Visual box
@@ -25,7 +26,7 @@ export function renderNodes(gNodes, nodes){
   sel.merge(enter)
     .attr('class', d => {
       const isSel = state.selection.nodeId===d.id || (state.selection.multi && state.selection.multi.has(d.id))
-      return `node ${d.type||''} ${isSel?'selected':''}`
+      return `node ${cls(d.type)} ${isSel?'selected':''}`
     })
     .attr('transform', d => `translate(${d.x||0},${d.y||0})`)
     .select('text.label').text(d => d.name||d.id)
@@ -38,7 +39,7 @@ export const NODE_SIZE = { w: NODE_W, h: NODE_H }
 
 function formatSublabel(nd){
   const T = (nd.type||'').toUpperCase()
-  if(T==='PUITS'){
+  if(T==='OUVRAGE'){
     const canal = state.nodes.find(n=>n.id===nd.well_collector_id)
     const pos = +nd.well_pos_index || 0
     if(canal && pos>0) return `${canal.name||canal.id} · #${pos}`
@@ -66,6 +67,9 @@ function formatSublabel(nd){
     const idx = siblings.indexOf(nd.id)
     const total = siblings.length
     return `↳ ${parent?.name||'—'} · #${idx+1}/${total}`
+  }
+  if(T==='GENERAL'){
+    return 'Général'
   }
   return ''
 }

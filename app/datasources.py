@@ -24,7 +24,12 @@ def _parse_gs_uri(uri: str) -> Tuple[str, str]:
 
 
 # Sheets loader/saver
-def loadSheet(sheet_id: str | None = None, nodes_tab: str | None = None, edges_tab: str | None = None) -> Graph:
+def loadSheet(
+    sheet_id: str | None = None,
+    nodes_tab: str | None = None,
+    edges_tab: str | None = None,
+    site_id: str | None = None,
+) -> Graph:
     sid = sheet_id or settings.sheet_id_default
     if not sid:
         raise HTTPException(status_code=400, detail="sheet_id required")
@@ -32,6 +37,7 @@ def loadSheet(sheet_id: str | None = None, nodes_tab: str | None = None, edges_t
         sid,
         nodes_tab or settings.sheet_nodes_tab,
         edges_tab or settings.sheet_edges_tab,
+        site_id=site_id,
     )
 
 
@@ -166,7 +172,8 @@ def loadBQ(
                 yield Edge(id=d.get('id'), from_id=str(from_id), to_id=str(to_id), active=bool(active) if active is not None else True)
 
         nodes = [n for n in to_nodes() if getattr(n, "id", None)]
-        edges = [e for e in to_edges() if getattr(e, "source", None) and getattr(e, "target", None)]
+        # Filter only edges that have both endpoints defined (from_id/to_id)
+        edges = [e for e in to_edges() if getattr(e, "from_id", None) and getattr(e, "to_id", None)]
         return Graph(nodes=nodes, edges=edges)
     except Exception as exc:
         raise HTTPException(status_code=501, detail=f"bigquery_unavailable: {exc}")
@@ -184,10 +191,14 @@ def load_graph(
 ) -> Graph:
     s = (source or settings.data_source_default or "sheet").lower()
     if s in {"sheet", "sheets", "google_sheets"}:
+        site = kwargs.get("site_id") or settings.site_id_filter_default or None
+        if settings.require_site_id and not site:
+            raise HTTPException(status_code=400, detail="site_id required (set query param site_id or SITE_ID_FILTER_DEFAULT)")
         return loadSheet(
             sheet_id=kwargs.get("sheet_id"),
             nodes_tab=kwargs.get("nodes_tab"),
             edges_tab=kwargs.get("edges_tab"),
+            site_id=site,
         )
     if s in {"gcs", "gcs_json", "json"}:
         return loadJson(gcs_uri=kwargs.get("gcs_uri"))
@@ -206,6 +217,9 @@ def save_graph(source: str | None = None, graph: Graph | None = None, **kwargs: 
         raise HTTPException(status_code=400, detail="graph payload required")
     s = (source or settings.data_source_default or "sheet").lower()
     if s in {"sheet", "sheets", "google_sheets"}:
+        site = kwargs.get("site_id") or settings.site_id_filter_default or None
+        if settings.require_site_id and not site:
+            raise HTTPException(status_code=400, detail="site_id required for write (set query param site_id or SITE_ID_FILTER_DEFAULT)")
         return saveSheet(
             graph,
             sheet_id=kwargs.get("sheet_id"),

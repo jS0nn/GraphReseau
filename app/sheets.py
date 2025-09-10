@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
+import re
+import unicodedata
 
 from fastapi import HTTPException
 
@@ -22,6 +24,14 @@ def _client():
 
 
 # Header sets identical to Apps Script
+NODE_HEADERS_FR_V7 = [
+    'id','nom','type','id_branche','diametre_exterieur_mm','sdr_ouvrage','commentaire',
+    'puits_amont','well_collector_id','well_pos_index','pm_collecteur_id','pm_pos_index','gps_lat','gps_lon','x','y','x_UI','y_UI'
+]
+NODE_HEADERS_FR_V6 = [
+    'id','nom','type','id_branche','diametre_exterieur_mm','sdr_ouvrage','commentaire',
+    'puits_amont','well_collector_id','well_pos_index','pm_collecteur_id','pm_pos_index','gps_lat','gps_lon','x','y'
+]
 NODE_HEADERS_FR_V5 = [
     'id','nom','type','id_branche','diametre_mm',
     'puits_amont','well_collector_id','well_pos_index','pm_collecteur_id','pm_pos_index','gps_lat','gps_lon','x','y'
@@ -51,6 +61,11 @@ EDGE_HEADERS_FR_V2 = ['id','source_id','cible_id','actif']
 EDGE_HEADERS_FR_V1 = ['id','source_id','cible_id','diametre_mm','longueur_m','actif']
 EDGE_HEADERS_EN_V1 = ['id','from_id','to_id','diameter_mm','length_m','active']
 
+EXTRA_SHEET_HEADERS = [
+    'idSite1','site','Regroupement','Canalisation','Casier','emplacement',
+    'typeDePointDeMesure','diametreInterieur','sdrOuvrage','actif','dateAjoutligne'
+]
+
 
 def _detect_header(header: List[str], candidates: List[List[str]]) -> List[str]:
     # Exact prefix match on length of candidate
@@ -68,7 +83,20 @@ def _num(v):
     try:
         if v is None or v == "":
             return None
-        return float(v)
+        if isinstance(v, (int, float)):
+            return float(v)
+        if isinstance(v, str):
+            s = v.strip()
+            if not s:
+                return None
+            # Keep digits, sign and decimal separators; normalize comma to dot
+            s2 = re.sub(r"[^0-9,\.\-]", "", s)
+            s2 = s2.replace(",", ".")
+            # Guard against strings like '-' or '.'
+            if s2 in {"-", ".", "-.", ".-"}:
+                return None
+            return float(s2)
+        return None
     except Exception:
         return None
 
@@ -103,14 +131,38 @@ def _split_ids(v) -> List[str]:
     return [p for p in parts if p]
 
 
-def _row_to_node(row: Dict[str, Any], header_set: List[str]) -> Node:
+def _map_type(t: Any) -> str:
+    if not isinstance(t, str):
+        return 'OUVRAGE'
+    s = t.strip().upper()
+    # Also build an accent-less uppercase form for robust matching
+    s_noacc = unicodedata.normalize('NFKD', s)
+    s_noacc = ''.join(ch for ch in s_noacc if not unicodedata.combining(ch))
+    # Normalize legacy/aliases to new canonical types
+    if s == 'COLLECTEUR':
+        return 'CANALISATION'
+    if s == 'PLATEFORME' or s_noacc == 'GENERAL':
+        return 'GENERAL'
+    if s == 'PUITS':
+        return 'OUVRAGE'
+    if s in {'GENERAL','CANALISATION','OUVRAGE','POINT_MESURE','VANNE'} or s_noacc in {'GENERAL','CANALISATION','OUVRAGE'}:
+        return s
+    return s or 'OUVRAGE'
+
+
+def _row_to_node(row: Dict[str, Any], header_set: List[str], full_row: Dict[str, Any] | None = None) -> Node:
     # Unified UI model
+    extras: Dict[str, Any] | None = None
+    if isinstance(full_row, dict):
+        extras = { k: full_row.get(k) for k in EXTRA_SHEET_HEADERS }
     return Node(
         id=str(row.get("id", "")).strip(),
         name=(row.get("nom") or row.get("name") or ""),
-        type=((row.get("type") or "PUITS")).upper() if isinstance(row.get("type"), str) else (row.get("type") or "PUITS"),
+        type=_map_type(row.get("type") or 'OUVRAGE'),
         branch_id=(row.get("id_branche") or row.get("branch_id") or ""),
-        diameter_mm=_num(row.get("diametre_mm") or row.get("diameter_mm")),
+        diameter_mm=_num(row.get("diametre_exterieur_mm") or row.get("diametre_mm") or row.get("diameter_mm") or row.get("diametre_exterieur") or row.get("diametreExterieur")),
+        sdr_ouvrage=(row.get("sdr_ouvrage") or row.get("sdrOuvrage") or ""),
+        commentaire=(row.get("commentaire") or ""),
         collector_well_ids=_split_ids(row.get("puits_amont") or ""),
         well_collector_id=(row.get("well_collector_id") or ""),
         well_pos_index=_int(row.get("well_pos_index")),
@@ -120,6 +172,9 @@ def _row_to_node(row: Dict[str, Any], header_set: List[str]) -> Node:
         gps_lon=_num(row.get("gps_lon")),
         x=_num(row.get("x")),
         y=_num(row.get("y")),
+        x_ui=_num(row.get("x_UI")),
+        y_ui=_num(row.get("y_UI")),
+        extras=extras,
     )
 
 
@@ -145,16 +200,28 @@ def _values_to_dicts(values: List[List[Any]], header: List[str]) -> List[Dict[st
     return rows
 
 
-def read_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str) -> Graph:
+def read_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, *, site_id: str | None = None) -> Graph:
     svc = _client()
-    resp = (
-        svc.spreadsheets()
-        .values()
-        .batchGet(spreadsheetId=sheet_id, ranges=[f"{nodes_tab}!A:Z", f"{edges_tab}!A:Z"])
-        .execute()
-    )
-    nodes_values = resp.get("valueRanges", [])[0].get("values", []) if resp.get("valueRanges") else []
-    edges_values = resp.get("valueRanges", [])[1].get("values", []) if resp.get("valueRanges") else []
+    # Read nodes independently from edges (Edges may be absent)
+    try:
+        resp_nodes = (
+            svc.spreadsheets().values().get(
+                spreadsheetId=sheet_id, range=f"{nodes_tab}!A:ZZZ"
+            ).execute()
+        )
+        nodes_values = resp_nodes.get("values", [])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"read_nodes_failed: {exc}")
+
+    try:
+        resp_edges = (
+            svc.spreadsheets().values().get(
+                spreadsheetId=sheet_id, range=f"{edges_tab}!A:ZZZ"
+            ).execute()
+        )
+        edges_values = resp_edges.get("values", [])
+    except Exception:
+        edges_values = []
 
     nodes: List[Node] = []
     edges: List[Edge] = []
@@ -164,6 +231,8 @@ def read_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str) -> Graph:
         node_header = _detect_header(
             node_header_raw,
             [
+                NODE_HEADERS_FR_V7,
+                NODE_HEADERS_FR_V6,
                 NODE_HEADERS_FR_V5,
                 NODE_HEADERS_FR_V4,
                 NODE_HEADERS_FR_V3,
@@ -172,24 +241,56 @@ def read_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str) -> Graph:
                 NODE_HEADERS_EN_V1,
             ],
         )
-        node_rows = _values_to_dicts(nodes_values[1:], node_header)
-        for row in node_rows:
-            if not row.get("id"):
+        # Build rows using the full header actually present
+        node_rows_full = _values_to_dicts(nodes_values[1:], node_header_raw)
+
+        # Optional filter by site_id when an extra column like 'idSite1' exists
+        site_col_keys = ["idSite1", "idSite"]
+
+        def row_matches_site(full_row: Dict[str, Any]) -> bool:
+            if not site_id:
+                return True
+            target = str(site_id).strip().lower()
+            for k in site_col_keys:
+                v = full_row.get(k)
+                if v is None:
+                    continue
+                txt = str(v).strip().lower()
+                if txt == target:
+                    return True
+            return False
+
+        matched_any = False
+        buffered: List[Node] = []
+        for row_full in node_rows_full:
+            if not row_full.get("id"):
                 continue
             try:
-                nodes.append(_row_to_node(row, node_header))
+                if row_matches_site(row_full):
+                    nodes.append(_row_to_node(row_full, node_header, row_full))
+                    matched_any = True
+                else:
+                    buffered.append(_row_to_node(row_full, node_header, row_full))
             except Exception:
-                # Be permissive; skip bad row
                 continue
+
+        # Dev fallback: if a site filter is provided but nothing matched, return all nodes
+        if site_id and not matched_any and buffered:
+            nodes = buffered
 
     if edges_values:
         edge_header_raw = edges_values[0]
-        edge_header = _detect_header(edge_header_raw, [EDGE_HEADERS_FR_V2, EDGE_HEADERS_FR_V1, EDGE_HEADERS_EN_V1])
+        edge_header = _detect_header(
+            edge_header_raw, [EDGE_HEADERS_FR_V2, EDGE_HEADERS_FR_V1, EDGE_HEADERS_EN_V1]
+        )
         edge_rows = _values_to_dicts(edges_values[1:], edge_header)
+        allowed_ids = {n.id for n in nodes}
         for row in edge_rows:
             try:
                 e = _row_to_edge(row, edge_header)
                 if e.from_id and e.to_id:
+                    if site_id and (e.from_id not in allowed_ids or e.to_id not in allowed_ids):
+                        continue
                     edges.append(e)
             except Exception:
                 continue
@@ -200,18 +301,48 @@ def read_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str) -> Graph:
 def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Graph) -> None:
     svc = _client()
 
-    # Always write FR V5 headers on output
-    node_headers = NODE_HEADERS_FR_V5
+    # Always write FR V7 headers + extra business headers on output
+    node_headers = NODE_HEADERS_FR_V7 + EXTRA_SHEET_HEADERS
     edge_headers = EDGE_HEADERS_FR_V2
+
+    # Preserve existing canonical positions (x, y) when saving from UI.
+    # We fetch the current sheet to map node id -> (x, y) and re-inject
+    # those values in the write payload, so only x_UI/y_UI are updated.
+    try:
+        resp_nodes = (
+            svc.spreadsheets().values().get(
+                spreadsheetId=sheet_id, range=f"{nodes_tab}!A:ZZZ"
+            ).execute()
+        )
+        cur_values = resp_nodes.get("values", [])
+    except Exception:
+        cur_values = []
+
+    existing_xy_by_id = {}
+    if cur_values:
+        cur_header = cur_values[0]
+        # Build dict rows using whatever header is present in the sheet
+        cur_rows = _values_to_dicts(cur_values[1:], cur_header)
+        for r in cur_rows:
+            rid = r.get("id")
+            if not rid:
+                continue
+            # Keep raw values as-is to avoid unwanted coercion
+            existing_xy_by_id[str(rid)] = (r.get("x"), r.get("y"))
 
     node_values = [node_headers]
     for n in graph.nodes:
-        node_values.append([
+        # Reuse existing x/y if present in the sheet; leave blank for new ids
+        ex = existing_xy_by_id.get(n.id, (None, None))
+        x_preserved, y_preserved = ex[0], ex[1]
+        row_core = [
             n.id,
             n.name or "",
-            (n.type or "PUITS"),
+            (n.type or "OUVRAGE"),
             n.branch_id or "",
             ("" if n.diameter_mm is None else n.diameter_mm),
+            n.sdr_ouvrage or "",
+            n.commentaire or "",
             ";".join((n.collector_well_ids or [])) if isinstance(n.collector_well_ids, list) else "",
             n.well_collector_id or "",
             ("" if n.well_pos_index is None else n.well_pos_index),
@@ -219,9 +350,16 @@ def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Grap
             ("" if n.pm_pos_index is None else n.pm_pos_index),
             ("" if n.gps_lat is None else n.gps_lat),
             ("" if n.gps_lon is None else n.gps_lon),
-            ("" if n.x is None else n.x),
-            ("" if n.y is None else n.y),
-        ])
+            ("" if x_preserved is None else x_preserved),
+            ("" if y_preserved is None else y_preserved),
+            ("" if getattr(n, 'x_ui', None) is None else n.x_ui),
+            ("" if getattr(n, 'y_ui', None) is None else n.y_ui),
+        ]
+        extras = []
+        for key in EXTRA_SHEET_HEADERS:
+            val = (n.extras or {}).get(key)
+            extras.append(val if val is not None else "")
+        node_values.append(row_core + extras)
 
     edge_values = [edge_headers]
     for e in graph.edges:
@@ -236,16 +374,6 @@ def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Grap
         {"range": f"{nodes_tab}!A1", "values": node_values},
         {"range": f"{edges_tab}!A1", "values": edge_values},
     ]
-
-    # Clear both tabs before writing to avoid stale trailing rows
-    try:
-        svc.spreadsheets().values().batchClear(
-            spreadsheetId=sheet_id,
-            body={"ranges": [f"{nodes_tab}!A:Z", f"{edges_tab}!A:Z"]},
-        ).execute()
-    except Exception:
-        # Be permissive: if clear fails, continue with write (will overwrite header + data)
-        pass
 
     svc.spreadsheets().values().batchUpdate(
         spreadsheetId=sheet_id,
