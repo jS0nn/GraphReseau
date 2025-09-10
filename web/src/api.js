@@ -73,6 +73,7 @@ function sanitizeGraph(graph){
     from_id: e.from_id ?? e.source,
     to_id: e.to_id ?? e.target,
     active: e.active !== false,
+    commentaire: e.commentaire || '',
   })) : []
   return { nodes, edges }
 }

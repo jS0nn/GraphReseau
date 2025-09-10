@@ -52,7 +52,7 @@ def loadSheet(
     )
 
 
-def saveSheet(graph: Graph, sheet_id: str | None = None, nodes_tab: str | None = None, edges_tab: str | None = None) -> None:
+def saveSheet(graph: Graph, sheet_id: str | None = None, nodes_tab: str | None = None, edges_tab: str | None = None, *, site_id: str | None = None) -> None:
     sid = _clean_sheet_id(sheet_id or settings.sheet_id_default)
     if not sid:
         raise HTTPException(status_code=400, detail="sheet_id required")
@@ -61,6 +61,7 @@ def saveSheet(graph: Graph, sheet_id: str | None = None, nodes_tab: str | None =
         nodes_tab or settings.sheet_nodes_tab,
         edges_tab or settings.sheet_edges_tab,
         graph,
+        site_id=site_id,
     )
 
 
@@ -78,7 +79,8 @@ def loadJson(gcs_uri: str | None = None) -> Graph:
                 data = json.load(f)
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"read_local_json_failed: {exc}")
-        return Graph.model_validate(data)
+        graph = Graph.model_validate(data)
+        return graph
 
     # gs:// path
     bucket_name, blob_path = _parse_gs_uri(uri)
@@ -91,7 +93,8 @@ def loadJson(gcs_uri: str | None = None) -> Graph:
         blob = bucket.blob(blob_path)
         text = blob.download_as_text()
         data = json.loads(text)
-        return Graph.model_validate(data)
+        graph = Graph.model_validate(data)
+        return graph
     except Exception as exc:
         raise HTTPException(status_code=501, detail=f"gcs_json_unavailable: {exc}")
 
@@ -269,6 +272,7 @@ def save_graph(source: str | None = None, graph: Graph | None = None, **kwargs: 
             sheet_id=kwargs.get("sheet_id"),
             nodes_tab=kwargs.get("nodes_tab"),
             edges_tab=kwargs.get("edges_tab"),
+            site_id=site,
         )
     if s in {"gcs", "gcs_json", "json"}:
         return saveJson(graph, gcs_uri=kwargs.get("gcs_uri"))

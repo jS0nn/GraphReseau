@@ -29,6 +29,7 @@ class Edge(BaseModel):
     from_id: str
     to_id: str
     active: Optional[bool] = True
+    commentaire: Optional[str] = ""
 
 
 class Graph(BaseModel):

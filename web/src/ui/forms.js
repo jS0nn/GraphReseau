@@ -31,6 +31,7 @@ export function initForms(){
       setDisplay('grpCanal', T==='CANALISATION')
       setDisplay('grpWell', T==='OUVRAGE')
       setDisplay('grpInline', (T==='POINT_MESURE'||T==='VANNE'))
+      setDisplay('grpGeneralMgmt', T==='GENERAL')
       nodeForm.name.value = n.name||''
       nodeForm.type.value = (n.type||'OUVRAGE')
       nodeForm.x_UI.value = Math.round(+(n.x ?? 0))
@@ -39,7 +40,7 @@ export function initForms(){
       if('sdr_ouvrage' in n && nodeForm.sdr_ouvrage) nodeForm.sdr_ouvrage.value = (n.sdr_ouvrage===''||n.sdr_ouvrage==null)?'':n.sdr_ouvrage
       if('gps_lat' in n && nodeForm.gps_lat) nodeForm.gps_lat.value = (n.gps_lat===''||n.gps_lat==null)?'':n.gps_lat
       if('gps_lon' in n && nodeForm.gps_lon) nodeForm.gps_lon.value = (n.gps_lon===''||n.gps_lon==null)?'':n.gps_lon
-      if('commentaire' in n && nodeForm.commentaire) nodeForm.commentaire.value = n.commentaire||''
+      if(nodeForm.commentaire) nodeForm.commentaire.value = (n?.commentaire ?? '')
       // Canalisation extras: render simple children list + add shortcuts
       const seq = document.getElementById('seqList')
       if(seq){
@@ -47,6 +48,7 @@ export function initForms(){
         if(T==='CANALISATION') renderCanalSequence(n, seq)
         if(T==='OUVRAGE') renderWellSection(n)
         if(T==='POINT_MESURE' || T==='VANNE') renderInlineSection(n)
+        if(T==='GENERAL') renderGeneralSection(n)
       }
     } else if(eid){
       const e = state.edges.find(e=>e.id===eid)
@@ -57,6 +59,7 @@ export function initForms(){
       edgeForm.from_name.value = from?.name||from?.id||''
       edgeForm.to_name.value = to?.name||to?.id||''
       edgeForm.active.value = String(e.active!==false)
+      if(edgeForm.commentaire) edgeForm.commentaire.value = e.commentaire || ''
     } else {
       showNone()
     }
@@ -77,15 +80,18 @@ export function initForms(){
       if(t && IGNORE_IDS.has(t.id||'')) return
       const id = state.selection.nodeId
       if(!id) return
+      const xui = nodeForm.x_UI ? (nodeForm.x_UI.value===''? '' : +nodeForm.x_UI.value) : ''
+      const yui = nodeForm.y_UI ? (nodeForm.y_UI.value===''? '' : +nodeForm.y_UI.value) : ''
       const patch = {
         name: nodeForm.name.value,
         type: nodeForm.type.value,
-        x: nodeForm.x.value===''? '' : +nodeForm.x.value,
-        y: nodeForm.y.value===''? '' : +nodeForm.y.value,
+        // Keep UI and live position in sync when edited from the form
+        x: xui,
+        y: yui,
+        x_ui: xui,
+        y_ui: yui,
       }
       if(nodeForm.diameter_mm) patch.diameter_mm = (nodeForm.diameter_mm.value===''? '' : +nodeForm.diameter_mm.value)
-      if(nodeForm.x_UI) patch.x_ui = (nodeForm.x_UI.value===''? '' : +nodeForm.x_UI.value)
-      if(nodeForm.y_UI) patch.y_ui = (nodeForm.y_UI.value===''? '' : +nodeForm.y_UI.value)
       if(nodeForm.sdr_ouvrage) patch.sdr_ouvrage = nodeForm.sdr_ouvrage.value
       if(nodeForm.gps_lat) patch.gps_lat = (nodeForm.gps_lat.value===''? '' : +nodeForm.gps_lat.value)
       if(nodeForm.gps_lon) patch.gps_lon = (nodeForm.gps_lon.value===''? '' : +nodeForm.gps_lon.value)
@@ -102,6 +108,7 @@ export function initForms(){
       const e = state.edges.find(e=>e.id===id)
       if(!e) return
       e.active = (edgeForm.active.value === 'true')
+      if(edgeForm.commentaire){ e.commentaire = edgeForm.commentaire.value }
     })
   }
 
@@ -381,7 +388,11 @@ function renderCanalSequence(canal, seqContainer){
     const btnNewW = document.getElementById('cwAddNewBtn')
     if(btnNewW){
       btnNewW.onclick = ()=>{
-        const w = addNode({ type:'OUVRAGE', x:(canal.x||0)+40, y:(canal.y||0)+120 })
+        const pi = (state._spawnIndex = (state._spawnIndex||0) + 1)
+        const gs = state.gridStep || 8
+        const offX = (pi % 7) * gs
+        const offY = (pi % 11) * gs
+        const w = addNode({ type:'OUVRAGE', x:(canal.x||0)+40+offX, y:(canal.y||0)+120+offY })
         moveWellToCanal(w.id, canal.id, { position: (canal.collector_well_ids||[]).length })
         updateNode(canal.id, { __touch: Date.now() })
       }
@@ -389,7 +400,11 @@ function renderCanalSequence(canal, seqContainer){
     const btnNewPM = document.getElementById('pmAddNewBtn')
     if(btnNewPM){
       btnNewPM.onclick = ()=>{
-        const pm = addNode({ type:'POINT_MESURE', x:(canal.x||0)+80, y:(canal.y||0)+40 })
+        const pi = (state._spawnIndex = (state._spawnIndex||0) + 1)
+        const gs = state.gridStep || 8
+        const offX = (pi % 7) * gs
+        const offY = (pi % 11) * gs
+        const pm = addNode({ type:'POINT_MESURE', x:(canal.x||0)+80+offX, y:(canal.y||0)+40+offY })
         const pos = Array.isArray(canal.collector_well_ids) ? canal.collector_well_ids.length : 0
         moveInlineToCanal(pm.id, canal.id, pos)
         updateNode(canal.id, { __touch: Date.now() })
@@ -398,7 +413,11 @@ function renderCanalSequence(canal, seqContainer){
     const btnNewV = document.getElementById('vanAddNewBtn')
     if(btnNewV){
       btnNewV.onclick = ()=>{
-        const v = addNode({ type:'VANNE', x:(canal.x||0)+80, y:(canal.y||0)-40 })
+        const pi = (state._spawnIndex = (state._spawnIndex||0) + 1)
+        const gs = state.gridStep || 8
+        const offX = (pi % 7) * gs
+        const offY = (pi % 11) * gs
+        const v = addNode({ type:'VANNE', x:(canal.x||0)+80+offX, y:(canal.y||0)-40+offY })
         const pos = Array.isArray(canal.collector_well_ids) ? canal.collector_well_ids.length : 0
         moveInlineToCanal(v.id, canal.id, pos)
         updateNode(canal.id, { __touch: Date.now() })
@@ -470,4 +489,76 @@ function renderInlineSection(dev){
     info.value = `${k} / ${N}`
   }
   if(off){ off.value = (dev.pm_offset_m===''||dev.pm_offset_m==null)? '' : dev.pm_offset_m; off.oninput = ()=>{ dev.pm_offset_m = (off.value===''? '' : +off.value) } }
+}
+
+function renderGeneralSection(gen){
+  // Wire quick-create for new canalisation near the GENERAL node
+  try{
+    const btn = document.getElementById('genAddCanalBtn')
+    if(btn){
+      btn.onclick = ()=>{
+        const pi = (state._spawnIndex = (state._spawnIndex||0) + 1)
+        const gs = state.gridStep || 8
+        const offX = (pi % 7) * gs
+        const offY = (pi % 11) * gs
+        const c = addNode({ type:'CANALISATION', x:(gen.x||0)+120+offX, y:(gen.y||0)+offY })
+        // Link newly created canalisation to this GENERAL element
+        try{ addEdge(gen.id, c.id) }catch{}
+        selectNodeById(c.id)
+        setStatus('Canalisation créée')
+      }
+    }
+    // Rebuild list of unassigned existing canals
+    const listWrap = document.getElementById('genUnassignedCanals')
+    const cnt = document.getElementById('genUnassignedCanalsCount')
+    const search = document.getElementById('genCanalSearch')
+    if(listWrap){
+      const norm = (s)=> String(s||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase()
+      const filterBy = (list, q)=>{
+        const qq = norm(q||'').trim()
+        if(!qq) return list
+        const tokens = qq.split(/\s+/).filter(Boolean)
+        return list.filter(n => tokens.every(t => norm(n.name||n.id).includes(t)))
+      }
+      const isCanalType = (n)=> n && (n.type==='CANALISATION' || n.type==='COLLECTEUR')
+      const hasIncomingFrom = (n, pred)=> state.edges.some(e => {
+        const to = (e.to_id??e.target)
+        if(to!==n.id) return false
+        const from = state.nodes.find(x=> x.id===(e.from_id??e.source))
+        return pred(from)
+      })
+      const isUnassigned = (n)=> {
+        if(!isCanalType(n)) return false
+        const fromCanal = hasIncomingFrom(n, (x)=> isCanalType(x))
+        const fromGeneral = hasIncomingFrom(n, (x)=> (x?.type==='GENERAL'))
+        return !fromCanal && !fromGeneral
+      }
+      const all = state.nodes.filter(isUnassigned)
+      const available = filterBy(all, search ? search.value : '')
+      if(cnt) cnt.textContent = available.length ? `(${available.length}${search?.value?`/${all.length}`:''})` : '(0)'
+      listWrap.innerHTML = ''
+      const MAX = 250
+      if(!available.length){ const sm=document.createElement('small'); sm.style.color='var(--muted)'; sm.textContent= search?.value ? 'Aucun résultat' : 'Aucun'; listWrap.appendChild(sm) }
+      available.slice(0, MAX).forEach(n => {
+        const c = document.createElement('span')
+        c.className = 'chip ghost'
+        c.textContent = `➕ ${n.name||n.id}`
+        c.title = 'Raccorder à cet élément général'
+        c.style.cursor = 'pointer'
+        c.onclick = ()=>{ try{ addEdge(gen.id, n.id); setStatus('Canalisation liée'); selectNodeById(n.id) }catch{} }
+        listWrap.appendChild(c)
+      })
+      if(search && !search.__wired__){
+        search.__wired__ = true
+        search.oninput = ()=> renderGeneralSection(gen)
+        search.onkeydown = (e)=>{
+          if(e.key==='Escape'){ search.value=''; renderGeneralSection(gen); return }
+          if(e.key==='Enter'){
+            const first = available[0]
+            if(first){ try{ addEdge(gen.id, first.id); setStatus('Canalisation liée'); selectNodeById(first.id) }catch{} }
+          }
+        }
+      }
+    }
+  }catch(err){ console.error('[forms] general-create wiring failed', err) }
 }

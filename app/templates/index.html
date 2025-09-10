@@ -91,6 +91,17 @@
                 <textarea name="commentaire" rows="2" placeholder="Notes libres"></textarea>
               </label>
             </details>
+            <details id="grpGeneralMgmt" open style="display:none">
+              <summary>Élément général — Actions</summary>
+              <div style="display:grid; grid-template-columns:1fr; gap:6px; margin-bottom:6px">
+                <div style="color:var(--muted)">Canalisations non raccordées <span id="genUnassignedCanalsCount"></span></div>
+                <input id="genCanalSearch" placeholder="Rechercher… (ex. cana)" aria-label="Recherche canalisations" />
+                <div class="chips" id="genUnassignedCanals" style="max-height: 180px; overflow:auto; min-height:36px"></div>
+              </div>
+              <div style="display:flex; justify-content:flex-end">
+                <button type="button" class="btn" id="genAddCanalBtn">Nouvelle canalisation</button>
+              </div>
+            </details>
             <details id="grpWell" open style="display:none">
               <summary>Ouvrage — Affectation</summary>
               <label>Canalisation</label>
@@ -167,6 +178,9 @@
                 <option value="false">false</option>
               </select>
             </label>
+            <label>Commentaire
+              <textarea name="commentaire" rows="2" placeholder="Notes libres"></textarea>
+            </label>
             <button type="button" id="deleteEdgeBtn" class="btn danger" style="width:100%; margin-top:8px"><i class="uil uil-trash-alt"></i> Supprimer</button>
           </form>
         </div>
@@ -198,7 +212,7 @@
             </ul>
           </li>
           <li><b>OUVRAGE/PM/Vanne</b> : la <b>position</b> est gérée dans la fiche <b>Canalisation</b> (séquence). Depuis leur fiche, tu peux changer la <b>canalisation</b>.</li>
-          <li><b>Raccourcis</b> : Ctrl/Cmd+Z (Annuler), Ctrl/Cmd+Y (Rétablir), Ctrl/Cmd+C / Ctrl/Cmd+V (Copier/Coller), L (Agencer), C (Connecter).</li>
+          <li><b>Raccourcis</b> : Ctrl/Cmd+Z (Annuler), Ctrl/Cmd+Y (Rétablir), Ctrl/Cmd+C / Ctrl/Cmd+V (Copier/Coller), L (Agencer), C (Connecter), Échap (Sélection).</li>
         </ul>
         <footer><button id="helpCloseBtn" class="btn">Fermer</button></footer>
       </article>

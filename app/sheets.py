@@ -155,10 +155,15 @@ def _row_to_node(row: Dict[str, Any], header_set: List[str], full_row: Dict[str,
     extras: Dict[str, Any] | None = None
     if isinstance(full_row, dict):
         extras = { k: full_row.get(k) for k in EXTRA_SHEET_HEADERS }
+
+    # Keep GENERAL as GENERAL in UI; do not coerce to POINT_MESURE here.
+    raw_t = row.get("type")
+    node_type = _map_type(raw_t or 'OUVRAGE')
+
     return Node(
         id=str(row.get("id", "")).strip(),
         name=(row.get("nom") or row.get("name") or ""),
-        type=_map_type(row.get("type") or 'OUVRAGE'),
+        type=node_type,
         branch_id=(row.get("id_branche") or row.get("branch_id") or ""),
         diameter_mm=_num(row.get("diametre_exterieur_mm") or row.get("diametre_mm") or row.get("diameter_mm") or row.get("diametre_exterieur") or row.get("diametreExterieur")),
         sdr_ouvrage=(row.get("sdr_ouvrage") or row.get("sdrOuvrage") or ""),
@@ -186,6 +191,7 @@ def _row_to_edge(row: Dict[str, Any], header_set: List[str]) -> Edge:
         from_id=str(from_id) if from_id is not None else "",
         to_id=str(to_id) if to_id is not None else "",
         active=_bool(row.get("actif") if "actif" in header_set else row.get("active"), True),
+        commentaire=(row.get("commentaire") or ""),
     )
 
 
@@ -298,12 +304,13 @@ def read_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, *, site_id: 
     return Graph(nodes=nodes, edges=edges)
 
 
-def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Graph) -> None:
+def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Graph, *, site_id: str | None = None) -> None:
     svc = _client()
 
     # Always write FR V7 headers + extra business headers on output
     node_headers = NODE_HEADERS_FR_V7 + EXTRA_SHEET_HEADERS
-    edge_headers = EDGE_HEADERS_FR_V2
+    # Extend edge headers with optional 'commentaire' column (appended)
+    edge_headers = EDGE_HEADERS_FR_V2 + ['commentaire']
 
     # Preserve existing canonical positions (x, y) when saving from UI.
     # We fetch the current sheet to map node id -> (x, y) and re-inject
@@ -335,6 +342,14 @@ def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Grap
         # Reuse existing x/y if present in the sheet; leave blank for new ids
         ex = existing_xy_by_id.get(n.id, (None, None))
         x_preserved, y_preserved = ex[0], ex[1]
+        # Prepare extras with optional site tagging for new/blank values
+        extras_map = dict(n.extras or {}) if isinstance(n.extras, dict) else {}
+        if site_id:
+            try:
+                if not extras_map.get('idSite1'):
+                    extras_map['idSite1'] = site_id
+            except Exception:
+                pass
         row_core = [
             n.id,
             n.name or "",
@@ -357,7 +372,7 @@ def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Grap
         ]
         extras = []
         for key in EXTRA_SHEET_HEADERS:
-            val = (n.extras or {}).get(key)
+            val = extras_map.get(key)
             extras.append(val if val is not None else "")
         node_values.append(row_core + extras)
 
@@ -368,6 +383,7 @@ def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Grap
             e.from_id,
             e.to_id,
             True if e.active is None else bool(e.active),
+            getattr(e, 'commentaire', "") or "",
         ])
 
     data = [

@@ -28,6 +28,7 @@ export function setGraph(graph){
     if(m && m.type==='PLATEFORME') m.type='GENERAL'
     if(m && (m.type==='GÉNÉRAL' || m.type==='Général' || m.type==='general')) m.type='GENERAL'
     if(m && m.type==='PUITS') m.type='OUVRAGE'
+    // Keep GENERAL as GENERAL in the UI; do not coerce to POINT_MESURE on load.
     // Coerce numeric fields to number or null to avoid '' roundtrip
     const numKeys = ['x','y','diameter_mm','gps_lat','gps_lon','well_pos_index','pm_pos_index','pm_offset_m','x_ui','y_ui']
     numKeys.forEach(k => {
@@ -67,7 +68,7 @@ export function setGraph(graph){
   state.nodes = nodes
   // Normalize edges to canonical from_id/to_id
   const rawEdges = Array.isArray(graph?.edges) ? graph.edges.slice() : []
-  state.edges = rawEdges.map(e => ({ id: e.id, from_id: e.from_id ?? e.source, to_id: e.to_id ?? e.target, active: e.active !== false }))
+  state.edges = rawEdges.map(e => ({ id: e.id, from_id: e.from_id ?? e.source, to_id: e.to_id ?? e.target, active: e.active !== false, commentaire: (e.commentaire||'') }))
 
   // Fix direction for OUVRAGE↔CANALISATION edges: must be CANALISATION → OUVRAGE
   state.edges.forEach(e => {
@@ -337,10 +338,17 @@ export function removeNodes(ids){
 }
 
 export function addEdge(source, target, partial = {}){
-  const edge = { id: genId('E'), from_id: source, to_id: target, active: (partial?.active!==false), ...partial }
+  const edge = { id: genId('E'), from_id: source, to_id: target, active: (partial?.active!==false), commentaire: (partial?.commentaire||''), ...partial }
   state.edges.push(edge)
   notify('edge:add', edge)
   return edge
+}
+
+export function updateEdge(id, patch){
+  const e = state.edges.find(e => e.id === id)
+  if(!e) return
+  Object.assign(e, patch||{})
+  notify('edge:update', { id, patch })
 }
 
 export function removeEdge(id){

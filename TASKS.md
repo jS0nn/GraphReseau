@@ -2,6 +2,11 @@
 
 Statut: à cocher au fur et à mesure. Cible: V1 fonctionnelle (embed RO), sources interchangeables (Sheets/GCS JSON/BQ), build sans CDN.
 
+## TODO récents (demandes utilisateur)
+- [x] Raccourci clavier: la touche Échap quitte le mode courant et repasse en mode « sélection ».
+- [x] UI « élément général »: permettre l’ajout de CANALISATIONS (uniquement; pas de POINTS_DE_MESURE ni de VANNES), en réutilisant le même modèle/flux que l’ajout depuis les propriétés de canalisation.
+- [x] Persistance des notes: les notes saisies dans l’UI doivent être lues/écrites dans Google Sheets (mapping colonnes + POST Sheets).
+
 ## Frontend (UI/UX)
 - [x] Rendu SVG D3: nœuds/arêtes, couleurs par branche, markers
 - [x] Modes: sélection / connecter / supprimer (nœud)
