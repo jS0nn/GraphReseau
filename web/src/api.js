@@ -68,13 +68,34 @@ function sanitizeGraph(graph){
     })
     return m
   }) : []
-  const edges = Array.isArray(graph?.edges) ? graph.edges.map(e => ({
+  // Normalize + deduplicate edges by id; ensure id presence
+  const edgesRaw = Array.isArray(graph?.edges) ? graph.edges.map(e => ({
     id: e.id,
     from_id: e.from_id ?? e.source,
     to_id: e.to_id ?? e.target,
     active: e.active !== false,
     commentaire: e.commentaire || '',
   })) : []
+  const edges = []
+  const seenIds = new Set()
+  function genUid(){
+    // lightweight unique id client-side (prefix E-)
+    return 'E-' + Math.random().toString(36).slice(2,8).toUpperCase() + Date.now().toString(36).toUpperCase().slice(-4)
+  }
+  for(const e of edgesRaw){
+    if(!e.from_id || !e.to_id) continue
+    let id = e.id || genUid()
+    if(seenIds.has(id)){
+      // If an identical edge with same id already queued, skip; else reassign id
+      const existsSame = edges.some(x => x.id===id && x.from_id===e.from_id && x.to_id===e.to_id)
+      if(existsSame) continue
+      let nid = genUid(), guard=0
+      while(seenIds.has(nid) && guard++<5) nid = genUid()
+      id = nid
+    }
+    seenIds.add(id)
+    edges.push({ ...e, id })
+  }
   return { nodes, edges }
 }
 

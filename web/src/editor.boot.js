@@ -99,6 +99,21 @@ function bindToolbar(canvas){
     canvas.svg.transition().duration(220).call(canvas.zoom.transform, d3.zoomIdentity.translate(t.x, t.y).scale(t.k))
   })
   byId('layoutBtn')?.addEventListener('click', async ()=>{ await autoLayout(state.nodes, state.edges); renderAll(canvas) })
+  // Toggle variable edge thickness (by diameter)
+  const thickBtn = byId('thicknessBtn')
+  if(thickBtn){
+    try{
+      const saved = localStorage.getItem('edgeVarWidth')
+      if(saved!=null) state.edgeVarWidth = (saved==='1' || saved==='true')
+    }catch{}
+    thickBtn.classList.toggle('active', !!state.edgeVarWidth)
+    thickBtn.addEventListener('click', ()=>{
+      state.edgeVarWidth = !state.edgeVarWidth
+      thickBtn.classList.toggle('active', !!state.edgeVarWidth)
+      try{ localStorage.setItem('edgeVarWidth', state.edgeVarWidth ? '1' : '0') }catch{}
+      renderAll(canvas)
+    })
+  }
   byId('exportBtn')?.addEventListener('click', ()=> downloadJSON(toJSON(getStateGraph()), 'graph.json'))
   byId('exportCompactBtn')?.addEventListener('click', ()=> downloadJSON(toCompact(getStateGraph()), 'graph.compact.json'))
   byId('exportNodeEdgeBtn')?.addEventListener('click', ()=> downloadJSON(toNodeEdge(getStateGraph()), 'graph.node-edge.json'))

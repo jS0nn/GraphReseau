@@ -335,24 +335,35 @@ export function ensurePipeStyle({ nodes, edges, theme, options } = {}){
   }
 
   // Edge → canal mapping and helpers
-  const canalOfEdge = (e)=>{
+  // Determine which node dictates edge diameter/color
+  const diameterNodeForEdge = (e)=>{
     const a = idToNode.get(e.from_id ?? e.source)
     const b = idToNode.get(e.to_id ?? e.target)
-    const aIs = isCanal(a), bIs = isCanal(b)
-    if(aIs && bIs) return b // parent->child edges: color by child branch
-    if(aIs) return a
-    if(bIs) return b
+    const aIsCan = isCanal(a), bIsCan = isCanal(b)
+    const aIsWell = a?.type==='OUVRAGE', bIsWell = b?.type==='OUVRAGE'
+    // Rule overrides:
+    // - Canal ↔ Ouvrage: imposed by the Ouvrage (well)
+    if(aIsWell || bIsWell) return aIsWell ? a : b
+    // - Canal ↔ Canal: imposed by child canal (downstream)
+    if(aIsCan && bIsCan) return b
+    // - Generic: if one end is a canal, use that canal (e.g., GENERAL → CANAL)
+    if(aIsCan) return a
+    if(bIsCan) return b
     return null
   }
   const widthForDiameter = (d)=> (classInfo ? widthLevels[classInfo.indexOf(d)] : scale(d))
 
   const edgeWidth = (e)=>{
-    const c = canalOfEdge(e)
-    const d = Number.isFinite(+c?.diameter_mm) ? +c.diameter_mm : opts.defaultDiameterMm
+    const n = diameterNodeForEdge(e)
+    const d = Number.isFinite(+n?.diameter_mm) ? +n.diameter_mm : opts.defaultDiameterMm
     return widthForDiameter(d)
   }
   const edgeColor = (e)=>{
-    const c = canalOfEdge(e)
+    // Colors still follow the canal branch logic
+    const a = idToNode.get(e.from_id ?? e.source)
+    const b = idToNode.get(e.to_id ?? e.target)
+    const aIsCan = isCanal(a), bIsCan = isCanal(b)
+    const c = (aIsCan && bIsCan) ? b : (aIsCan ? a : (bIsCan ? b : null))
     if(!c) return cssVar('--edge-color', '#eaf2ff')
     const path = pathByCanal.get(c.id) || c.id
     return colorByPath.get(path) || cssVar('--edge-color', '#eaf2ff')

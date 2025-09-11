@@ -392,7 +392,8 @@ function renderCanalSequence(canal, seqContainer){
         const gs = state.gridStep || 8
         const offX = (pi % 7) * gs
         const offY = (pi % 11) * gs
-        const w = addNode({ type:'OUVRAGE', x:(canal.x||0)+40+offX, y:(canal.y||0)+120+offY })
+        // Nouvel ouvrage depuis une canalisation: diamètre par défaut = 110 mm
+        const w = addNode({ type:'OUVRAGE', diameter_mm:110, x:(canal.x||0)+40+offX, y:(canal.y||0)+120+offY })
         moveWellToCanal(w.id, canal.id, { position: (canal.collector_well_ids||[]).length })
         updateNode(canal.id, { __touch: Date.now() })
       }

@@ -56,6 +56,7 @@ def saveSheet(graph: Graph, sheet_id: str | None = None, nodes_tab: str | None =
     sid = _clean_sheet_id(sheet_id or settings.sheet_id_default)
     if not sid:
         raise HTTPException(status_code=400, detail="sheet_id required")
+    graph = _sanitize_graph_for_write(graph)
     sheets_mod.write_nodes_edges(
         sid,
         nodes_tab or settings.sheet_nodes_tab,
@@ -103,6 +104,7 @@ def saveJson(graph: Graph, gcs_uri: str | None = None) -> None:
     uri = gcs_uri or settings.gcs_json_uri_default
     if not uri:
         raise HTTPException(status_code=400, detail="gcs_uri required")
+    graph = _sanitize_graph_for_write(graph)
 
     # Preserve existing canonical positions (x, y) by merging from the
     # current JSON when available; only x_ui/y_ui should change from the UI.
@@ -156,6 +158,56 @@ def saveJson(graph: Graph, gcs_uri: str | None = None) -> None:
         blob.upload_from_string(payload, content_type="application/json; charset=utf-8")
     except Exception as exc:
         raise HTTPException(status_code=501, detail=f"gcs_write_unavailable: {exc}")
+
+
+def _sanitize_graph_for_write(graph: Graph) -> Graph:
+    """Ensure edge ids are unique and drop duplicates with identical id+endpoints.
+
+    - Keep the first occurrence of a given id/from/to combination.
+    - If the same id is reused for different endpoints, assign a fresh id to the later ones.
+    - If an edge has no id, assign one.
+    """
+    try:
+        nodes = list(graph.nodes or [])
+        edges_in = list(graph.edges or [])
+    except Exception:
+        return graph
+
+    def _gen_edge_id() -> str:
+        import os, time
+        t = int(time.time() * 1000)
+        t36 = format(t, 'x').upper()  # hex timestamp (stable and short)
+        r = format(int.from_bytes(os.urandom(3), 'big'), 'x').upper()
+        return f"E-{t36}{r}"
+
+    seen_ids: set[str] = set()
+    kept: list[Edge] = []
+    for e in edges_in:
+        if not getattr(e, 'from_id', None) or not getattr(e, 'to_id', None):
+            continue
+        cur_id = (e.id or '').strip() or _gen_edge_id()
+        if cur_id in seen_ids:
+            # if identical already kept, drop; else reassign
+            dup_same = any(x.id == cur_id and x.from_id == e.from_id and x.to_id == e.to_id for x in kept)
+            if dup_same:
+                continue
+            nid = _gen_edge_id()
+            guard = 0
+            while nid in seen_ids and guard < 5:
+                nid = _gen_edge_id(); guard += 1
+            e = Edge(id=nid, from_id=e.from_id, to_id=e.to_id, active=(e.active if e.active is not None else True), commentaire=getattr(e, 'commentaire', '') or '')
+            seen_ids.add(nid)
+            kept.append(e)
+        else:
+            seen_ids.add(cur_id)
+            if not getattr(e, 'commentaire', None):
+                setattr(e, 'commentaire', '')
+            if e.active is None:
+                e.active = True
+            e.id = cur_id
+            kept.append(e)
+
+    return Graph(nodes=nodes, edges=kept)
 
 
 # BigQuery loader/saver

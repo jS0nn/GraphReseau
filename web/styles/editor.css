@@ -63,8 +63,7 @@ svg{width:2400px; height:1600px}
 .node rect.hit{fill:transparent; stroke:none; pointer-events:all}
 .label{font:13px/1.2 Inter,sans-serif; fill:var(--text); pointer-events:none}
 .sublabel{font:11px/1.1 Inter,sans-serif; fill:var(--muted); pointer-events:none}
-.edge path.line{stroke-width:1.8; fill:none; stroke-linecap:round}
-.edge.selected path.line{stroke-width:2.2}
+.edge path.line{fill:none; stroke-linecap:round}
 .edge path.hit{stroke:rgba(0,0,0,0); stroke-width:var(--edge-hit); fill:none; pointer-events:stroke}
 #arrow path, #arrowSel path{ fill: context-stroke; stroke: context-stroke; }
 .pm-connector { stroke-dasharray: var(--pm-dash); stroke-width:1.6; fill:none; pointer-events:none }

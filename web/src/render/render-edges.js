@@ -36,19 +36,24 @@ export function renderEdges(gEdges, edges){
   enter.append('path').attr('class','line').attr('marker-end','url(#arrow)')
   enter.append('path').attr('class','hit')
 
+  const DEFAULT_EDGE_WIDTH = 1.8
   sel.merge(enter)
     .attr('class', d => `edge ${state.selection.edgeId===d.id?'selected':''}`)
     .each(function(d){
       const a = index.get(d.source), b = index.get(d.target)
       const dStr = pathFor(a, b)
+      const varWidth = !!state.edgeVarWidth
+      const baseW = varWidth ? (style.widthForEdge({ from_id:d.source, to_id:d.target }) || DEFAULT_EDGE_WIDTH) : DEFAULT_EDGE_WIDTH
+      const sel = state.selection.edgeId===d.id
+      const w = sel ? (baseW * 1.18) : baseW
       d3.select(this).select('path.line')
         .attr('d', dStr)
         .attr('stroke', d.active ? style.colorForEdge({ from_id:d.source, to_id:d.target }) : 'var(--muted)')
-        .attr('stroke-width', style.widthForEdge({ from_id:d.source, to_id:d.target }))
-        .attr('marker-end', state.selection.edgeId===d.id ? 'url(#arrowSel)' : 'url(#arrow)')
+        .attr('stroke-width', w)
+        .attr('marker-end', sel ? 'url(#arrowSel)' : 'url(#arrow)')
       d3.select(this).select('path.hit')
         .attr('d', dStr)
-        .attr('stroke-width', Math.max(24, (style.widthForEdge({ from_id:d.source, to_id:d.target })||2)*12))
+        .attr('stroke-width', Math.max(24, w*12))
     })
 
   // Tooltips (hover and keyboard focus)
@@ -61,13 +66,11 @@ export function renderEdges(gEdges, edges){
     const canal = (aIs && bIs) ? b : (aIs ? a : (bIs ? b : null))
     const raw = canal ? +canal.diameter_mm : NaN
     const dia = (Number.isFinite(raw) && raw > 0) ? raw : null
-    const width = style.widthForEdge({ from_id:edge.source, to_id:edge.target })
     const nameA = a?.name||a?.id||'A', nameB = b?.name||b?.id||'B'
     const diaTxt = dia==null ? 'Ø inconnu (valeur par défaut)' : `Ø ${fmtNum(dia)} mm`
     return `
       <div><strong>${nameA}</strong> → <strong>${nameB}</strong></div>
       <div>${canal?(canal.name||canal.id)+' · ':''}${diaTxt}</div>
-      <div style="opacity:.85">épaisseur: ${width?width.toFixed(1):'—'} px</div>
     `
   }
   sel.merge(enter)

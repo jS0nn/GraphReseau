@@ -11,6 +11,7 @@ export const state = {
   mode: 'select',
   gridStep: 8,
   _spawnIndex: 0,
+  edgeVarWidth: false,
 }
 
 // Simple pub/sub to propagate updates
@@ -70,6 +71,28 @@ export function setGraph(graph){
   const rawEdges = Array.isArray(graph?.edges) ? graph.edges.slice() : []
   state.edges = rawEdges.map(e => ({ id: e.id, from_id: e.from_id ?? e.source, to_id: e.to_id ?? e.target, active: e.active !== false, commentaire: (e.commentaire||'') }))
 
+  // Deduplicate edges by id; if same id repeats with identical from/to, keep first; otherwise reassign id
+  ;(function dedupEdges(){
+    const used = new Set()
+    const tmp = []
+    state.edges.forEach((e) => {
+      const key = e.id || ''
+      if(!key){ tmp.push(e); return }
+      if(!used.has(key)) { used.add(key); tmp.push(e); return }
+      // Duplicate id: if identical endpoints already present with same id, drop; else assign fresh id
+      const existsSame = tmp.some(x => x.id===key && (x.from_id??x.source)===(e.from_id??e.source) && (x.to_id??x.target)===(e.to_id??e.target))
+      if(existsSame) return
+      let nid = genId('E')
+      const guard = new Set(tmp.map(x=>x.id))
+      let k=0
+      while(guard.has(nid) && k++<5){ nid = genId('E') }
+      e.id = nid
+      used.add(nid)
+      tmp.push(e)
+    })
+    state.edges = tmp
+  })()
+
   // Fix direction for OUVRAGE↔CANALISATION edges: must be CANALISATION → OUVRAGE
   state.edges.forEach(e => {
     const a = state.nodes.find(n=>n.id===(e.from_id??e.source))
@@ -125,6 +148,10 @@ export function setGraph(graph){
 }
 
 export function getGraph(){ return { nodes: state.nodes, edges: state.edges } }
+
+// Edge thickness (UI option)
+export function setEdgeThicknessEnabled(enabled){ state.edgeVarWidth = !!enabled }
+export function isEdgeThicknessEnabled(){ return !!state.edgeVarWidth }
 
 // Selection helpers
 export function clearSelection(){
@@ -212,7 +239,7 @@ export function pasteClipboard(offset = { x: 24, y: 24 }){
   clipEdges.forEach(e => {
     const a = idMap.get(e.source??e.from_id)
     const b = idMap.get(e.target??e.to_id)
-    if(a && b) state.edges.push({ id: genId('E'), source:a, target:b, active: (e.active!==false) })
+    if(a && b) addEdge(a, b, { active: (e.active!==false) })
   })
   // Rebuild canal sequences/children for cloned canals
   clipNodes.forEach(src => {
@@ -226,11 +253,11 @@ export function pasteClipboard(offset = { x: 24, y: 24 }){
     dst.collector_well_ids.forEach((wid,i)=>{
       const w = state.nodes.find(n=>n.id===wid)
       if(w){ w.well_collector_id = dst.id; w.well_pos_index = i+1 }
-      if(w && !state.edges.some(e=> (e.source??e.from_id)===dst.id && (e.target??e.to_id)===wid)) state.edges.push({ id: genId('E'), source: dst.id, target: wid, active: true })
+      if(w && !state.edges.some(e=> (e.source??e.from_id)===dst.id && (e.target??e.to_id)===wid)) addEdge(dst.id, wid, { active: true })
     })
     const newChild = (src.child_canal_ids||[]).map(cid => idMap.get(cid)).filter(Boolean)
     dst.child_canal_ids = newChild.slice()
-    newChild.forEach(cid => { if(!state.edges.some(e=> (e.source??e.from_id)===dst.id && (e.target??e.to_id)===cid)) state.edges.push({ id: genId('E'), source: dst.id, target: cid, active:true }) })
+    newChild.forEach(cid => { if(!state.edges.some(e=> (e.source??e.from_id)===dst.id && (e.target??e.to_id)===cid)) addEdge(dst.id, cid, { active:true }) })
   })
   state.selection.multi = new Set(clones.map(n => n.id))
   state.selection.nodeId = clones[0]?.id || null
@@ -338,7 +365,15 @@ export function removeNodes(ids){
 }
 
 export function addEdge(source, target, partial = {}){
-  const edge = { id: genId('E'), from_id: source, to_id: target, active: (partial?.active!==false), commentaire: (partial?.commentaire||''), ...partial }
+  // Avoid duplicate edges between same endpoints
+  const dup = state.edges.find(e => (e.from_id??e.source)===source && (e.to_id??e.target)===target)
+  if(dup) return dup
+  // Generate a unique edge id in current state
+  let id = genId('E')
+  const used = new Set(state.edges.map(e => e.id))
+  let retries = 0
+  while(used.has(id) && retries++ < 5) id = genId('E')
+  const edge = { id, from_id: source, to_id: target, active: (partial?.active!==false), commentaire: (partial?.commentaire||''), ...partial }
   state.edges.push(edge)
   notify('edge:add', edge)
   return edge
