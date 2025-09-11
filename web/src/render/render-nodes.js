@@ -1,6 +1,7 @@
 import { d3 } from '../vendor.js'
 import { state } from '../state.js'
 import { isCanal, vn } from '../utils.js'
+import { ensurePipeStyle } from '../style/pipes.js'
 
 const NODE_W = 120, NODE_H = 48
 
@@ -30,6 +31,14 @@ export function renderNodes(gNodes, nodes){
     })
     .attr('transform', d => `translate(${d.x||0},${d.y||0})`)
     .select('text.label').text(d => d.name||d.id)
+  // Apply dynamic border color for CANALISATION nodes
+  sel.merge(enter)
+    .each(function(d){
+      if(!isCanal(d)) return
+      const style = ensurePipeStyle({ nodes: state.nodes, edges: state.edges, theme: document.body?.dataset?.theme || 'dark' })
+      const stroke = style.borderColorForCanal(d)
+      if(stroke) this.querySelector('rect.box')?.setAttribute('stroke', stroke)
+    })
   sel.merge(enter)
     .select('text.sublabel.pos').text(d => formatSublabel(d))
   sel.exit().remove()

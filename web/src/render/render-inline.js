@@ -1,6 +1,8 @@
 import { d3 } from '../vendor.js'
 import { state } from '../state.js'
 import { NODE_SIZE } from './render-nodes.js'
+import { ensurePipeStyle } from '../style/pipes.js'
+import { showTooltip, hideTooltip, scheduleHide, cancelHide } from '../ui/tooltip.js'
 
 export function renderInline(g, nodes){
   const index = new Map(nodes.map(n=>[n.id, n]))
@@ -12,7 +14,16 @@ export function renderInline(g, nodes){
   sel.enter().append('path')
     .attr('class', d => `inline ${d.type==='VANNE'?'valve-connector':'pm-connector'}`)
     .merge(sel)
-    .attr('stroke', 'var(--edge-color)')
+    .attr('stroke', (d)=>{
+      const theme = document.body?.dataset?.theme || 'dark'
+      const style = ensurePipeStyle({ nodes, edges: [], theme })
+      return style.colorForInline(d)
+    })
+    .attr('stroke-width', (d)=>{
+      const theme = document.body?.dataset?.theme || 'dark'
+      const style = ensurePipeStyle({ nodes, edges: [], theme })
+      return style.widthForInline(d)
+    })
     .attr('d', d => {
       const a = d.from, b = d.to
       const ax = (a.x||0) + NODE_SIZE.w
@@ -24,5 +35,24 @@ export function renderInline(g, nodes){
       const c2x = bx - dx, c2y = by
       return `M${ax},${ay} C${c1x},${c1y} ${c2x},${c2y} ${bx},${by}`
     })
+    .on('mouseenter', function(e,d){
+      const style = ensurePipeStyle({ nodes, edges: [], theme: document.body?.dataset?.theme || 'dark' })
+      const name = d.from?.name || d.from?.id || '—'
+      const dia = Number.isFinite(+d.from?.diameter_mm) ? +d.from.diameter_mm : null
+      const width = style.widthForInline(d)
+      const nf=(n)=>{ try{return new Intl.NumberFormat(undefined,{maximumFractionDigits:0}).format(n)}catch{return String(n)} }
+      const diaTxt = dia==null ? 'Ø inconnu (valeur par défaut)' : `Ø ${nf(dia)} mm`
+      cancelHide(); showTooltip(e.clientX, e.clientY, `<div><strong>${name}</strong> · ${diaTxt}</div><div style="opacity:.85">épaisseur: ${width?width.toFixed(1):'—'} px</div>`)
+    })
+    .on('mousemove', function(e,d){
+      const style = ensurePipeStyle({ nodes, edges: [], theme: document.body?.dataset?.theme || 'dark' })
+      const name = d.from?.name || d.from?.id || '—'
+      const dia = Number.isFinite(+d.from?.diameter_mm) ? +d.from.diameter_mm : null
+      const width = style.widthForInline(d)
+      const nf=(n)=>{ try{return new Intl.NumberFormat(undefined,{maximumFractionDigits:0}).format(n)}catch{return String(n)} }
+      const diaTxt = dia==null ? 'Ø inconnu (valeur par défaut)' : `Ø ${nf(dia)} mm`
+      cancelHide(); showTooltip(e.clientX, e.clientY, `<div><strong>${name}</strong> · ${diaTxt}</div><div style="opacity:.85">épaisseur: ${width?width.toFixed(1):'—'} px</div>`)
+    })
+    .on('mouseleave', function(){ scheduleHide(2000) })
   sel.exit().remove()
 }

@@ -88,6 +88,8 @@ function bindToolbar(canvas){
   byId('themeBtn')?.addEventListener('click', ()=>{
     document.body.dataset.theme = (document.body.dataset.theme==='light' ? 'dark' : 'light')
     adjustWrapTop()
+    // Re-render to apply theme-dependent styles (edge colors/widths)
+    try{ renderAll(canvas) }catch{}
   })
   byId('zoomInBtn')?.addEventListener('click', ()=> canvas.zoomBy(1.15))
   byId('zoomOutBtn')?.addEventListener('click', ()=> canvas.zoomBy(1/1.15))

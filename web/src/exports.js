@@ -4,7 +4,10 @@ const fromId = (e) => e.from_id ?? e.source
 const toId   = (e) => e.to_id   ?? e.target
 
 export function toJSON(graph){
-  return { nodes: graph.nodes || [], edges: graph.edges || [] }
+  // Include style meta if available (for reproducibility of classes/colors)
+  let style_meta = null
+  try{ style_meta = (window.__pipesStyle && typeof window.__pipesStyle.meta==='function') ? window.__pipesStyle.meta() : null }catch{}
+  return { nodes: graph.nodes || [], edges: graph.edges || [], style_meta }
 }
 
 export function toCompact(graph){
