@@ -1,4 +1,4 @@
-# Plan de tests manuels — Éditeur Réseau (V1)
+# Plan de tests manuels — Éditeur Réseau (V1/V2)
 
 ## Lecture / Écriture — Sheets
 - Lancer le backend (`uvicorn ... --env-file .env.dev`) avec `DATA_SOURCE=sheet`.
@@ -42,3 +42,46 @@
 ## Santé / Observabilité
 - `/healthz` renvoie 200.
 - Journal (drawer) affiche warnings/erreurs de layout.
+
+---
+
+## V2 — Fond orthophoto + synchronisation
+
+Préparation
+- Définir dans `.env.dev`:
+  - `MAP_TILES_URL` (IGN WMTS PM ou XYZ), `MAP_TILES_ATTRIBUTION`, éventuellement `MAP_TILES_API_KEY`.
+- `npm install && npm run build` (Leaflet copié en local), puis `uvicorn ... --env-file .env.dev`.
+
+Vérifications
+- L’orthophoto s’affiche sous l’éditeur (bouton « Fond » actif). Le bouton « Fond » bascule l’affichage (préférence persiste).
+- La molette et le drag sur le canvas pan/zooment la carte; les polylignes et nœuds GPS restent alignés (pas de décalage perceptible).
+- `MAP_TILES_URL` vide → fond neutre, aucun appel réseau.
+- CSP: pas d’erreur CSP en console; l’origine de tuiles est autorisée.
+
+Cas d’erreurs
+- URL invalide (401/403/404) → tuiles non chargées; pas de crash JS; overlay toujours rendu.
+- Clé API manquante: ajouter `MAP_TILES_API_KEY` ou renseigner la clé dans l’URL.
+
+## V2 — Géométrie d’arêtes (lecture)
+
+Sources de test
+- GCS JSON: fichier avec edges[].geometry: `[[lon,lat], ...]`.
+- Sheets: colonnes `Geometry` et `PipeGroupId` (formats tolérés: « lon lat; … », GeoJSON stringifié, WKT LINESTRING).
+- BigQuery: colonne `geometry_wkt` (ou `geometry` stringifiée WKT) dans `Edges`.
+
+Vérifications
+- Les arêtes avec `geometry` sont rendues en polyligne; sans `geometry`, fallback en courbe entre nœuds.
+- Une flèche apparaît au milieu de chaque polyligne (masquée si très courte), orientée source→target.
+- Pour Sheets, chacun des 3 formats de `Geometry` est accepté (au moins un exemple par format).
+- Pour BigQuery, WKT est correctement converti en `geometry` JSON côté API.
+
+## V2 — Nœuds GPS et verrouillage
+
+Vérifications
+- Un nœud avec `gps_lat/gps_lon` affiche la coche « Ancrer au GPS (verrouiller) » active; le nœud n’est pas déplaçable (drag ignoré).
+- Décochez « Ancrer au GPS »: la position visuelle actuelle est gelée en `x/y`; le nœud redevient déplaçable.
+- Recochez après avoir (ré)renseigné lat/lon: le nœud suit la carte; dragging à nouveau bloqué.
+
+Régressions à éviter
+- Les nœuds sans GPS restent déplaçables; la coche est désactivée.
+- Les interactions existantes (sélection, menu, suppression) ne sont pas perturbées.

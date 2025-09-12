@@ -186,12 +186,16 @@ def _row_to_node(row: Dict[str, Any], header_set: List[str], full_row: Dict[str,
 def _row_to_edge(row: Dict[str, Any], header_set: List[str]) -> Edge:
     from_id = row.get("source_id") or row.get("from_id")
     to_id = row.get("cible_id") or row.get("to_id")
+    geometry_coords = _parse_geometry_field(row.get("Geometry") or row.get("geometry"))
+    pipe_group_id = row.get("PipeGroupId") or row.get("pipe_group_id") or None
     return Edge(
         id=(row.get("id") or None),
         from_id=str(from_id) if from_id is not None else "",
         to_id=str(to_id) if to_id is not None else "",
         active=_bool(row.get("actif") if "actif" in header_set else row.get("active"), True),
         commentaire=(row.get("commentaire") or ""),
+        geometry=(geometry_coords if geometry_coords else None),
+        pipe_group_id=(pipe_group_id or None),
     )
 
 
@@ -204,6 +208,80 @@ def _values_to_dicts(values: List[List[Any]], header: List[str]) -> List[Dict[st
                 d[key] = r[i]
         rows.append(d)
     return rows
+
+
+def _parse_geometry_lonlat_semicolon(s: str) -> List[List[float]]:
+    coords: List[List[float]] = []
+    parts = [p for p in s.split(";") if p is not None]
+    for p in parts:
+        t = str(p).strip()
+        if not t:
+            continue
+        seg = [x for x in re.split(r"[\s,]+", t) if x]
+        if len(seg) >= 2:
+            try:
+                lon = float(seg[0].replace(',', '.'))
+                lat = float(seg[1].replace(',', '.'))
+                coords.append([lon, lat])
+            except Exception:
+                continue
+    return coords
+
+
+def _parse_geometry_wkt(s: str) -> List[List[float]]:
+    m = re.search(r"LINESTRING\s*\(([^)]*)\)", s, flags=re.IGNORECASE)
+    coords: List[List[float]] = []
+    if not m:
+        return coords
+    body = m.group(1)
+    pairs = [p.strip() for p in body.split(',') if p.strip()]
+    for p in pairs:
+        seg = [x for x in re.split(r"[\s]+", p) if x]
+        if len(seg) >= 2:
+            try:
+                lon = float(seg[0].replace(',', '.'))
+                lat = float(seg[1].replace(',', '.'))
+                coords.append([lon, lat])
+            except Exception:
+                continue
+    return coords
+
+
+def _parse_geometry_field(v: Any) -> List[List[float]]:
+    # Accept: "lon lat; lon lat; ..." > GeoJSON stringified > WKT LINESTRING
+    if v is None:
+        return []
+    if isinstance(v, list):
+        try:
+            coords: List[List[float]] = []
+            for item in v:
+                if isinstance(item, (list, tuple)) and len(item) >= 2:
+                    lon = float(item[0])
+                    lat = float(item[1])
+                    coords.append([lon, lat])
+            return coords
+        except Exception:
+            return []
+    if not isinstance(v, str):
+        return []
+    s = v.strip()
+    if not s:
+        return []
+    coords = _parse_geometry_lonlat_semicolon(s)
+    if coords:
+        return coords
+    if s.startswith('{') or s.startswith('['):
+        try:
+            import json as _json
+            data = _json.loads(s)
+            if isinstance(data, dict) and 'coordinates' in data:
+                return _parse_geometry_field(data.get('coordinates'))
+            if isinstance(data, list):
+                return _parse_geometry_field(data)
+        except Exception:
+            pass
+    coords = _parse_geometry_wkt(s)
+    return coords
 
 
 def read_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, *, site_id: str | None = None) -> Graph:
@@ -289,7 +367,8 @@ def read_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, *, site_id: 
         edge_header = _detect_header(
             edge_header_raw, [EDGE_HEADERS_FR_V2, EDGE_HEADERS_FR_V1, EDGE_HEADERS_EN_V1]
         )
-        edge_rows = _values_to_dicts(edges_values[1:], edge_header)
+        # Use the full raw header to capture extra columns like Geometry/PipeGroupId
+        edge_rows = _values_to_dicts(edges_values[1:], edge_header_raw)
         allowed_ids = {n.id for n in nodes}
         for row in edge_rows:
             try:
@@ -309,8 +388,8 @@ def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Grap
 
     # Always write FR V7 headers + extra business headers on output
     node_headers = NODE_HEADERS_FR_V7 + EXTRA_SHEET_HEADERS
-    # Extend edge headers with optional 'commentaire' column (appended)
-    edge_headers = EDGE_HEADERS_FR_V2 + ['commentaire']
+    # Extend edge headers with optional 'commentaire' + geometry + pipe group
+    edge_headers = EDGE_HEADERS_FR_V2 + ['commentaire','Geometry','PipeGroupId']
 
     # Preserve existing canonical positions (x, y) when saving from UI.
     # We fetch the current sheet to map node id -> (x, y) and re-inject
@@ -376,14 +455,30 @@ def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Grap
             extras.append(val if val is not None else "")
         node_values.append(row_core + extras)
 
+    def _format_geometry_lonlat_semicolon(geom) -> str:
+        try:
+            if not isinstance(geom, list):
+                return ""
+            parts = []
+            for pt in geom:
+                if isinstance(pt, (list, tuple)) and len(pt) >= 2:
+                    parts.append(f"{float(pt[0])} {float(pt[1])}")
+            return "; ".join(parts)
+        except Exception:
+            return ""
+
     edge_values = [edge_headers]
     for e in graph.edges:
+        geom_txt = _format_geometry_lonlat_semicolon(getattr(e, 'geometry', None))
+        pgid = getattr(e, 'pipe_group_id', None) or ''
         edge_values.append([
             e.id or "",
             e.from_id,
             e.to_id,
             True if e.active is None else bool(e.active),
             getattr(e, 'commentaire', "") or "",
+            geom_txt,
+            pgid,
         ])
 
     data = [

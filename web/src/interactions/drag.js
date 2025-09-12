@@ -13,7 +13,12 @@ export function attachNodeDrag(gNodes, onEnd){
       const ids = (state.selection.multi && state.selection.multi.size>1 && state.selection.multi.has(d.id))
         ? Array.from(state.selection.multi)
         : [d.id]
-      ids.forEach(id => moveNode(id, e.dx, e.dy, { snap: !e.sourceEvent?.altKey }))
+      // Skip GPS-locked nodes
+      const movable = ids.filter(id => {
+        const n = state.nodes.find(n=>n.id===id)
+        return !(n && n.gps_locked)
+      })
+      movable.forEach(id => moveNode(id, e.dx, e.dy, { snap: !e.sourceEvent?.altKey }))
     })
     .on('end', function(e, d){ try{ e.sourceEvent?.stopPropagation() }catch{} d3.select(this).classed('dragging', false); if(typeof onEnd==='function') onEnd(d) })
 

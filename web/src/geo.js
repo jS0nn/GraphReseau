@@ -5,7 +5,10 @@
 export const geoConfig = {
   // Pixels per degree (lon/lat). Adjust to zoom points in/out in the UI.
   // Example: 10000 px/deg → ~10 px per 0.001° (~111 m).
-  scale: 500000,
+  scale: 500000, // legacy uniform scale
+  // New: independent per-axis scales derived from Leaflet projection
+  scaleX: null,  // px per degree of longitude at current center
+  scaleY: null,  // px per degree of latitude at current center
   // Projection center (degrees). When null, computed from data by caller.
   centerLat: null,
   centerLon: null,
@@ -19,6 +22,11 @@ export function setGeoScale(pxPerDegree){
   if(typeof pxPerDegree === 'number' && isFinite(pxPerDegree) && pxPerDegree > 0){
     geoConfig.scale = pxPerDegree
   }
+}
+
+export function setGeoScaleXY(pxPerDegLon, pxPerDegLat){
+  if(Number.isFinite(pxPerDegLon) && pxPerDegLon > 0) geoConfig.scaleX = +pxPerDegLon
+  if(Number.isFinite(pxPerDegLat) && pxPerDegLat > 0) geoConfig.scaleY = +pxPerDegLat
 }
 
 export function setGeoCenter(lat, lon){
@@ -53,17 +61,33 @@ export function computeCenterFromNodes(nodes){
 // Project a (lat, lon) to UI (x,y) in pixels using current config or overrides
 export function projectLatLonToUI(lat, lon, opts={}){
   if(!Number.isFinite(lat) || !Number.isFinite(lon)) return { x: 0, y: 0 }
+  try{
+    if(window.__MAP_ACTIVE && window.__leaflet_map){
+      const map = window.__leaflet_map
+      const pt = map.latLngToContainerPoint({ lat, lng: lon })
+      return { x: pt.x, y: pt.y }
+    }
+  }catch{}
+  const scaleX = Number.isFinite(opts.scaleX) ? +opts.scaleX : (geoConfig.scaleX ?? 0)
+  const scaleY = Number.isFinite(opts.scaleY) ? +opts.scaleY : (geoConfig.scaleY ?? 0)
   const scale = Number.isFinite(opts.scale) ? +opts.scale : geoConfig.scale
   const cLat = Number.isFinite(opts.centerLat) ? +opts.centerLat : geoConfig.centerLat ?? lat
   const cLon = Number.isFinite(opts.centerLon) ? +opts.centerLon : geoConfig.centerLon ?? lon
   const flipY = (typeof opts.flipY === 'boolean') ? opts.flipY : geoConfig.flipY
   const useCos = (typeof opts.useCosLat === 'boolean') ? opts.useCosLat : geoConfig.useCosLat
-  const latRad = (cLat || 0) * Math.PI/180
-  const kx = useCos ? Math.cos(latRad) : 1
   const dxDeg = (lon - cLon)
   const dyDeg = (lat - cLat)
-  const x = dxDeg * kx * scale
-  const y = (flipY ? -1 : 1) * dyDeg * scale
+  // Prefer axis scales if available; fallback to legacy uniform scale with cos(lat)
+  let x, y
+  if(Number.isFinite(scaleX) && Number.isFinite(scaleY) && scaleX>0 && scaleY>0){
+    x = dxDeg * scaleX
+    y = (flipY ? -1 : 1) * dyDeg * scaleY
+  } else {
+    const latRad = (cLat || 0) * Math.PI/180
+    const kx = useCos ? Math.cos(latRad) : 1
+    x = dxDeg * kx * scale
+    y = (flipY ? -1 : 1) * dyDeg * scale
+  }
   return { x, y }
 }
 
@@ -75,3 +99,42 @@ export function uiPosFromNodeGPS(node, opts={}){
   return projectLatLonToUI(lat, lon, opts)
 }
 
+// Display coordinates for a node considering GPS when available.
+// Returns { x, y } in UI pixels. Falls back to node.x/node.y if no GPS.
+export function displayXYForNode(node){
+  // Only render from GPS when explicitly locked to GPS
+  if(node && node.gps_locked){
+    const p = uiPosFromNodeGPS(node)
+    if(p) return p
+  }
+  return { x: (+node.x||0), y: (+node.y||0) }
+}
+
+// Inverse of projectLatLonToUI using current geoConfig.
+// Returns { lon, lat } from UI pixel coordinates.
+export function unprojectUIToLatLon(x, y, opts={}){
+  try{
+    if(window.__MAP_ACTIVE && window.__leaflet_map){
+      const map = window.__leaflet_map
+      const pt = map.containerPointToLatLng([ x, y ])
+      return { lon: pt.lng, lat: pt.lat }
+    }
+  }catch{}
+  const scaleX = Number.isFinite(opts.scaleX) ? +opts.scaleX : (geoConfig.scaleX ?? 0)
+  const scaleY = Number.isFinite(opts.scaleY) ? +opts.scaleY : (geoConfig.scaleY ?? 0)
+  const scale = Number.isFinite(opts.scale) ? +opts.scale : geoConfig.scale
+  const cLat = Number.isFinite(opts.centerLat) ? +opts.centerLat : geoConfig.centerLat || 0
+  const cLon = Number.isFinite(opts.centerLon) ? +opts.centerLon : geoConfig.centerLon || 0
+  const flipY = (typeof opts.flipY === 'boolean') ? opts.flipY : geoConfig.flipY
+  const useCos = (typeof opts.useCosLat === 'boolean') ? opts.useCosLat : geoConfig.useCosLat
+  let lon, lat
+  if(Number.isFinite(scaleX) && Number.isFinite(scaleY) && scaleX>0 && scaleY>0){
+    lat = (flipY ? -1 : 1) * (y / scaleY) + cLat
+    lon = (x / scaleX) + cLon
+  } else {
+    lat = (flipY ? -1 : 1) * (y / scale) + cLat
+    const kx = useCos ? Math.cos((cLat || 0) * Math.PI/180) : 1
+    lon = (x / (scale * (kx || 1))) + cLon
+  }
+  return { lon, lat }
+}

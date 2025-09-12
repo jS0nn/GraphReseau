@@ -68,5 +68,10 @@ class Settings:
     static_root: str = os.path.join(os.path.dirname(__file__), "static")
     templates_root: str = os.path.join(os.path.dirname(__file__), "templates")
 
+    # Map tiles (V2: orthophoto) — optional; used by frontend + CSP
+    map_tiles_url: str = getenv("MAP_TILES_URL", "")
+    map_tiles_attribution: str = getenv("MAP_TILES_ATTRIBUTION", "")
+    map_tiles_api_key: str = getenv("MAP_TILES_API_KEY", "")
+
 
 settings = Settings()

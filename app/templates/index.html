@@ -4,12 +4,17 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Éditeur Réseau — Embed</title>
+    <link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=">
     <link rel="stylesheet" href="/static/vendor/inter/index.css">
     <link rel="stylesheet" href="/static/vendor/unicons/css/line.css">
+    <link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
     <link rel="stylesheet" href="/static/bundle/editor.css">
     <link rel="stylesheet" href="/static/bundle/app.css">
   </head>
-  <body data-theme="dark" class="prop-collapsed">
+  <body data-theme="dark" class="prop-collapsed"
+        data-tiles-url="{{ (tiles_url or '') }}"
+        data-tiles-attribution="{{ (tiles_attribution or '') }}"
+        data-tiles-api-key="{{ (tiles_api_key or '') }}">
     <!-- Barre d’outils -->
     <header class="appbar" id="appbar">
       <div class="title">Éditeur réseau</div>
@@ -18,6 +23,8 @@
       <button class="btn" id="layoutBtn" title="L"><i class="uil uil-horizontal-align-right"></i>Agencer</button>
       <div class="seg" id="modes" title="C = Connecter">
         <button id="modeSelect" class="active"><i class="uil uil-mouse"></i> Sélection</button>
+        <button id="modeDraw"><i class="uil uil-pen"></i> Dessiner</button>
+        <button id="modeEdit"><i class="uil uil-edit"></i> Éditer</button>
         <button id="modeConnect"><i class="uil uil-vector-square-alt"></i> Connecter</button>
         <button id="modeDelete"><i class="uil uil-trash-alt"></i> Supprimer</button>
       </div>
@@ -36,6 +43,7 @@
         <button id="zoomInBtn"  class="ghost"><i class="uil uil-plus-circle"></i></button>
         <button id="zoomFitBtn" class="ghost" title="Adapter"><i class="uil uil-expand-alt"></i></button>
       </div>
+      <button class="btn" id="mapToggleBtn" title="Fond orthophoto"><i class="uil uil-image"></i> Fond</button>
       <button class="btn" id="thicknessBtn" title="Épaisseur des arêtes (Ø)"><i class="uil uil-line-alt"></i> Épaisseur</button>
       <button class="btn" id="exportBtn"><i class="uil uil-export"></i> Export JSON</button>
       <button class="btn" id="exportCompactBtn"><i class="uil uil-compress"></i> Export JSON (compact)</button>
@@ -49,6 +57,7 @@
     <!-- Canvas + Propriétés -->
     <div id="wrap">
       <div id="canvas">
+        <div id="map" aria-hidden="true"></div>
         <svg id="svg">
           <defs>
             <marker id="arrow" viewBox="0 -5 10 10" refX="7.2" refY="0" markerWidth="6" markerHeight="6" orient="auto">
@@ -161,6 +170,9 @@
             </details>
             <details id="grpPos" open>
               <summary>Position & GPS</summary>
+              <label style="display:flex; align-items:center; gap:8px">
+                <input id="gpsLockToggle" type="checkbox"> Ancrer au GPS (verrouiller)
+              </label>
               <label>X <input name="x_UI" type="number" step="1"></label>
               <label>Y <input name="y_UI" type="number" step="1"></label>
               <label>Latitude <input name="gps_lat" type="number" step="0.000001"></label>

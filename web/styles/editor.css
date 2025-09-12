@@ -48,8 +48,10 @@ body[data-theme="light"] header.appbar{background:linear-gradient(180deg, #fff, 
 body[data-theme="light"] .seg{border-color:var(--btn-bd)}
 #wrap{position:absolute; left:0; right:0; bottom:0; top: var(--appbar-height, 70px); display:grid; grid-template-columns:1fr var(--prop-width)}
 body.prop-collapsed #wrap{ grid-template-columns:1fr 0 }
-#canvas{position:relative; overflow:auto; background: linear-gradient(0deg, transparent 24%, var(--grid) 25%, var(--grid) 26%, transparent 27%, transparent 74%, var(--grid) 75%, var(--grid) 76%, transparent 77%), linear-gradient(90deg, transparent 24%, var(--grid) 25%, var(--grid) 26%, transparent 27%, transparent 74%, var(--grid) 75%, var(--grid) 76%, transparent 77%); background-size:32px 32px,32px 32px}
-svg{width:2400px; height:1600px}
+#canvas{position:relative; overflow:hidden; background: linear-gradient(0deg, transparent 24%, var(--grid) 25%, var(--grid) 26%, transparent 27%, transparent 74%, var(--grid) 75%, var(--grid) 76%, transparent 77%), linear-gradient(90deg, transparent 24%, var(--grid) 25%, var(--grid) 26%, transparent 27%, transparent 74%, var(--grid) 75%, var(--grid) 76%, transparent 77%); background-size:32px 32px,32px 32px}
+#map{ position:absolute; inset:0; z-index:0; pointer-events:none }
+body.map-hidden #map{ display:none }
+svg{ position:absolute; inset:0; z-index:1; width:100%; height:100% }
 .node rect.box{rx:10; ry:10; stroke:var(--stroke); fill:var(--node); filter: drop-shadow(0 2px 16px rgba(0,0,0,.22))}
 .node.selected rect.box{stroke:var(--accent); stroke-width:2}
 .node.halo rect.box{ stroke: var(--accent); stroke-width: 2; filter: drop-shadow(0 0 8px rgba(106,168,255,.35)) }

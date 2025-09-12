@@ -2,6 +2,7 @@ import { d3 } from '../vendor.js'
 import { state } from '../state.js'
 import { NODE_SIZE } from './render-nodes.js'
 import { ensurePipeStyle } from '../style/pipes.js'
+import { displayXYForNode } from '../geo.js'
 import { showTooltip, hideTooltip, scheduleHide, cancelHide } from '../ui/tooltip.js'
 
 export function renderInline(g, nodes){
@@ -26,10 +27,12 @@ export function renderInline(g, nodes){
     })
     .attr('d', d => {
       const a = d.from, b = d.to
-      const ax = (a.x||0) + NODE_SIZE.w
-      const ay = (a.y||0) + NODE_SIZE.h/2
-      const bx = (b.x||0)
-      const by = (b.y||0) + NODE_SIZE.h/2
+      const pa = displayXYForNode(a)
+      const pb = displayXYForNode(b)
+      const ax = (pa.x||0) + NODE_SIZE.w
+      const ay = (pa.y||0) + NODE_SIZE.h/2
+      const bx = (pb.x||0)
+      const by = (pb.y||0) + NODE_SIZE.h/2
       const dx = Math.max(20, (bx - ax)/2)
       const c1x = ax + dx, c1y = ay
       const c2x = bx - dx, c2y = by

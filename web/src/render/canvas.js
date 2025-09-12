@@ -1,4 +1,5 @@
 import { d3 } from '../vendor.js'
+import { getMap, isMapActive } from '../map.js'
 
 export function initCanvas(){
   const svg = d3.select('#svg')
@@ -12,7 +13,11 @@ export function initCanvas(){
   const zoom = d3.zoom()
     .filter((event)=> {
       const isWheel = event.type === 'wheel'
-      if(isWheel) return !(event.ctrlKey||event.metaKey)
+      // When a map is active, handle wheel at app level (Leaflet setZoomAround) instead of d3.zoom
+      if(isWheel){
+        if(isMapActive && isMapActive()) return false
+        return !(event.ctrlKey||event.metaKey)
+      }
       // For drag pan: allow when not starting on nodes/edges and not using Ctrl/Cmd (reserved for marquee)
       const isPointerDown = event.type === 'mousedown' || event.type === 'pointerdown' || event.type === 'touchstart'
       if(isPointerDown){
@@ -27,11 +32,69 @@ export function initCanvas(){
     })
     // Allow wider zoom range so zoom-fit can always include all elements
     .scaleExtent([0.02, 5])
-    .on('zoom', (e)=> root.attr('transform', e.transform))
+    .on('zoom', (e)=> {
+      const map = getMap && getMap()
+      if(isMapActive && isMapActive() && map){
+        // Forward pan/zoom deltas to Leaflet; keep SVG root at identity
+        const t = e.transform
+        const cur = (root.__lastZoomTransform || d3.zoomIdentity)
+        const dx = t.x - cur.x
+        const dy = t.y - cur.y
+        const ratio = (t.k && cur.k) ? (t.k / cur.k) : 1
+        if(Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5){
+          try{ map.panBy([ -dx, -dy ], { animate: false }) }catch{}
+        }
+        if(Math.abs(ratio - 1) > 0.001){
+          try{
+            const z0 = map.getZoom()
+            const z1 = z0 + Math.log2(Math.max(1e-6, ratio))
+            map.setZoom(z1, { animate: false })
+          }catch{}
+        }
+        root.__lastZoomTransform = t
+        // Do not apply the transform on the SVG root when a map is active
+        return
+      }
+      root.attr('transform', e.transform)
+    })
   svg.call(zoom)
 
-  function zoomBy(k){ svg.transition().duration(160).call(zoom.scaleBy, k) }
-  function zoomReset(){ svg.transition().call(zoom.transform, d3.zoomIdentity) }
+  // Smooth wheel zoom forwarded to Leaflet, keeping cursor fixed
+  try{
+    const svgEl = document.getElementById('svg')
+    svgEl?.addEventListener('wheel', (e)=>{
+      if(!(isMapActive && isMapActive())) return
+      const map = getMap && getMap()
+      if(!map) return
+      e.preventDefault(); e.stopPropagation()
+      // Use Leaflet's event helper for exact container point
+      let pt
+      try{ pt = map.mouseEventToContainerPoint(e) }catch{ pt = null }
+      if(!pt){
+        const rect = map.getContainer().getBoundingClientRect()
+        pt = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+      }
+      const z0 = map.getZoom()
+      const dir = (e.deltaY < 0) ? 1 : -1
+      const z1 = z0 + dir
+      try{ map.setZoomAround(pt, z1, { animate: false }) }catch{}
+    }, { passive: false, capture: true })
+  }catch{}
+
+  function zoomBy(k){
+    if(isMapActive && isMapActive() && getMap && getMap()){
+      try{ const m=getMap(); m.setZoom(m.getZoom() + (k>1 ? 1 : -1), { animate: true }) }catch{}
+      return
+    }
+    svg.transition().duration(160).call(zoom.scaleBy, k)
+  }
+  function zoomReset(){
+    if(isMapActive && isMapActive() && getMap && getMap()){
+      try{ const m=getMap(); m.setZoom(0) }catch{}
+      return
+    }
+    svg.transition().call(zoom.transform, d3.zoomIdentity)
+  }
   function setSpacePan(on){ spacePan = !!on; svg.style('cursor', on ? 'grab' : null) }
 
   return { svg, root, gInline, gEdges, gNodes, gOverlay, zoomBy, zoomReset, zoom, setSpacePan }

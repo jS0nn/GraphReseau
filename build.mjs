@@ -26,6 +26,11 @@ async function copyVendorAssets(){
   if (await exists(uniconsSrc)) {
     await cp(uniconsSrc, path.join(outVendorDir, 'unicons'), { recursive: true })
   }
+  // Copy Leaflet dist (CSS + images)
+  const leafletSrc = path.join(root, 'node_modules', 'leaflet', 'dist')
+  if (await exists(leafletSrc)) {
+    await cp(leafletSrc, path.join(outVendorDir, 'leaflet'), { recursive: true })
+  }
 }
 
 async function buildJS(){

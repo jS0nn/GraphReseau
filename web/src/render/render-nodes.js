@@ -1,5 +1,6 @@
 import { d3 } from '../vendor.js'
 import { state } from '../state.js'
+import { displayXYForNode } from '../geo.js'
 import { isCanal, vn } from '../utils.js'
 import { ensurePipeStyle } from '../style/pipes.js'
 
@@ -14,7 +15,7 @@ export function renderNodes(gNodes, nodes){
 
   const cls = (t) => String(t||'').toUpperCase()
   const enter = sel.enter().append('g').attr('class', d => `node ${cls(d.type)}`)
-    .attr('transform', d => `translate(${d.x||0},${d.y||0})`)
+    .attr('transform', d => { const p = displayXYForNode(d); return `translate(${p.x},${p.y})` })
 
   // Visual box
   enter.append('rect').attr('class','box').attr('width', NODE_W).attr('height', NODE_H)
@@ -29,7 +30,7 @@ export function renderNodes(gNodes, nodes){
       const isSel = state.selection.nodeId===d.id || (state.selection.multi && state.selection.multi.has(d.id))
       return `node ${cls(d.type)} ${isSel?'selected':''}`
     })
-    .attr('transform', d => `translate(${d.x||0},${d.y||0})`)
+    .attr('transform', d => { const p = displayXYForNode(d); return `translate(${p.x},${p.y})` })
     .select('text.label').text(d => d.name||d.id)
   // Apply dynamic border color for CANALISATION nodes
   sel.merge(enter)

@@ -1,4 +1,5 @@
 import { state, subscribe, updateNode, removeNode, removeEdge, clearSelection, addNode, addEdge, moveWellToCanal, moveInlineToCanal, reorderChildCanals, reorderInlines, buildCanalSequence, applyCanalSequence, selectEdgeById, selectNodeById } from '../state.js'
+import { displayXYForNode, unprojectUIToLatLon } from '../geo.js'
 import { genIdWithTime as genId, defaultName, vn, snap } from '../utils.js'
 import { log } from './logs.js'
 function setStatus(msg){ const el=document.getElementById('status'); if(el) el.textContent = msg||'' }
@@ -40,6 +41,14 @@ export function initForms(){
       if('sdr_ouvrage' in n && nodeForm.sdr_ouvrage) nodeForm.sdr_ouvrage.value = (n.sdr_ouvrage===''||n.sdr_ouvrage==null)?'':n.sdr_ouvrage
       if('gps_lat' in n && nodeForm.gps_lat) nodeForm.gps_lat.value = (n.gps_lat===''||n.gps_lat==null)?'':n.gps_lat
       if('gps_lon' in n && nodeForm.gps_lon) nodeForm.gps_lon.value = (n.gps_lon===''||n.gps_lon==null)?'':n.gps_lon
+      // GPS lock toggle visibility/state
+      const lock = document.getElementById('gpsLockToggle')
+      if(lock){
+        lock.checked = !!n.gps_locked
+        lock.disabled = false
+        lock.parentElement.style.opacity = '1'
+        lock.title = 'Quand activé, la position suit le GPS (non déplaçable)'
+      }
       if(nodeForm.commentaire) nodeForm.commentaire.value = (n?.commentaire ?? '')
       // Canalisation extras: render simple children list + add shortcuts
       const seq = document.getElementById('seqList')
@@ -74,7 +83,7 @@ export function initForms(){
   if(nodeForm){
     // Ignore inputs that are handled by dedicated change handlers to avoid
     // premature re-render cancelling their events (e.g., canal selects).
-    const IGNORE_IDS = new Set(['wellCanalSelect','inlCanalSelect','inlOffsetInput','cwSearch','pmSearch','vanSearch'])
+    const IGNORE_IDS = new Set(['wellCanalSelect','inlCanalSelect','inlOffsetInput','cwSearch','pmSearch','vanSearch','gpsLockToggle'])
     nodeForm.addEventListener('input', (evt)=>{
       const t = evt?.target
       if(t && IGNORE_IDS.has(t.id||'')) return
@@ -98,6 +107,38 @@ export function initForms(){
       if(nodeForm.commentaire) patch.commentaire = nodeForm.commentaire.value
       updateNode(id, patch)
     })
+    // GPS lock toggle
+    const lock = document.getElementById('gpsLockToggle')
+    if(lock && !lock.__wired__){
+      lock.__wired__ = true
+      lock.addEventListener('change', ()=>{
+        const id = state.selection.nodeId
+        if(!id) return
+        const n = state.nodes.find(nn=>nn.id===id)
+        const to = !!lock.checked
+        if(n){
+          if(n.gps_locked && !to){
+            // Unlock: freeze current visual position into x/y
+            const p = displayXYForNode(n)
+            updateNode(id, { gps_locked: false, x: Math.round(+p.x||0), y: Math.round(+p.y||0) })
+            return
+          }
+          if(!n.gps_locked && to){
+            // Lock: compute GPS from current UI x/y and set gps_lat/lon
+            const p = displayXYForNode(n) // when unlocked, this is {x,y}
+            const ll = unprojectUIToLatLon(+p.x||0, +p.y||0)
+            const patch = { gps_locked: true }
+            if(Number.isFinite(ll?.lat) && Number.isFinite(ll?.lon)){
+              patch.gps_lat = ll.lat
+              patch.gps_lon = ll.lon
+            }
+            updateNode(id, patch)
+            return
+          }
+        }
+        updateNode(id, { gps_locked: to })
+      })
+    }
   }
 
   // Edge form inputs

@@ -195,7 +195,15 @@ def _sanitize_graph_for_write(graph: Graph) -> Graph:
             guard = 0
             while nid in seen_ids and guard < 5:
                 nid = _gen_edge_id(); guard += 1
-            e = Edge(id=nid, from_id=e.from_id, to_id=e.to_id, active=(e.active if e.active is not None else True), commentaire=getattr(e, 'commentaire', '') or '')
+            e = Edge(
+                id=nid,
+                from_id=e.from_id,
+                to_id=e.to_id,
+                active=(e.active if e.active is not None else True),
+                commentaire=getattr(e, 'commentaire', '') or '',
+                geometry=getattr(e, 'geometry', None),
+                pipe_group_id=getattr(e, 'pipe_group_id', None),
+            )
             seen_ids.add(nid)
             kept.append(e)
         else:
@@ -262,13 +270,46 @@ def loadBQ(
                     x=d.get('x'), y=d.get('y'),
                 )
 
+        def _parse_wkt_linestring(s: str) -> list[list[float]]:
+            try:
+                import re as _re
+                m = _re.search(r"LINESTRING\s*\(([^)]*)\)", s, flags=_re.IGNORECASE)
+                if not m:
+                    return []
+                body = m.group(1)
+                coords = []
+                for p in body.split(','):
+                    seg = [x for x in _re.split(r"[\s]+", p.strip()) if x]
+                    if len(seg) >= 2:
+                        lon = float(seg[0].replace(',', '.'))
+                        lat = float(seg[1].replace(',', '.'))
+                        coords.append([lon, lat])
+                return coords
+            except Exception:
+                return []
+
         def to_edges():
             for r in edges_rows:
                 d = dict(r)
                 from_id = d.get('from_id') or d.get('source_id')
                 to_id = d.get('to_id') or d.get('cible_id')
                 active = d.get('active') if 'active' in d else d.get('actif')
-                yield Edge(id=d.get('id'), from_id=str(from_id), to_id=str(to_id), active=bool(active) if active is not None else True)
+                geom: list[list[float]] | None = None
+                try:
+                    g_wkt = d.get('geometry_wkt') or d.get('geometry')
+                    if isinstance(g_wkt, str):
+                        coords = _parse_wkt_linestring(g_wkt)
+                        if coords:
+                            geom = coords
+                except Exception:
+                    pass
+                yield Edge(
+                    id=d.get('id'),
+                    from_id=str(from_id),
+                    to_id=str(to_id),
+                    active=bool(active) if active is not None else True,
+                    geometry=geom,
+                )
 
         nodes = [n for n in to_nodes() if getattr(n, "id", None)]
         # Filter only edges that have both endpoints defined (from_id/to_id)

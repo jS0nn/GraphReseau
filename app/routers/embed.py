@@ -29,8 +29,18 @@ def embed_editor(
 
     check_embed_access(request, k)
     headers = {"Content-Security-Policy": build_csp()}
+    tiles_url = settings.map_tiles_url
+    tiles_attr = settings.map_tiles_attribution
+    tiles_api_key = settings.map_tiles_api_key
     return templates.TemplateResponse(
         "index.html",
-        {"request": request, "sheet_id": sheet_id, "mode": mode},
+        {
+            "request": request,
+            "sheet_id": sheet_id,
+            "mode": mode,
+            "tiles_url": tiles_url,
+            "tiles_attribution": tiles_attr,
+            "tiles_api_key": tiles_api_key,
+        },
         headers=headers,
     )

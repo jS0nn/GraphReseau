@@ -134,8 +134,32 @@ DATA_SOURCE=sheet
 # Dev toggles
 DISABLE_EMBED_REFERER_CHECK=1
 # DISABLE_EMBED_KEY_CHECK=1
+
+# Fond de plan (orthophoto) — optionnel
+# Exemple IGN (WMTS GetTile, Web Mercator PM)
+# MAP_TILES_URL="https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&FORMAT=image/jpeg&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}"
+# MAP_TILES_ATTRIBUTION="© IGN – Orthophotographies"
+# Exemple MapTiler (XYZ)
+# MAP_TILES_URL="https://api.maptiler.com/tiles/satellite/{z}/{x}/{y}.jpg?key={apiKey}"
+# MAP_TILES_ATTRIBUTION="© MapTiler © OpenStreetMap contributors"
+# MAP_TILES_API_KEY=VOTRE_CLE
 ```
 Lancer l’API avec: `uvicorn app.main:app --reload --port 8080 --env-file .env.dev`.
+
+### Fond orthophoto (Leaflet, sans CDN)
+- Que faire: définir `MAP_TILES_URL` et `MAP_TILES_ATTRIBUTION` dans `.env.dev`. Si la source demande une clé, utilisez `MAP_TILES_API_KEY`.
+- Formats acceptés:
+  - XYZ: `{z}/{x}/{y}.(png|jpg)`
+  - WMTS GetTile: `...&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}` (IGN PM)
+- Clés API: si l’URL contient `{apiKey}` / `{apikey}` / `${API_KEY}` / `${MAP_TILES_API_KEY}`, la clé est substituée; sinon `?key=...` est ajouté si absent.
+- CSP: l’origine des tuiles est automatiquement autorisée (img-src/connect-src) via `MAP_TILES_URL`.
+- Build: `npm install && npm run build` (copie Leaflet dans `/static/vendor/leaflet`).
+- Utilisation: l’orthophoto s’affiche sous le SVG; la molette et le drag synchronisent la carte et l’overlay. Le bouton « Fond » bascule l’affichage; préférence mémorisée.
+
+### V2 (aperçu) — géométrie d’arêtes et flèches
+- Si `edges[i].geometry` est présent (liste `[lon,lat]`), l’arête est rendue en polyligne sur l’orthophoto, avec une flèche au milieu orientée amont→aval.
+- Sinon, fallback visuel (courbe) entre nœuds.
+- Les nœuds avec GPS (lat/lon) peuvent être « ancrés »: coche « Ancrer au GPS » dans Propriétés pour empêcher le déplacement (déverrouiller pour repasser en XY libres).
 
 ## Impersonation (résumé)
 ### Stratégie recommandée (local + Cloud Run)

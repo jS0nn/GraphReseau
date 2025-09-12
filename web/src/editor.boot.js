@@ -10,12 +10,14 @@ import { autoLayout } from './layout.js'
 import { initLogsUI, log, wireStateLogs } from './ui/logs.js'
 import { initForms } from './ui/forms.js'
 import { initModesUI } from './modes.js'
+import { initMap, fitMapToNodes, syncGeoProjection } from './map.js'
 import { state, setGraph, getGraph as getStateGraph, subscribe, selectNodeById, selectEdgeById, copySelection, pasteClipboard, removeEdge, removeNodes, removeNode, addNode, setMode } from './state.js'
 import { createHistory } from './history.js'
 import { attachConnect } from './interactions/connect.js'
 import { attachNodeDrag } from './interactions/drag.js'
 import { attachSelection } from './interactions/selection.js'
 import { attachMarquee } from './interactions/marquee.js'
+import { attachDraw } from './interactions/draw.js'
 
 function ensureHUD(){
   let hud = document.getElementById('hud')
@@ -94,9 +96,13 @@ function bindToolbar(canvas){
   byId('zoomInBtn')?.addEventListener('click', ()=> canvas.zoomBy(1.15))
   byId('zoomOutBtn')?.addEventListener('click', ()=> canvas.zoomBy(1/1.15))
   byId('zoomFitBtn')?.addEventListener('click', ()=> {
-    const t = computeZoomFitTransform(document.getElementById('canvas'), state.nodes)
-    const d3 = window.d3
-    canvas.svg.transition().duration(220).call(canvas.zoom.transform, d3.zoomIdentity.translate(t.x, t.y).scale(t.k))
+    if(window.__MAP_ACTIVE){
+      try{ fitMapToNodes() }catch{}
+    }else{
+      const t = computeZoomFitTransform(document.getElementById('canvas'), state.nodes)
+      const d3 = window.d3
+      canvas.svg.transition().duration(220).call(canvas.zoom.transform, d3.zoomIdentity.translate(t.x, t.y).scale(t.k))
+    }
   })
   byId('layoutBtn')?.addEventListener('click', async ()=>{ await autoLayout(state.nodes, state.edges); renderAll(canvas) })
   // Toggle variable edge thickness (by diameter)
@@ -125,6 +131,19 @@ function bindToolbar(canvas){
       .then(()=>{ setStatus('Sauvé.'); log('Graph sauvé') })
       .catch(err=>{ console.error(err); alert('Erreur de sauvegarde'); setStatus('Erreur sauvegarde'); log('Sauvegarde: erreur', 'error') })
   })
+  // Map toggle
+  const mapBtn = byId('mapToggleBtn')
+  if(mapBtn){
+    try{ const saved = localStorage.getItem('mapHidden'); if(saved==='1') document.body.classList.add('map-hidden') }catch{}
+    mapBtn.classList.toggle('active', !document.body.classList.contains('map-hidden'))
+    mapBtn.addEventListener('click', ()=>{
+      const hidden = document.body.classList.toggle('map-hidden')
+      mapBtn.classList.toggle('active', !hidden)
+      try{ localStorage.setItem('mapHidden', hidden ? '1' : '0') }catch{}
+      // Re-render to refresh overlay against background visibility
+      renderAll(canvas)
+    })
+  }
   byId('loadBtn')?.addEventListener('click', async ()=>{ const g = await getGraph(); setGraph(g) })
   // Help dialog
   const helpBtn = byId('helpBtn')
@@ -256,6 +275,8 @@ function attachInteractions(canvas){
       if(e.key==='Delete' || e.key==='Backspace'){ e.preventDefault(); deleteSelection() }
       if(e.key.toLowerCase()==='l'){ e.preventDefault(); document.getElementById('layoutBtn')?.click() }
       if(e.key.toLowerCase()==='c'){ e.preventDefault(); setMode('connect') }
+      if(e.key.toLowerCase()==='d'){ e.preventDefault(); setMode('draw') }
+      if(e.key.toLowerCase()==='e'){ e.preventDefault(); setMode('edit') }
       if(e.key==='='||e.key==='+'){ e.preventDefault(); canvas.zoomBy(1.15) }
       if(e.key==='-'){ e.preventDefault(); canvas.zoomBy(1/1.15) }
     }
@@ -289,10 +310,14 @@ export async function boot(){
       renderAll(canvas)
     }
   })
+  // Re-render overlays on map moves to keep geometry aligned
+  try{ document.addEventListener('map:view', ()=> { renderAll(canvas) }) }catch{}
 
   // Load graph
   const graph = await getGraph().catch(err=>{ log('Chargement échoué: '+err, 'error'); return { nodes:[], edges:[] } })
   setGraph(graph)
+  // Initialize orthophoto map and sync projection (if configured)
+  try{ initMap(); fitMapToNodes(); syncGeoProjection() }catch{}
   // History
   const history = createHistory(
     () => JSON.parse(JSON.stringify(getStateGraph())),
@@ -318,14 +343,20 @@ export async function boot(){
   renderAll(canvas)
   // Zoom fit on initial load
   try{
-    // defer one frame to ensure CSS/layout applied
-    requestAnimationFrame(()=> requestAnimationFrame(()=> applyZoomFit(canvas)))
+    // If map active, use fitMapToNodes; otherwise compute SVG fit
+    if(window.__MAP_ACTIVE){
+      requestAnimationFrame(()=> requestAnimationFrame(()=> { try{ fitMapToNodes() }catch{} }))
+    }else{
+      // defer one frame to ensure CSS/layout applied
+      requestAnimationFrame(()=> requestAnimationFrame(()=> applyZoomFit(canvas)))
+    }
   }catch{}
 
   // No auto-fit on resize/DOM changes per request
 
   attachInteractions(canvas)
   attachMarquee(canvas.svg, canvas.gOverlay)
+  attachDraw(canvas.svg, canvas.gOverlay)
 
   // Context menu (right-click) – Agencer
   try{

@@ -7,10 +7,27 @@ from .config import settings
 
 def build_csp() -> str:
     ancestors = settings.allowed_frame_ancestors
+    # Allow map tile host if configured (for orthophoto)
+    img_src = ["'self'", "data:"]
+    connect_src = ["'self'"]
+    try:
+        tiles_url = (settings.map_tiles_url or "").strip()
+        if tiles_url:
+            u = urlparse(tiles_url)
+            if u.scheme and u.hostname:
+                origin = f"{u.scheme}://{u.hostname}"
+                if origin not in img_src:
+                    img_src.append(origin)
+                if origin not in connect_src:
+                    connect_src.append(origin)
+    except Exception:
+        pass
+    img_src_str = " ".join(img_src)
+    connect_src_str = " ".join(connect_src)
     return (
         "default-src 'none'; "
-        "connect-src 'self'; "
-        "img-src 'self' data:; "
+        f"connect-src {connect_src_str}; "
+        f"img-src {img_src_str}; "
         "font-src 'self' data:; "
         "style-src 'self' 'unsafe-inline'; "
         "script-src 'self'; "

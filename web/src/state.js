@@ -1,5 +1,5 @@
 import { genIdWithTime as genId, snap as snapToGrid, isCanal, vn, incrementName, defaultName } from './utils.js'
-import { computeCenterFromNodes, setGeoCenter, uiPosFromNodeGPS } from './geo.js'
+import { computeCenterFromNodes, setGeoCenter, uiPosFromNodeGPS, unprojectUIToLatLon } from './geo.js'
 export { setGeoScale, setGeoCenter } from './geo.js'
 
 // Global editor state (graph + UI)
@@ -49,6 +49,9 @@ export function setGraph(graph){
     // Use x_ui/y_ui as position sources when present
     if(m.x == null && m.x_ui != null) m.x = m.x_ui
     if(m.y == null && m.y_ui != null) m.y = m.y_ui
+    // Default GPS lock: true if GPS present; else false. Preserve existing flag.
+    // Default: lock to GPS by default
+    if(typeof m.gps_locked !== 'boolean') m.gps_locked = true
     return m
   })
   // If x/y are missing or incoherent (extreme), derive from GPS when available
@@ -65,11 +68,28 @@ export function setGraph(graph){
       const pos = uiPosFromNodeGPS(m)
       if(pos){ m.x = snapToGrid(pos.x, state.gridStep); m.y = snapToGrid(pos.y, state.gridStep) }
     }
+    // If locked but no GPS yet, derive GPS from current UI position
+    if(m.gps_locked && (m.gps_lat==null || m.gps_lon==null) && Number.isFinite(m.x) && Number.isFinite(m.y)){
+      try{
+        const ll = unprojectUIToLatLon(+m.x, +m.y)
+        if(Number.isFinite(ll?.lat) && Number.isFinite(ll?.lon)){
+          m.gps_lat = ll.lat; m.gps_lon = ll.lon
+        }
+      }catch{}
+    }
   })
   state.nodes = nodes
   // Normalize edges to canonical from_id/to_id
   const rawEdges = Array.isArray(graph?.edges) ? graph.edges.slice() : []
-  state.edges = rawEdges.map(e => ({ id: e.id, from_id: e.from_id ?? e.source, to_id: e.to_id ?? e.target, active: e.active !== false, commentaire: (e.commentaire||'') }))
+  state.edges = rawEdges.map(e => ({
+    id: e.id,
+    from_id: e.from_id ?? e.source,
+    to_id: e.to_id ?? e.target,
+    active: e.active !== false,
+    commentaire: (e.commentaire||''),
+    geometry: Array.isArray(e.geometry) ? e.geometry : null,
+    pipe_group_id: e.pipe_group_id || null,
+  }))
 
   // Deduplicate edges by id; if same id repeats with identical from/to, keep first; otherwise reassign id
   ;(function dedupEdges(){
@@ -290,6 +310,7 @@ export function applyGPSPositions({ force=false } = {}){
 export function moveNode(id, dx, dy, { snap=true } = {}){
   const n = state.nodes.find(n => n.id === id)
   if (!n) return
+  if(n.gps_locked){ return } // do not move GPS-locked nodes
   const nx = (+n.x || 0) + dx
   const ny = (+n.y || 0) + dy
   n.x = snap ? snapToGrid(nx, state.gridStep) : nx

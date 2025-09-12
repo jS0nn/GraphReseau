@@ -31,7 +31,7 @@ Statut: à cocher au fur et à mesure. Cible: V1 fonctionnelle (embed RO), sourc
 - [x] Enlever X‑Frame‑Options
 - [x] Clé statique k (V1)
 - [x] Dev toggles: DISABLE_EMBED_REFERER_CHECK / DISABLE_EMBED_KEY_CHECK
-- [ ] V2: liens d’embed signés (JWT court‑terme)
+- [ ] V3: liens d’embed signés (JWT court‑terme) + RBAC côté API
 
 ## Sources & Bridge
 - [x] Bridge “google.script.run” (transitoire) → API FastAPI
@@ -66,7 +66,50 @@ Statut: à cocher au fur et à mesure. Cible: V1 fonctionnelle (embed RO), sourc
 - [x] NOTICE_IMPLEMENTATION (pas‑à‑pas local/Docker/Cloud Run)
 - [x] Plan de tests manuels (lecture/écriture, layout, embed RO/RW)
 
-## V2 — Affichage progressif des nœuds (dépliage par canalisation)
+## V2 — Canalisations en arêtes (polylignes) + orthophoto (IGN WMTS)
+
+Contexte et objectifs
+- Passer les canalisations en arêtes géométriques (LineString) avec `pipe_group_id` conservé aux splits.
+- Afficher un fond orthophoto IGN (WMTS) synchronisé avec le viewport (Leaflet en bundle local, pas de CDN).
+- Dessiner une flèche au milieu de chaque arête orientée source→target (sens d’écoulement).
+- Rester compatible V1 (données sans `geometry`).
+
+Référence détaillée
+- Voir `docs/migration-v2-pipes-as-edges.md` (chapitres Portée, Modèle, Backend/Frontend, Plan de livraison, Annexes IGN/Flèches).
+
+Tâches (par étapes de livraison)
+- [ ] Étape 1 — Backend (lecture seule)
+  - [ ] `app/models.py`: ajouter `Node.lon/lat`, `Edge.geometry`, `Edge.pipe_group_id` (optionnels) + validation fallback.
+  - [ ] `app/datasources.py`: GET sérialise `geometry`; conversion BQ WKT/GEOGRAPHY → coords.
+  - [ ] `app/sheets.py`: parse/format `Geometry` ("lon lat; …" > GeoJSON > WKT).
+  - [ ] Tests lecture V1/V2 (GCS JSON, Sheets, BQ).
+- [ ] Étape 2 — Fond de plan + rendu polylignes
+  - [ ] `web/src/vendor.js`: ajouter Leaflet (bundle local).
+  - [ ] `web/src/geo.js`: project/unproject, haversine.
+  - [ ] `web/src/render/render-edges.js`: chemins SVG pour polylignes; flèche directionnelle au milieu.
+  - [ ] `app/config.py`: `MAP_TILES_URL`, `MAP_TILES_ATTRIBUTION` (+ `MAP_TILES_API_KEY` opt.).
+  - [ ] `app/auth_embed.py`: CSP img-src/connect-src pour domaine des tuiles.
+- [ ] Étape 3 — Mode D (dessin) + snapping + Undo
+  - [ ] `web/src/state.js`, `web/src/modes.js` (SELECT, DRAW, EDIT, JUNCTION; V/D/E/J, Échap/Entrée/Shift).
+  - [ ] `web/src/interactions/draw.js`: clics, sommets, terminer/annuler, snapping (rbush).
+  - [ ] Undo/Redo via `web/src/history.js`.
+- [ ] Étape 4 — Mode E (édition)
+  - [ ] `web/src/interactions/edit-geometry.js`: Alt+Drag, Alt+Clic (insert), Suppr (remove vertex).
+- [ ] Étape 5 — Mode J (jonction/inline + split)
+  - [ ] `web/src/interactions/junction.js`: project, split, création nœud; héritage `pipe_group_id`.
+  - [ ] Option « démarrer une antenne » (enchaîner en mode D).
+- [ ] Étape 6 — Exports + QA
+  - [ ] Sauvegarde Sheets (3 formats `Geometry`) et GCS JSON; lecture/écriture tests.
+  - [ ] Option « simplifier avant sauvegarde » (Douglas‑Peucker).
+  - [ ] Mises à jour docs (`README.md`, `TEST_PLAN.md`).
+
+Critères d’acceptation
+- [ ] Données V1 sans `geometry` rendent un segment simple; V2 avec `geometry` rendent polylignes correctes.
+- [ ] Fond IGN visible/synchronisé; CSP conforme; aucun appel CDN.
+- [ ] Flèche directionnelle bien orientée et masquée pour arêtes trop courtes.
+- [ ] Split conserve `pipe_group_id`; PM ancré à `(edge_id, edge_pos_m[, edge_pos_t])`.
+
+## V3 — Affichage progressif des nœuds (dépliage par canalisation)
 
 Contexte et objectifs
 - Afficher par défaut uniquement les canalisations et les éléments non raccordés; permettre un dépliage ciblé par canalisation.
@@ -111,6 +154,6 @@ Tests (à ajouter dans TEST_PLAN)
 Notes
 - Les éléments “hors périmètre V1” restent listés ici pour suivi (V2/V3).
 - Cette liste sera tenue à jour à mesure des validations et correctifs.
-- V2 (métier): affichage des valeurs de qualité de gaz sur les nœuds (sourcing, mise à jour visuelle, légende/échelle).
+- V3 (métier): affichage des valeurs de qualité de gaz sur les nœuds (sourcing, mise à jour visuelle, légende/échelle).
   
-Remplacé: la note libre sur l’affichage par défaut / clic droit canalisation est désormais formalisée ci‑dessus (section V2).
+Remplacé: la note libre sur l’affichage par défaut / clic droit canalisation est désormais formalisée ci‑dessus (section V3).
