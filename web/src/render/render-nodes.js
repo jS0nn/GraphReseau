@@ -73,6 +73,20 @@ function formatSublabel(nd){
     const pos = +nd.well_pos_index || 0
     if(canal && pos>0) return `${canal.name||canal.id} · #${pos}`
     if(pos>0) return `#${pos}`
+    // Edges-only fallback: consider the pipeline edge/group instead of canal nodes
+    try{
+      const edgesOnly = (typeof window!=='undefined' && window.__PIPES_AS_EDGES__===true)
+      if(edgesOnly){
+        const inc = state.edges.filter(e => (e.from_id??e.source)===nd.id || (e.to_id??e.target)===nd.id)
+        if(inc.length){
+          const withGroup = inc.find(e => e.pipe_group_id)
+          const pgid = nd.branch_id || withGroup?.pipe_group_id || inc[0].id
+          // Shorten id for display if too long
+          const short = (s)=>{ try{ s=String(s||''); return s.length>14 ? s.slice(0,8)+'…'+s.slice(-4) : s }catch{ return String(pgid||'') } }
+          return `branche ${short(pgid)}`
+        }
+      }
+    }catch{}
     return '— non assigné —'
   }
   if(T==='POINT_MESURE' || T==='VANNE'){

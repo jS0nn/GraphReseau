@@ -1,4 +1,4 @@
-import { state, addNode, addEdge, removeEdge, updateEdge, updateNode, getMode, subscribe, renameNodeId, setMode, moveInlineToCanal } from '../state.js'
+import { state, addNode, addEdge, removeEdge, updateEdge, updateNode, getMode, subscribe, renameNodeId, setMode, moveInlineToCanal, selectNodeById } from '../state.js'
 import { genIdWithTime as genId } from '../utils.js'
 import { projectLatLonToUI, unprojectUIToLatLon, displayXYForNode } from '../geo.js'
 import { NODE_SIZE } from '../render/render-nodes.js'
@@ -185,8 +185,8 @@ export function attachJunction(){
     }
     showMiniMenu(x, y, [
       { label: 'Jonction', onClick: ()=> { updateNode(node.id, { type:'JONCTION' }); try{ setMode('select') }catch{} } },
-      { label: 'Point de mesure', onClick: ()=> { const nid = genId('POINT_MESURE'); renameNodeId(node.id, nid); updateNode(nid, { type:'POINT_MESURE', gps_lat: topLeftLL.lat, gps_lon: topLeftLL.lon, gps_locked: true }); inheritBranchAttrs(nid); attachInlineToCanalByHit(nid); try{ setMode('select') }catch{} } },
-      { label: 'Vanne', onClick: ()=> { const nid = genId('VANNE'); renameNodeId(node.id, nid); updateNode(nid, { type:'VANNE', gps_lat: topLeftLL.lat, gps_lon: topLeftLL.lon, gps_locked: true }); inheritBranchAttrs(nid); attachInlineToCanalByHit(nid); try{ setMode('select') }catch{} } },
+      { label: 'Point de mesure', onClick: ()=> { const nid = genId('POINT_MESURE'); renameNodeId(node.id, nid); updateNode(nid, { type:'POINT_MESURE', gps_lat: topLeftLL.lat, gps_lon: topLeftLL.lon, gps_locked: true }); inheritBranchAttrs(nid); attachInlineToCanalByHit(nid); try{ setMode('select'); selectNodeById(nid) }catch{} } },
+      { label: 'Vanne', onClick: ()=> { const nid = genId('VANNE'); renameNodeId(node.id, nid); updateNode(nid, { type:'VANNE', gps_lat: topLeftLL.lat, gps_lon: topLeftLL.lon, gps_locked: true }); inheritBranchAttrs(nid); attachInlineToCanalByHit(nid); try{ setMode('select'); selectNodeById(nid) }catch{} } },
       { label: 'Démarrer une antenne', onClick: ()=> { try{ setMode('draw') }catch{} startDrawingFromNodeId(node.id) } },
     ])
   }, true)

@@ -335,6 +335,8 @@ export async function boot(){
     const v = q.get('pipes')
     const ve = q.get('pipes_as_edges')
     if((v && v.toLowerCase()==='edges') || ve==='1'){ window.__PIPES_AS_EDGES__ = true }
+    // Default to edges-only model when unspecified
+    if(typeof window.__PIPES_AS_EDGES__ === 'undefined'){ window.__PIPES_AS_EDGES__ = true }
   }catch{}
 
   // Load graph

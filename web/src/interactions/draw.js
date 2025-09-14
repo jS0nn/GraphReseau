@@ -144,6 +144,20 @@ function finishDrawing(){
   ensureNodeHasGPS(bId, endUI)
   const e = addEdge(aId, bId, { active: true })
   updateEdge(e.id, { geometry })
+  // Assign a pipe group id to this new edge and propagate branch id to endpoints
+  try{
+    const findGroupFromNeighbors = (nid)=>{
+      const inc = state.edges.filter(x => (x.from_id??x.source)===nid || (x.to_id??x.target)===nid)
+      for(const x of inc){ if(x.pipe_group_id){ return x.pipe_group_id } }
+      return null
+    }
+    let pgid = findGroupFromNeighbors(aId) || findGroupFromNeighbors(bId) || e.id
+    updateEdge(e.id, { pipe_group_id: pgid })
+    const A = state.nodes.find(n=>n.id===aId)
+    const B = state.nodes.find(n=>n.id===bId)
+    if(A && (!A.branch_id || A.branch_id==='')){ updateNode(aId, { branch_id: pgid }) }
+    if(B && (!B.branch_id || B.branch_id==='')){ updateNode(bId, { branch_id: pgid }) }
+  }catch{}
   // If one endpoint is a canal node and the other was newly created, assign the new well to that canal
   try{
     const A = state.nodes.find(n=>n.id===aId)
@@ -156,10 +170,10 @@ function finishDrawing(){
       moveWellToCanal(bId, A.id, { position: pos })
     }
   }catch{}
-  // If started as an antenna from a junction, attach newly created ouvrages to this new branch
+  // If started as an antenna from a junction, ensure created ouvrages are in the same branch/group
   if(antennaSeedNodeId){
     try{
-      const branchId = e.id
+      const branchId = (state.edges.find(x=>x.id===e.id)?.pipe_group_id) || e.id
       if(createdA){ const nn = state.nodes.find(n=>n.id===aId); if(nn){ nn.branch_id = branchId; updateNode(aId, { branch_id: branchId }) } }
       if(createdB){ const nn = state.nodes.find(n=>n.id===bId); if(nn){ nn.branch_id = branchId; updateNode(bId, { branch_id: branchId }) } }
     }catch{}

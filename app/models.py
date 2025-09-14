@@ -14,6 +14,8 @@ class Node(BaseModel):
     well_collector_id: Optional[str] = ""
     well_pos_index: Optional[int] = None
     pm_collector_id: Optional[str] = ""
+    # New: anchor inline devices directly to an edge (pipeline as edge model)
+    pm_collector_edge_id: Optional[str] = ""
     pm_pos_index: Optional[int] = None
     gps_lat: Optional[float] = None
     gps_lon: Optional[float] = None

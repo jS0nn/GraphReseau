@@ -373,7 +373,14 @@ export function updateNode(id, patch){
 }
 
 export function addNode(partial = {}){
-  const type = (partial.type==='COLLECTEUR') ? 'CANALISATION' : (partial.type || 'OUVRAGE')
+  let type = (partial.type==='COLLECTEUR') ? 'CANALISATION' : (partial.type || 'OUVRAGE')
+  try{
+    const edgesOnly = (typeof window!=='undefined' && window.__PIPES_AS_EDGES__===true)
+    if(edgesOnly && (String(type).toUpperCase()==='CANALISATION' || String(type).toUpperCase()==='COLLECTEUR')){
+      // Force to OUVRAGE in edges-only model
+      type = 'OUVRAGE'
+    }
+  }catch{}
   // Choose a spawn position if none provided: simple grid walk avoiding overlap
   function nextSpawn(){
     const i = state._spawnIndex++

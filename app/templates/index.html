@@ -83,6 +83,9 @@
           <form id="nodeForm" style="display:none">
             <details id="grpGeneral" open>
               <summary>Général</summary>
+              <label>ID
+                <input id="nodeId" readonly placeholder="auto-généré">
+              </label>
               <label>Nom <input name="name" placeholder="ex. P-012"></label>
               <label>Type
                 <select name="type">
@@ -161,6 +164,8 @@
               <summary>PM / Vanne — Affectation</summary>
               <label>Canalisation</label>
               <select id="inlCanalSelect"></select>
+              <label>Canalisation (arête)</label>
+              <select id="inlEdgeSelect"></select>
               <label>Position (info)
                 <input id="inlPosInfo" readonly placeholder="— défini dans la canalisation —">
               </label>
@@ -181,6 +186,11 @@
             <button type="button" id="deleteNodeBtn" class="btn danger" style="width:100%; margin-top:10px"><i class="uil uil-trash-alt"></i> Supprimer ce nœud</button>
           </form>
           <form id="edgeForm" style="display:none; margin-top:8px">
+            <!-- First row: ID (full width) -->
+            <div style="display:grid; grid-template-columns:1fr; gap:8px; margin-bottom:6px">
+              <div><label>ID<input id="edgeId" readonly></label></div>
+            </div>
+            <!-- Second row: From/To (two columns) -->
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px">
               <div><label>De (amont)<input name="from_name" readonly></label></div>
               <div><label>Vers (aval)<input name="to_name" readonly></label></div>

@@ -28,13 +28,28 @@ export function initForms(){
       if(!n){ showNone(); return }
       showNode()
       const T = (n.type||'OUVRAGE').toUpperCase()
+      const edgesOnly = (typeof window!=='undefined' && window.__PIPES_AS_EDGES__===true)
+      // Show ID (read-only)
+      try{ const idEl = document.getElementById('nodeId'); if(idEl) idEl.value = n.id || '' }catch{}
       setDisplay('grpDiameter', (T==='OUVRAGE'||T==='CANALISATION'))
-      setDisplay('grpCanal', T==='CANALISATION')
-      setDisplay('grpWell', T==='OUVRAGE')
+      setDisplay('grpCanal', !edgesOnly && T==='CANALISATION')
+      setDisplay('grpWell', !edgesOnly && T==='OUVRAGE')
       setDisplay('grpInline', (T==='POINT_MESURE'||T==='VANNE'))
-      setDisplay('grpGeneralMgmt', T==='GENERAL')
+      setDisplay('grpGeneralMgmt', !edgesOnly && T==='GENERAL')
       nodeForm.name.value = n.name||''
       nodeForm.type.value = (n.type||'OUVRAGE')
+      // Hide/disable legacy canal node type when edges-only
+      try{
+        const edgesOnly = (typeof window!=='undefined' && window.__PIPES_AS_EDGES__===true)
+        const typeSel = nodeForm.type
+        if(edgesOnly && typeSel && typeSel.options){
+          Array.from(typeSel.options).forEach(opt => {
+            if(String(opt.value).toUpperCase()==='CANALISATION' || String(opt.textContent||'').toUpperCase()==='CANALISATION'){
+              opt.disabled = true; opt.hidden = true
+            }
+          })
+        }
+      }catch{}
       nodeForm.x_UI.value = Math.round(+(n.x ?? 0))
       nodeForm.y_UI.value = Math.round(+(n.y ?? 0))
       if('diameter_mm' in n && nodeForm.diameter_mm) nodeForm.diameter_mm.value = (n.diameter_mm===''||n.diameter_mm==null)?'':n.diameter_mm
@@ -54,15 +69,17 @@ export function initForms(){
       const seq = document.getElementById('seqList')
       if(seq){
         seq.innerHTML = ''
-        if(T==='CANALISATION') renderCanalSequence(n, seq)
-        if(T==='OUVRAGE') renderWellSection(n)
+        if(!edgesOnly && T==='CANALISATION') renderCanalSequence(n, seq)
+        if(!edgesOnly && T==='OUVRAGE') renderWellSection(n)
         if(T==='POINT_MESURE' || T==='VANNE') renderInlineSection(n)
-        if(T==='GENERAL') renderGeneralSection(n)
+        if(!edgesOnly && T==='GENERAL') renderGeneralSection(n)
       }
     } else if(eid){
       const e = state.edges.find(e=>e.id===eid)
       if(!e){ showNone(); return }
       showEdge()
+      // Show edge ID (read-only)
+      try{ const eIdEl = document.getElementById('edgeId'); if(eIdEl) eIdEl.value = e.id || '' }catch{}
       const from = state.nodes.find(n=>n.id===(e.source??e.from_id))
       const to = state.nodes.find(n=>n.id===(e.target??e.to_id))
       edgeForm.from_name.value = from?.name||from?.id||''
@@ -83,7 +100,7 @@ export function initForms(){
   if(nodeForm){
     // Ignore inputs that are handled by dedicated change handlers to avoid
     // premature re-render cancelling their events (e.g., canal selects).
-    const IGNORE_IDS = new Set(['wellCanalSelect','inlCanalSelect','inlOffsetInput','cwSearch','pmSearch','vanSearch','gpsLockToggle'])
+    const IGNORE_IDS = new Set(['wellCanalSelect','inlCanalSelect','inlEdgeSelect','inlOffsetInput','cwSearch','pmSearch','vanSearch','gpsLockToggle'])
     nodeForm.addEventListener('input', (evt)=>{
       const t = evt?.target
       if(t && IGNORE_IDS.has(t.id||'')) return
@@ -501,39 +518,103 @@ function renderWellSection(well){
 }
 
 function renderInlineSection(dev){
-  const sel = document.getElementById('inlCanalSelect')
+  const selNode = document.getElementById('inlCanalSelect')
+  const selEdge = document.getElementById('inlEdgeSelect')
   const info = document.getElementById('inlPosInfo')
   const off = document.getElementById('inlOffsetInput')
-  if(sel){
-    sel.innerHTML = ''
+  const edgesOnly = (typeof window!=='undefined' && window.__PIPES_AS_EDGES__===true)
+  // Hide node-based canal selector entirely in edges-only mode (to avoid confusion)
+  try{
+    if(edgesOnly && selNode){
+      const label = selNode.previousElementSibling
+      selNode.style.display = 'none'
+      if(label && label.tagName==='LABEL') label.style.display = 'none'
+    }
+  }catch{}
+  // Select: canal node assignment
+  if(selNode){
+    selNode.innerHTML = ''
     const optNone = document.createElement('option'); optNone.value=''; optNone.textContent='—'
-    sel.appendChild(optNone)
+    selNode.appendChild(optNone)
     state.nodes.filter(n=>n.type==='CANALISATION'||n.type==='COLLECTEUR').forEach(c => {
-      const o = document.createElement('option'); o.value=c.id; o.textContent=c.name||c.id; if(dev.pm_collector_id===c.id) o.selected=true; sel.appendChild(o)
+      const o = document.createElement('option'); o.value=c.id; o.textContent=c.name||c.id; if(dev.pm_collector_id===c.id) o.selected=true; selNode.appendChild(o)
     })
-    sel.onchange = ()=>{
-      const newId = sel.value
+    selNode.onchange = ()=>{
+      const newId = selNode.value
+      // Clear edge-based assignment when switching to node-based
+      if(selEdge){ try{ selEdge.value=''; }catch{} }
       if(newId){
         const dst = state.nodes.find(n=>n.id===newId)
         const pos = Array.isArray(dst?.collector_well_ids) ? dst.collector_well_ids.length : 0
         // Place after the last well by default
         moveInlineToCanal(dev.id, newId, pos)
+        dev.pm_collector_edge_id = ''
+        try{ updateNode(dev.id, { pm_collector_id: newId, pm_pos_index: pos, pm_collector_edge_id: '' }) }catch{}
         const c=dst
         setStatus(`${(dev.type==='VANNE'?'Vanne':'Point de mesure')} ajouté à ${(c?.name||c?.id||'—')} (${pos ? 'après #'+pos : 'avant #1'})`)
         try{ selectNodeById(dev.id) }catch{}
+      } else {
+        dev.pm_collector_id = ''
+        try{ updateNode(dev.id, { pm_collector_id: '', pm_pos_index: '', pm_collector_edge_id: dev.pm_collector_edge_id||'' }) }catch{}
       }
     }
   }
+  // Select: edge assignment (pipes-as-edges)
+  if(selEdge){
+    selEdge.innerHTML = ''
+    const optNone = document.createElement('option'); optNone.value=''; optNone.textContent='—'
+    selEdge.appendChild(optNone)
+    const items = state.edges.map(e => {
+      const a = state.nodes.find(n=>n.id===(e.from_id??e.source))
+      const b = state.nodes.find(n=>n.id===(e.to_id??e.target))
+      return { e, a, b }
+    }).filter(x => x.a && x.b && x.a.type!=='CANALISATION' && x.a.type!=='COLLECTEUR' && x.b.type!=='CANALISATION' && x.b.type!=='COLLECTEUR')
+    items.forEach(({e,a,b}) => {
+      const o = document.createElement('option')
+      o.value = e.id
+      o.textContent = `${a.name||a.id} → ${b.name||b.id} (${e.id})`
+      if(dev.pm_collector_edge_id===e.id) o.selected = true
+      selEdge.appendChild(o)
+    })
+    // Ensure value reflects current assignment when present
+    try{ if(dev.pm_collector_edge_id){ selEdge.value = dev.pm_collector_edge_id } }catch{}
+    selEdge.onchange = ()=>{
+      const newEdgeId = selEdge.value
+      // Clear node-based assignment when switching to edge-based
+      if(selNode){ try{ selNode.value=''; }catch{} }
+      if(newEdgeId){
+        dev.pm_collector_edge_id = newEdgeId
+        dev.pm_collector_id = ''
+        dev.pm_pos_index = ''
+        try{ updateNode(dev.id, { pm_collector_edge_id: newEdgeId, pm_collector_id: '', pm_pos_index: '' }) }catch{}
+        setStatus(`${(dev.type==='VANNE'?'Vanne':'Point de mesure')} ancré sur l’arête ${newEdgeId}`)
+        try{ selectNodeById(dev.id) }catch{}
+      } else {
+        dev.pm_collector_edge_id = ''
+        try{ updateNode(dev.id, { pm_collector_edge_id: '' }) }catch{}
+      }
+    }
+  }
+  // Info display
   if(info){
-    const canal = state.nodes.find(n=>n.id===dev.pm_collector_id)
-    const N = Array.isArray(canal?.collector_well_ids)? canal.collector_well_ids.length : 0
-    const k = Math.max(0, +dev.pm_pos_index||0)
-    info.value = `${k} / ${N}`
+    if(dev.pm_collector_edge_id){
+      const edge = state.edges.find(e=>e.id===dev.pm_collector_edge_id)
+      const a = edge ? state.nodes.find(n=>n.id===(edge.from_id??edge.source)) : null
+      const b = edge ? state.nodes.find(n=>n.id===(edge.to_id??edge.target)) : null
+      info.value = edge ? `${a?.name||a?.id||'?'} → ${b?.name||b?.id||'?'} (arête)` : ''
+    }else{
+      const canal = state.nodes.find(n=>n.id===dev.pm_collector_id)
+      const N = Array.isArray(canal?.collector_well_ids)? canal.collector_well_ids.length : 0
+      const k = Math.max(0, +dev.pm_pos_index||0)
+      info.value = `${k} / ${N}`
+    }
   }
   if(off){ off.value = (dev.pm_offset_m===''||dev.pm_offset_m==null)? '' : dev.pm_offset_m; off.oninput = ()=>{ dev.pm_offset_m = (off.value===''? '' : +off.value) } }
 }
 
 function renderGeneralSection(gen){
+  // In edges-only mode, there is no concept of canalisation as node
+  try{ if(typeof window!=='undefined' && window.__PIPES_AS_EDGES__===true) return }catch{}
   // Wire quick-create for new canalisation near the GENERAL node
   try{
     const btn = document.getElementById('genAddCanalBtn')
