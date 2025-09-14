@@ -14,7 +14,6 @@ import { initModesUI } from './modes.js'
 import { initMap, fitMapToNodes, syncGeoProjection } from './map.js'
 import { state, setGraph, getGraph as getStateGraph, subscribe, selectNodeById, selectEdgeById, copySelection, pasteClipboard, removeEdge, removeNodes, removeNode, addNode, setMode } from './state.js'
 import { createHistory } from './history.js'
-import { attachConnect } from './interactions/connect.js'
 import { attachNodeDrag } from './interactions/drag.js'
 import { attachSelection } from './interactions/selection.js'
 import { attachMarquee } from './interactions/marquee.js'
@@ -236,7 +235,6 @@ function renderAll(canvas){
   // Re-attach interactions to updated selections
   attachSelection(canvas.gNodes, canvas.gEdges)
   attachNodeDrag(canvas.gNodes, ()=> pushAfterDrag())
-  attachConnect(canvas.gNodes)
 }
 
 function attachInteractions(canvas){
@@ -290,10 +288,9 @@ function attachInteractions(canvas){
       if(e.key==='Escape'){ e.preventDefault(); setMode('select'); return }
       if(e.key==='Delete' || e.key==='Backspace'){ e.preventDefault(); deleteSelection() }
       if(e.key.toLowerCase()==='l'){ e.preventDefault(); document.getElementById('layoutBtn')?.click() }
-      if(e.key.toLowerCase()==='c'){ e.preventDefault(); setMode('connect') }
       if(e.key.toLowerCase()==='d'){ e.preventDefault(); setMode('draw') }
       if(e.key.toLowerCase()==='e'){ e.preventDefault(); setMode('edit') }
-      if(e.key.toLowerCase()==='j'){ e.preventDefault(); setMode('junction') }
+      if(e.key.toLowerCase()==='i'){ e.preventDefault(); setMode('junction') }
       if(e.key.toLowerCase()==='e'){ e.preventDefault(); setMode('edit') }
       if(e.key==='='||e.key==='+'){ e.preventDefault(); canvas.zoomBy(1.15) }
       if(e.key==='-'){ e.preventDefault(); canvas.zoomBy(1/1.15) }
@@ -357,8 +354,7 @@ export async function boot(){
   // Status for modes (bottom-left info)
   subscribe((evt, payload)=>{
     if(evt==='mode:set'){
-      if(payload==='connect') setStatus('Clique une source, puis une cible (nœud)')
-      else if(payload==='delete') setStatus('Veuillez sélectionner l’élément à supprimer')
+      if(payload==='delete') setStatus('Veuillez sélectionner l’élément à supprimer')
       else if(payload==='draw') setStatus('Clic = sommet · Double‑clic = terminer · Échap = annuler')
       else if(payload==='edit') setStatus('Clic = poignées · Alt+clic = insérer · Suppr = supprimer')
       else if(payload==='junction') setStatus('Clic segment = insérer une jonction et découper')

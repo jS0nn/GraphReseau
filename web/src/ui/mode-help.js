@@ -35,7 +35,7 @@ function contentFor(mode){
         'Alt+clic sur un segment = insérer un sommet',
         'Suppr = supprimer le sommet')
     case 'junction':
-      return '<b>Insérer (J)</b>'+li(
+      return '<b>Insérer (I)</b>'+li(
         'Clic sur une canalisation = insérer un point et découper la ligne',
         'Mini‑menu: type du point (Jonction/PM/Vanne) et action « Démarrer une antenne »',
         'Les jonctions ne prennent pas de place (petit rond ancré au GPS)')

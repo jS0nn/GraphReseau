@@ -1,4 +1,5 @@
-import { state, addNode, addEdge, updateEdge, removeEdge, updateNode, getMode, subscribe } from '../state.js'
+import { state, addNode, addEdge, updateEdge, removeEdge, updateNode, getMode, subscribe, moveWellToCanal } from '../state.js'
+import { isCanal } from '../utils.js'
 import { displayXYForNode, unprojectUIToLatLon, projectLatLonToUI } from '../geo.js'
 import { NODE_SIZE } from '../render/render-nodes.js'
 import { getMap, isMapActive } from '../map.js'
@@ -10,6 +11,15 @@ let drawing = null // { pointsUI: [ [x,y],... ], previewPath, snappedIds: string
 let overlayRef = null
 let antennaSeedNodeId = null
 
+function centerUIForNode(node){
+  try{
+    const p = displayXYForNode(node)
+    const T = String(node?.type||'').toUpperCase()
+    if(T==='JONCTION') return [ (p.x||0), (p.y||0) ]
+    return [ (p.x||0) + NODE_SIZE.w/2, (p.y||0) + NODE_SIZE.h/2 ]
+  }catch{ return [0,0] }
+}
+
 function getUIFromEvent(evt){
   try{
     if(window.__leaflet_map){
@@ -20,7 +30,10 @@ function getUIFromEvent(evt){
   }catch{}
   const svg = document.getElementById('svg')
   const r = svg.getBoundingClientRect()
-  return [evt.clientX - r.left, evt.clientY - r.top]
+  const px = evt.clientX - r.left
+  const py = evt.clientY - r.top
+  try{ const t = window.d3?.zoomTransform?.(svg); if(t && typeof t.invert==='function'){ const p=t.invert([px,py]); return [p[0], p[1]] } }catch{}
+  return [px, py]
 }
 
 function getLatLonFromEvent(evt){
@@ -100,13 +113,14 @@ function finishDrawing(){
   let createdA = false, createdB = false
   // Create endpoints if needed (OUVRAGE) and lock to GPS if available
   if(!aId){
-    const ll = unprojectUIToLatLon(startUI[0], startUI[1])
+    // startUI/endUI represent the intended CENTER; translate to top-left for rectangular nodes
+    const ll = unprojectUIToLatLon(startUI[0] - NODE_SIZE.w/2, startUI[1] - NODE_SIZE.h/2)
     const na = addNode({ type:'OUVRAGE', gps_lat: ll.lat, gps_lon: ll.lon, gps_locked: true })
     aId = na.id
     createdA = true
   }
   if(!bId){
-    const ll = unprojectUIToLatLon(endUI[0], endUI[1])
+    const ll = unprojectUIToLatLon(endUI[0] - NODE_SIZE.w/2, endUI[1] - NODE_SIZE.h/2)
     const nb = addNode({ type:'OUVRAGE', gps_lat: ll.lat, gps_lon: ll.lon, gps_locked: true })
     bId = nb.id
     createdB = true
@@ -117,7 +131,12 @@ function finishDrawing(){
     if(!n) return
     const has = Number.isFinite(+n.gps_lat) && Number.isFinite(+n.gps_lon)
     if(!has){
-      const ll = unprojectUIToLatLon(ui[0], ui[1])
+      // ui is the intended CENTER; convert to top-left for rectangular nodes (non-junction)
+      const T = String(n.type||'').toUpperCase()
+      const cx = ui[0], cy = ui[1]
+      const ox = (T==='JONCTION') ? 0 : NODE_SIZE.w/2
+      const oy = (T==='JONCTION') ? 0 : NODE_SIZE.h/2
+      const ll = unprojectUIToLatLon(cx - ox, cy - oy)
       if(Number.isFinite(ll?.lat) && Number.isFinite(ll?.lon)) updateNode(id, { gps_lat: ll.lat, gps_lon: ll.lon, gps_locked: true })
     }
   }
@@ -125,6 +144,18 @@ function finishDrawing(){
   ensureNodeHasGPS(bId, endUI)
   const e = addEdge(aId, bId, { active: true })
   updateEdge(e.id, { geometry })
+  // If one endpoint is a canal node and the other was newly created, assign the new well to that canal
+  try{
+    const A = state.nodes.find(n=>n.id===aId)
+    const B = state.nodes.find(n=>n.id===bId)
+    if(createdA && isCanal(B)){
+      const pos = Array.isArray(B?.collector_well_ids) ? B.collector_well_ids.length : 0
+      moveWellToCanal(aId, B.id, { position: pos })
+    } else if(createdB && isCanal(A)){
+      const pos = Array.isArray(A?.collector_well_ids) ? A.collector_well_ids.length : 0
+      moveWellToCanal(bId, A.id, { position: pos })
+    }
+  }catch{}
   // If started as an antenna from a junction, attach newly created ouvrages to this new branch
   if(antennaSeedNodeId){
     try{
@@ -150,13 +181,21 @@ function uiPointsForEdgeGeometry(edge){
         }
       }
     }
+    // Anchor endpoints to current node centers to mirror rendered edge
+    try{
+      const a = state.nodes.find(n=>n.id===(edge.from_id??edge.source))
+      const b = state.nodes.find(n=>n.id===(edge.to_id??edge.target))
+      if(a && pts.length){ const ca = centerUIForNode(a); pts[0] = [ca[0], ca[1]] }
+      if(b && pts.length){ const cb = centerUIForNode(b); pts[pts.length-1] = [cb[0], cb[1]] }
+    }catch{}
     return pts
   }
   const a = state.nodes.find(n=>n.id===(edge.from_id??edge.source))
   const b = state.nodes.find(n=>n.id===(edge.to_id??edge.target))
   if(!a||!b) return []
-  const pa=displayXYForNode(a), pb=displayXYForNode(b)
-  return [[pa.x,pa.y],[pb.x,pb.y]]
+  const ca = centerUIForNode(a)
+  const cb = centerUIForNode(b)
+  return [[ca[0], ca[1]],[cb[0], cb[1]]]
 }
 
 function nearestOnPolyline(pts, x, y){
@@ -214,9 +253,10 @@ function splitEdgeAt(edge, hit){
     const a = state.nodes.find(n=>n.id===(edge.from_id??edge.source))
     const b = state.nodes.find(n=>n.id===(edge.to_id??edge.target))
     if(!a||!b) return null
-    const pa=displayXYForNode(a), pb=displayXYForNode(b)
-    const A = unprojectUIToLatLon(pa.x, pa.y)
-    const B = unprojectUIToLatLon(pb.x, pb.y)
+    const ca = centerUIForNode(a)
+    const cb = centerUIForNode(b)
+    const A = unprojectUIToLatLon(ca[0], ca[1])
+    const B = unprojectUIToLatLon(cb[0], cb[1])
     geom = [[A.lon,A.lat],[B.lon,B.lat]]
   }
   const parts = splitGeometry(geom, hit)
@@ -248,7 +288,7 @@ export function attachDraw(svgSel, gOverlay){
     const snapNode = nearestNodeUI(ui)
     let usePt = ui
     let snappedId = null
-    if(snapNode){ usePt = [snapNode.x, snapNode.y]; snappedId = snapNode.id; try{ console.debug('[dev] draw click node', snappedId) }catch{} }
+    if(snapNode){ const c = centerUIForNode(snapNode.node); usePt = [c[0], c[1]]; snappedId = snapNode.id; try{ console.debug('[dev] draw click node', snappedId) }catch{} }
     else{
       // Try snapping to existing edge segment
       const best = findNearestEdgeHit(ui[0], ui[1])
@@ -259,9 +299,20 @@ export function attachDraw(svgSel, gOverlay){
           // Mini menu (type du nœud inséré) — pas d'antenne ici car on est déjà en dessin
           try{
             showMiniMenu(evt.clientX, evt.clientY, [
-              { label: 'Jonction', onClick: ()=> updateNode(res.nodeId, { type:'OUVRAGE' }) },
-              { label: 'Point de mesure', onClick: ()=> updateNode(res.nodeId, { type:'POINT_MESURE' }) },
-              { label: 'Vanne', onClick: ()=> updateNode(res.nodeId, { type:'VANNE' }) },
+              { label: 'Jonction', onClick: ()=> updateNode(res.nodeId, { type:'JONCTION' }) },
+              { label: 'Point de mesure', onClick: ()=> {
+                  // Positionner le centre sous la souris: convertir en top‑left avant d'écrire le GPS
+                  const cx = res.ui?.[0] ?? 0, cy = res.ui?.[1] ?? 0
+                  const topLeft = unprojectUIToLatLon(cx - NODE_SIZE.w/2, cy - NODE_SIZE.h/2)
+                  updateNode(res.nodeId, { type:'POINT_MESURE', gps_lat: topLeft.lat, gps_lon: topLeft.lon, gps_locked: true })
+                }
+              },
+              { label: 'Vanne', onClick: ()=> {
+                  const cx = res.ui?.[0] ?? 0, cy = res.ui?.[1] ?? 0
+                  const topLeft = unprojectUIToLatLon(cx - NODE_SIZE.w/2, cy - NODE_SIZE.h/2)
+                  updateNode(res.nodeId, { type:'VANNE', gps_lat: topLeft.lat, gps_lon: topLeft.lon, gps_locked: true })
+                }
+              },
             ])
           }catch{}
           try{ console.debug('[dev] draw split edge', best.edge?.id, '-> node', snappedId) }catch{}
@@ -277,7 +328,7 @@ export function attachDraw(svgSel, gOverlay){
     if(getMode()!=='draw' || !drawing) return
     const ui = getUIFromEvent(evt)
     const snap = nearestNodeUI(ui)
-    const p = snap ? [snap.x, snap.y] : ui
+    const p = snap ? centerUIForNode(snap.node) : ui
     // Update the last phantom point for live preview
     if(!drawing._hasPhantom){ drawing.pointsUI.push(p); drawing._hasPhantom = true }
     else drawing.pointsUI[drawing.pointsUI.length-1] = p
@@ -312,8 +363,8 @@ export function startDrawingFromNodeId(nodeId){
     const n = state.nodes.find(nn=>nn.id===nodeId)
     if(!n) return
     if(!drawing) startDrawing(overlayRef)
-    const p = displayXYForNode(n)
-    drawing.pointsUI = [[p.x, p.y]]
+    const c = centerUIForNode(n)
+    drawing.pointsUI = [[c[0], c[1]]]
     drawing.snappedIds = [nodeId]
     antennaSeedNodeId = nodeId
     updatePreview()

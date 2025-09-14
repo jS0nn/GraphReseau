@@ -7,6 +7,14 @@ let selVertex = { edgeId: null, index: -1 }
 let isDraggingVertex = false
 let wired = false
 
+function centerXY(node){
+  try{
+    const p = displayXYForNode(node)
+    const T = String(node?.type||'').toUpperCase()
+    return (T==='JONCTION') ? [ (p.x||0), (p.y||0) ] : [ (p.x||0) + NODE_SIZE.w/2, (p.y||0) + NODE_SIZE.h/2 ]
+  }catch{ return [0,0] }
+}
+
 function uiPointsForEdgeGeometry(edge){
   const geom = Array.isArray(edge?.geometry) ? edge.geometry : null
   if(!geom || geom.length < 2) return []
@@ -19,20 +27,12 @@ function uiPointsForEdgeGeometry(edge){
       pts.push([p.x, p.y])
     }
   }
-  // Anchor endpoints to current node positions (junction=center, sinon milieu bord vertical)
+  // Anchor endpoints to current node centers so handles align with rendered edge
   try{
     const a = state.nodes.find(n=>n.id===(edge.from_id??edge.source))
     const b = state.nodes.find(n=>n.id===(edge.to_id??edge.target))
-    if(a && pts.length){
-      const pa = displayXYForNode(a)
-      const Ta = String(a.type||'').toUpperCase()
-      pts[0] = (Ta==='JONCTION') ? [ (pa.x||0), (pa.y||0) ] : [ (pa.x||0) + NODE_SIZE.w, (pa.y||0) + NODE_SIZE.h/2 ]
-    }
-    if(b && pts.length){
-      const pb = displayXYForNode(b)
-      const Tb = String(b.type||'').toUpperCase()
-      pts[pts.length-1] = (Tb==='JONCTION') ? [ (pb.x||0), (pb.y||0) ] : [ (pb.x||0), (pb.y||0) + NODE_SIZE.h/2 ]
-    }
+    if(a && pts.length){ const ca = centerXY(a); pts[0] = [ca[0], ca[1]] }
+    if(b && pts.length){ const cb = centerXY(b); pts[pts.length-1] = [cb[0], cb[1]] }
   }catch{}
   return pts
 }
@@ -107,7 +107,12 @@ function renderHandles(edge){
         try{
           if(window.__leaflet_map){ const pt = window.__leaflet_map.mouseEventToContainerPoint(ev); x=pt.x; y=pt.y }
         }catch{}
-        if(x==null||y==null){ const svg = document.getElementById('svg'); const r = svg.getBoundingClientRect(); x=ev.clientX-r.left; y=ev.clientY-r.top }
+        if(x==null||y==null){
+          const svg = document.getElementById('svg'); const r = svg.getBoundingClientRect();
+          const px = ev.clientX - r.left, py = ev.clientY - r.top
+          try{ const t = window.d3?.zoomTransform?.(svg); if(t && typeof t.invert==='function'){ const p = t.invert([px,py]); x=p[0]; y=p[1] } else { x=px; y=py } }
+          catch{ x=px; y=py }
+        }
         c.setAttribute('cx', String(x)); c.setAttribute('cy', String(y))
         // update geometry live
         const uiPts = uiPointsForEdgeGeometry(edge)
@@ -136,9 +141,9 @@ function onEdgeClick(e, datum){
     if(a && b){
       let A, B
       if(Number.isFinite(+a.gps_lat) && Number.isFinite(+a.gps_lon)) A = { lon:+a.gps_lon, lat:+a.gps_lat }
-      else { const pa = displayXYForNode(a); A = unprojectUIToLatLon(pa.x, pa.y) }
+      else { const ca = centerXY(a); A = unprojectUIToLatLon(ca[0], ca[1]) }
       if(Number.isFinite(+b.gps_lat) && Number.isFinite(+b.gps_lon)) B = { lon:+b.gps_lon, lat:+b.gps_lat }
-      else { const pb = displayXYForNode(b); B = unprojectUIToLatLon(pb.x, pb.y) }
+      else { const cb = centerXY(b); B = unprojectUIToLatLon(cb[0], cb[1]) }
       updateEdge(datum.id, { geometry: [[A.lon,A.lat],[B.lon,B.lat]] })
     }
   }
@@ -183,7 +188,11 @@ export function attachEditGeometry(_gEdges){
     ev.preventDefault(); ev.stopPropagation()
     let x, y
     try{ if(window.__leaflet_map){ const pt=window.__leaflet_map.mouseEventToContainerPoint(ev); x=pt.x; y=pt.y } }catch{}
-    if(x==null||y==null){ const r = svg.getBoundingClientRect(); x=ev.clientX-r.left; y=ev.clientY-r.top }
+    if(x==null||y==null){
+      const r = svg.getBoundingClientRect(); const px=ev.clientX-r.left; const py=ev.clientY-r.top
+      try{ const t = window.d3?.zoomTransform?.(svg); if(t && typeof t.invert==='function'){ const p=t.invert([px,py]); x=p[0]; y=p[1] } else { x=px; y=py } }
+      catch{ x=px; y=py }
+    }
     // Préférence: arête sélectionnée si présente
     let e = currentEdgeId ? state.edges.find(xx=>xx.id===currentEdgeId) : null
     let seg = null
@@ -207,9 +216,9 @@ export function attachEditGeometry(_gEdges){
       if(a && b){
         let A, B
         if(Number.isFinite(+a.gps_lat) && Number.isFinite(+a.gps_lon)) A = { lon:+a.gps_lon, lat:+a.gps_lat }
-        else { const pa = displayXYForNode(a); A = unprojectUIToLatLon(pa.x, pa.y) }
+        else { const ca = centerXY(a); A = unprojectUIToLatLon(ca[0], ca[1]) }
         if(Number.isFinite(+b.gps_lat) && Number.isFinite(+b.gps_lon)) B = { lon:+b.gps_lon, lat:+b.gps_lat }
-        else { const pb = displayXYForNode(b); B = unprojectUIToLatLon(pb.x, pb.y) }
+        else { const cb = centerXY(b); B = unprojectUIToLatLon(cb[0], cb[1]) }
         updateEdge(e.id, { geometry: [[A.lon,A.lat],[B.lon,B.lat]] })
       }
     }

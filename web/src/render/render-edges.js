@@ -5,17 +5,15 @@ import { NODE_SIZE } from './render-nodes.js'
 import { ensurePipeStyle } from '../style/pipes.js'
 import { showTooltip, hideTooltip, scheduleHide, cancelHide } from '../ui/tooltip.js'
 
-function anchorFor(node, isSource){
+function anchorFor(node /*, isSource*/){
   if(!node) return { x:0, y:0 }
   const p = displayXYForNode(node)
   const T = String(node.type||'').toUpperCase()
+  // Always attach at the visual center of the element for cleaner connections
   if(T==='JONCTION'){
     return { x: p.x||0, y: (p.y||0) }
   }
-  if(isSource){
-    return { x: (p.x||0) + NODE_SIZE.w, y: (p.y||0) + NODE_SIZE.h/2 }
-  }
-  return { x: (p.x||0), y: (p.y||0) + NODE_SIZE.h/2 }
+  return { x: (p.x||0) + NODE_SIZE.w/2, y: (p.y||0) + NODE_SIZE.h/2 }
 }
 
 function pathFor(a, b){

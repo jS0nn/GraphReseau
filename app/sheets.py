@@ -486,6 +486,21 @@ def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Grap
         {"range": f"{edges_tab}!A1", "values": edge_values},
     ]
 
+    # Clear previous content to avoid leftover rows when shrinking data.
+    try:
+        svc.spreadsheets().values().clear(
+            spreadsheetId=sheet_id, range=f"{nodes_tab}!A:ZZZ"
+        ).execute()
+    except Exception:
+        # Non-fatal: proceed with overwrite even if clear fails
+        pass
+    try:
+        svc.spreadsheets().values().clear(
+            spreadsheetId=sheet_id, range=f"{edges_tab}!A:ZZZ"
+        ).execute()
+    except Exception:
+        pass
+
     svc.spreadsheets().values().batchUpdate(
         spreadsheetId=sheet_id,
         body={"valueInputOption": "RAW", "data": data},

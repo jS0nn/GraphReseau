@@ -16,10 +16,25 @@ export function renderInline(g, nodes){
 
   // Case 2: inline attached to an EDGE (pm_collector_edge_id)
   const devsEdge = nodes.filter(n => n && (n.type==='POINT_MESURE' || n.type==='VANNE') && !n.pm_collector_id && n.pm_collector_edge_id)
-  function nearestPointOnGeom(edge, px, py){
+  function centerXY(node){
+    try{
+      const p = displayXYForNode(node)
+      const T = String(node?.type||'').toUpperCase()
+      return (T==='JONCTION') ? [ (p.x||0), (p.y||0) ] : [ (p.x||0) + NODE_SIZE.w/2, (p.y||0) + NODE_SIZE.h/2 ]
+    }catch{ return [0,0] }
+  }
+  function uiAnchoredPolyline(edge){
     const pts=[]
     const geom = Array.isArray(edge?.geometry) ? edge.geometry : []
     for(const g of geom){ if(Array.isArray(g)&&g.length>=2){ const p=projectLatLonToUI(+g[1], +g[0]); pts.push([p.x,p.y]) } }
+    const a = state.nodes.find(n=>n.id===(edge.from_id??edge.source))
+    const b = state.nodes.find(n=>n.id===(edge.to_id??edge.target))
+    if(a && pts.length){ const ca=centerXY(a); pts[0] = [ca[0], ca[1]] }
+    if(b && pts.length){ const cb=centerXY(b); pts[pts.length-1] = [cb[0], cb[1]] }
+    return pts
+  }
+  function nearestPointOnGeom(edge, px, py){
+    const pts = uiAnchoredPolyline(edge)
     if(pts.length<2) return { x:px, y:py }
     let best={d2:Infinity, x:px, y:py}
     for(let i=1;i<pts.length;i++){

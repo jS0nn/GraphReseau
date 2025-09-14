@@ -1,10 +1,19 @@
 import { state, addNode, addEdge, removeEdge, updateEdge, updateNode, getMode, subscribe, renameNodeId, setMode, moveInlineToCanal } from '../state.js'
 import { genIdWithTime as genId } from '../utils.js'
 import { projectLatLonToUI, unprojectUIToLatLon, displayXYForNode } from '../geo.js'
+import { NODE_SIZE } from '../render/render-nodes.js'
 import { showMiniMenu } from '../ui/mini-menu.js'
 import { startDrawingFromNodeId } from './draw.js'
 import { devlog } from '../ui/logs.js'
 import { isCanal } from '../utils.js'
+
+function centerXY(node){
+  try{
+    const p = displayXYForNode(node)
+    const T = String(node?.type||'').toUpperCase()
+    return (T==='JONCTION') ? [ (p.x||0), (p.y||0) ] : [ (p.x||0) + NODE_SIZE.w/2, (p.y||0) + NODE_SIZE.h/2 ]
+  }catch{ return [0,0] }
+}
 
 function uiPointsForEdgeGeometry(edge){
   if(Array.isArray(edge?.geometry) && edge.geometry.length>=2){
@@ -18,14 +27,22 @@ function uiPointsForEdgeGeometry(edge){
         }
       }
     }
+    // Anchor endpoints to current node centers to avoid legacy left-edge offsets
+    try{
+      const a = state.nodes.find(n=>n.id===(edge.from_id??edge.source))
+      const b = state.nodes.find(n=>n.id===(edge.to_id??edge.target))
+      if(a && pts.length){ const ca = centerXY(a); pts[0] = [ca[0], ca[1]] }
+      if(b && pts.length){ const cb = centerXY(b); pts[pts.length-1] = [cb[0], cb[1]] }
+    }catch{}
     return pts
   }
   // Fallback to straight segment between endpoints
   const a = state.nodes.find(n=>n.id===(edge.from_id??edge.source))
   const b = state.nodes.find(n=>n.id===(edge.to_id??edge.target))
   if(!a||!b) return []
-  const pa=displayXYForNode(a), pb=displayXYForNode(b)
-  return [[pa.x,pa.y],[pb.x,pb.y]]
+  const ca = centerXY(a)
+  const cb = centerXY(b)
+  return [[ca[0], ca[1]], [cb[0], cb[1]]]
 }
 
 function nearestOnPolyline(pts, x, y){
@@ -69,7 +86,10 @@ function splitGeometry(geom, uiPts, insert){
 
 function eventToUI(evt){
   try{ if(window.__leaflet_map){ const pt=window.__leaflet_map.mouseEventToContainerPoint(evt); return [pt.x,pt.y] } }catch{}
-  const svg=document.getElementById('svg'); const r=svg.getBoundingClientRect(); return [evt.clientX-r.left, evt.clientY-r.top]
+  const svg=document.getElementById('svg'); const r=svg.getBoundingClientRect()
+  const px = evt.clientX - r.left, py = evt.clientY - r.top
+  try{ const t = window.d3?.zoomTransform?.(svg); if(t && typeof t.invert==='function'){ const p=t.invert([px,py]); return [p[0], p[1]] } }catch{}
+  return [px, py]
 }
 
 export function attachJunction(){
@@ -92,17 +112,20 @@ export function attachJunction(){
     if(!best) return
     const { edge, pts, hit } = best
     // Build new node at insertion
-    const ll = unprojectUIToLatLon(hit.px, hit.py)
-  const node = addNode({ type:'JONCTION', gps_lat: ll.lat, gps_lon: ll.lon, gps_locked: true, name:'' })
+    const centerLL = unprojectUIToLatLon(hit.px, hit.py)
+    // For rectangle nodes (PM/Vanne), we want the click to be the visual center.
+    // Compute the GPS for the top-left corner by offsetting half the node size in UI space.
+    const topLeftLL = unprojectUIToLatLon(hit.px - NODE_SIZE.w/2, hit.py - NODE_SIZE.h/2)
+    const node = addNode({ type:'JONCTION', gps_lat: centerLL.lat, gps_lon: centerLL.lon, gps_locked: true, name:'' })
     // Split geometry
     let geom = Array.isArray(edge.geometry) && edge.geometry.length>=2 ? edge.geometry.slice() : null
     if(!geom){
       // create simple 2-pt geometry from endpoints
       const a = state.nodes.find(n=>n.id===(edge.from_id??edge.source))
       const b = state.nodes.find(n=>n.id===(edge.to_id??edge.target))
-      const pa=displayXYForNode(a), pb=displayXYForNode(b)
-      const A = unprojectUIToLatLon(pa.x, pa.y)
-      const B = unprojectUIToLatLon(pb.x, pb.y)
+      const ca = centerXY(a), cb = centerXY(b)
+      const A = unprojectUIToLatLon(ca[0], ca[1])
+      const B = unprojectUIToLatLon(cb[0], cb[1])
       geom = [[A.lon,A.lat],[B.lon,B.lat]]
     }
     const parts = splitGeometry(geom, pts, hit)
@@ -161,9 +184,9 @@ export function attachJunction(){
       }catch(err){ try{ console.debug('[dev] attachInlineToCanal error', err) }catch{} }
     }
     showMiniMenu(x, y, [
-      { label: 'Jonction', onClick: ()=> updateNode(node.id, { type:'JONCTION' }) },
-      { label: 'Point de mesure', onClick: ()=> { const nid = genId('POINT_MESURE'); renameNodeId(node.id, nid); updateNode(nid, { type:'POINT_MESURE' }); inheritBranchAttrs(nid); attachInlineToCanalByHit(nid) } },
-      { label: 'Vanne', onClick: ()=> { const nid = genId('VANNE'); renameNodeId(node.id, nid); updateNode(nid, { type:'VANNE' }); inheritBranchAttrs(nid); attachInlineToCanalByHit(nid) } },
+      { label: 'Jonction', onClick: ()=> { updateNode(node.id, { type:'JONCTION' }); try{ setMode('select') }catch{} } },
+      { label: 'Point de mesure', onClick: ()=> { const nid = genId('POINT_MESURE'); renameNodeId(node.id, nid); updateNode(nid, { type:'POINT_MESURE', gps_lat: topLeftLL.lat, gps_lon: topLeftLL.lon, gps_locked: true }); inheritBranchAttrs(nid); attachInlineToCanalByHit(nid); try{ setMode('select') }catch{} } },
+      { label: 'Vanne', onClick: ()=> { const nid = genId('VANNE'); renameNodeId(node.id, nid); updateNode(nid, { type:'VANNE', gps_lat: topLeftLL.lat, gps_lon: topLeftLL.lon, gps_locked: true }); inheritBranchAttrs(nid); attachInlineToCanalByHit(nid); try{ setMode('select') }catch{} } },
       { label: 'Démarrer une antenne', onClick: ()=> { try{ setMode('draw') }catch{} startDrawingFromNodeId(node.id) } },
     ])
   }, true)
