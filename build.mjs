@@ -53,6 +53,7 @@ async function buildJS(){
     outdir: outBundleDir,
     entryNames: '[name]',
     loader: { '.ttf': 'file', '.woff': 'file', '.woff2': 'file' },
+    define: { __DEV__: String(DEV) },
   })
 }
 

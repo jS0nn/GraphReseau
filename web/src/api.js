@@ -69,13 +69,31 @@ function sanitizeGraph(graph){
     return m
   }) : []
   // Normalize + deduplicate edges by id; ensure id presence
-  const edgesRaw = Array.isArray(graph?.edges) ? graph.edges.map(e => ({
-    id: e.id,
-    from_id: e.from_id ?? e.source,
-    to_id: e.to_id ?? e.target,
-    active: e.active !== false,
-    commentaire: e.commentaire || '',
-  })) : []
+  const edgesRaw = Array.isArray(graph?.edges) ? graph.edges.map(e => {
+    // Normalize and keep geometry + pipe_group_id
+    let geom = null
+    try{
+      if(Array.isArray(e.geometry) && e.geometry.length>=2){
+        const ok = []
+        for(const pt of e.geometry){
+          if(Array.isArray(pt) && pt.length>=2){
+            const lon = +pt[0], lat = +pt[1]
+            if(Number.isFinite(lon) && Number.isFinite(lat)) ok.push([lon, lat])
+          }
+        }
+        if(ok.length>=2) geom = ok
+      }
+    }catch{}
+    return {
+      id: e.id,
+      from_id: e.from_id ?? e.source,
+      to_id: e.to_id ?? e.target,
+      active: e.active !== false,
+      commentaire: e.commentaire || '',
+      geometry: geom,
+      pipe_group_id: e.pipe_group_id || null,
+    }
+  }) : []
   const edges = []
   const seenIds = new Set()
   function genUid(){

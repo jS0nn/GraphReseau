@@ -34,9 +34,10 @@ export function initMap(){
         tilesUrl += (tilesUrl.includes('?') ? '&' : '?') + 'key=' + encodeURIComponent(apiKey)
       }
     }
-    map = L.map(el, { zoomControl: false, attributionControl: !!tilesAttr })
+    map = L.map(el, { zoomControl: false, attributionControl: !!tilesAttr, doubleClickZoom: false })
     tilesLayer = L.tileLayer(tilesUrl, { attribution: tilesAttr })
     tilesLayer.addTo(map)
+    try{ map.doubleClickZoom && map.doubleClickZoom.disable() }catch{}
     window.__MAP_ACTIVE = true
     try{ window.__leaflet_map = map }catch{}
     // Fit to current nodes with GPS when graph loads/changes
@@ -46,7 +47,10 @@ export function initMap(){
     // Initial fit attempt (if state already present)
     fitMapToNodes()
     // Sync geo projection scale/center with Leaflet view for better alignment
-    const onView = ()=> { syncGeoProjection(); notifyViewChanged() }
+    const onView = ()=> { 
+      try{ const root = document.getElementById('zoomRoot'); root && root.removeAttribute('transform') }catch{}
+      syncGeoProjection(); notifyViewChanged() 
+    }
     map.on('move zoom', onView)
     map.on('moveend zoomend', onView)
     syncGeoProjection(); notifyViewChanged()

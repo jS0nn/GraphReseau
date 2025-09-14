@@ -127,6 +127,53 @@ export function setGraph(graph){
     }
   })
 
+  // Optional migration: convert canal nodes into edges between OUVRAGE nodes
+  try{
+    if(typeof window!=='undefined' && window.__PIPES_AS_EDGES__){
+      const byId = new Map(state.nodes.map(n=>[n.id, n]))
+      const canals = state.nodes.filter(n => n?.type==='CANALISATION' || n?.type==='COLLECTEUR')
+      const newEdges = []
+      for(const c of canals){
+        // Determine ordered wells along this canal
+        let wellIds = Array.isArray(c.collector_well_ids) ? c.collector_well_ids.slice() : []
+        if(wellIds.length===0){
+          // fallback: infer from existing edges canal->well sorted by y
+          const neigh = state.edges
+            .filter(e => (e.from_id??e.source)===c.id)
+            .map(e => byId.get(e.to_id??e.target))
+            .filter(n => n && n.type==='OUVRAGE')
+            .sort((a,b)=> (vn(a?.y,0) - vn(b?.y,0)))
+            .map(n=>n.id)
+          wellIds = neigh
+        }
+        for(let i=0;i+1<wellIds.length;i++){
+          const a = byId.get(wellIds[i])
+          const b = byId.get(wellIds[i+1])
+          if(a && b && a.type==='OUVRAGE' && b.type==='OUVRAGE'){
+            // Avoid duplicates
+            const exists = state.edges.some(e => (e.from_id??e.source)===a.id && (e.to_id??e.target)===b.id)
+            if(!exists){ newEdges.push({ from_id:a.id, to_id:b.id, active:true, commentaire:'', pipe_group_id: c.branch_id || c.id || null }) }
+          }
+        }
+        // Clear references from devices to this canal
+        state.nodes.forEach(n => {
+          if(n?.well_collector_id===c.id){ n.well_collector_id=''; n.well_pos_index='' }
+          if(n?.pm_collector_id===c.id){ n.pm_collector_id=''; n.pm_pos_index=''; n.pm_offset_m='' }
+        })
+      }
+      // Apply new edges
+      newEdges.forEach(ne => addEdge(ne.from_id, ne.to_id, { active: ne.active, commentaire: ne.commentaire, pipe_group_id: ne.pipe_group_id }))
+      // Drop edges attached to canal nodes
+      state.edges = state.edges.filter(e => {
+        const a = byId.get(e.from_id??e.source)
+        const b = byId.get(e.to_id??e.target)
+        return (a && b && a.type!=='CANALISATION' && a.type!=='COLLECTEUR' && b.type!=='CANALISATION' && b.type!=='COLLECTEUR')
+      })
+      // Drop canal nodes
+      state.nodes = state.nodes.filter(n => !(n?.type==='CANALISATION' || n?.type==='COLLECTEUR'))
+    }
+  }catch{}
+
   // Derive collector relationships from edges if missing/empty
   const byId = new Map(state.nodes.map(n=>[n.id, n]))
   // Reset derived fields to avoid stale data
@@ -347,6 +394,24 @@ export function addNode(partial = {}){
   return node
 }
 
+// Rename a node id and update references (edges, selection). Limited scope (recently created nodes).
+export function renameNodeId(oldId, newId){
+  if(!oldId || !newId) return
+  if(state.nodes.some(n=>n.id===newId)) return // do not overwrite
+  const n = state.nodes.find(x=>x.id===oldId)
+  if(!n) return
+  n.id = newId
+  state.edges.forEach(e => {
+    if(e.from_id===oldId) e.from_id = newId
+    if(e.to_id===oldId) e.to_id = newId
+  })
+  if(state.selection.nodeId===oldId) state.selection.nodeId = newId
+  if(state.selection.multi?.has(oldId)){
+    state.selection.multi.delete(oldId); state.selection.multi.add(newId)
+  }
+  notify('node:update', { id: newId, patch: { id: newId } })
+}
+
 export function removeNode(id){
   const n = state.nodes.find(x=>x.id===id)
   if(!n) return
@@ -492,54 +557,19 @@ export function connectByRules(sourceId, targetId){
   const b = state.nodes.find(n => n.id === targetId)
   if(!a || !b || a.id===b.id) return { ok:false }
   const isInline = n => n?.type==='POINT_MESURE' || n?.type==='VANNE'
-  const isWell = n => n?.type==='OUVRAGE'
-  const isOther = n => n && !isInline(n) && !isWell(n) && !isCanal(n)
-  // Inline ↔ Canalisation
-  if((isInline(a) && isCanal(b)) || (isInline(b) && isCanal(a))){
-    const dev = isInline(a) ? a : b
-    const canal = isCanal(a) ? a : b
-    attachInlineToCanal(dev, canal)
-    notify('node:update', { id: dev.id, patch: { pm_collector_id: canal.id, pm_pos_index: dev.pm_pos_index } })
-    return { ok:true, type:'inline', nodeId: dev.id }
+  const isRegular = n => n && !isInline(n) && n.type!=='CANALISATION' && n.type!=='COLLECTEUR'
+  // New behavior (pipes as edges):
+  // - Disallow any connection involving canal nodes in Connect mode
+  if(a.type==='CANALISATION' || a.type==='COLLECTEUR' || b.type==='CANALISATION' || b.type==='COLLECTEUR'){
+    return { ok:false }
   }
-  // Inline ↔ Well (infer canal from well and place before this well)
-  if((isInline(a) && isWell(b)) || (isInline(b) && isWell(a))){
-    const dev = isInline(a) ? a : b
-    const well = isWell(a) ? a : b
-    const canal = state.nodes.find(n => n.id === well.well_collector_id) || state.nodes.find(n => isCanal(n) && Array.isArray(n.collector_well_ids) && n.collector_well_ids.includes(well.id))
-    if(!canal) return { ok:false }
-    dev.pm_collector_id = canal.id
-    const idx = Math.max(0, (well.well_pos_index ? (+well.well_pos_index-1) : 0))
-    dev.pm_pos_index = idx
-    notify('node:update', { id: dev.id, patch: { pm_collector_id: canal.id, pm_pos_index: dev.pm_pos_index } })
-    return { ok:true, type:'inline', nodeId: dev.id }
-  }
-  // Puits ↔ Canalisation
-  if((isWell(a) && isCanal(b)) || (isWell(b) && isCanal(a))){
-    const well = isWell(a) ? a : b
-    const canal = isCanal(a) ? a : b
-    ensureEdgeExists(canal.id, well.id)
-    appendWellToCanal(canal, well)
-    notify('node:update', { id: well.id, patch: { well_collector_id: canal.id, well_pos_index: well.well_pos_index } })
-    return { ok:true, type:'well', nodeId: well.id }
-  }
-  // Canalisation → Canalisation
-  if(isCanal(a) && isCanal(b)){
-    ensureEdgeExists(a.id, b.id)
-    ensureChildOrder(a, b)
-    notify('graph:update')
-    return { ok:true, type:'canal', nodeId: b.id }
-  }
-  // Other ↔ Canalisation (e.g., PLATEFORME)
-  if(isOther(a) && isCanal(b)){
+  // - Disallow inline devices here (attach via Junction/Edit modes)
+  if(isInline(a) || isInline(b)) return { ok:false }
+  // - Regular node ↔ Regular node: create an edge (pipeline)
+  if(isRegular(a) && isRegular(b)){
     ensureEdgeExists(a.id, b.id)
     notify('graph:update')
-    return { ok:true, type:'other', nodeId: a.id }
-  }
-  if(isCanal(a) && isOther(b)){
-    ensureEdgeExists(b.id, a.id)
-    notify('graph:update')
-    return { ok:true, type:'other', nodeId: b.id }
+    return { ok:true, type:'edge' }
   }
   return { ok:false }
 }

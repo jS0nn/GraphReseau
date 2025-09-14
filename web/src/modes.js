@@ -7,6 +7,7 @@ export function initModesUI(){
   const btnDraw = el('modeDraw')
   const btnConn = el('modeConnect')
   const btnEdit = el('modeEdit')
+  const btnJun = el('modeJunction')
   const btnDel = el('modeDelete')
   const update = () => {
     const m = getMode()
@@ -14,6 +15,7 @@ export function initModesUI(){
     btnDraw?.classList.toggle('active', m==='draw')
     btnConn?.classList.toggle('active', m==='connect')
     btnEdit?.classList.toggle('active', m==='edit')
+    btnJun?.classList.toggle('active', m==='junction')
     btnDel?.classList.toggle('active', m==='delete')
   }
   btnSel && (btnSel.onclick = ()=> setMode('select'))
@@ -21,6 +23,7 @@ export function initModesUI(){
   btnConn && (btnConn.onclick = ()=> setMode('connect'))
   btnEdit && (btnEdit.onclick = ()=> setMode('edit'))
   btnDel && (btnDel.onclick = ()=> setMode('delete'))
+  btnJun && (btnJun.onclick = ()=> setMode('junction'))
   subscribe((evt)=>{ if(evt==='mode:set') update() })
   update()
 }

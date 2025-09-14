@@ -25,6 +25,7 @@
         <button id="modeSelect" class="active"><i class="uil uil-mouse"></i> Sélection</button>
         <button id="modeDraw"><i class="uil uil-pen"></i> Dessiner</button>
         <button id="modeEdit"><i class="uil uil-edit"></i> Éditer</button>
+        <button id="modeJunction" title="Insérer un point sur une canalisation"><i class="uil uil-focus-add"></i> Insérer</button>
         <button id="modeConnect"><i class="uil uil-vector-square-alt"></i> Connecter</button>
         <button id="modeDelete"><i class="uil uil-trash-alt"></i> Supprimer</button>
       </div>
@@ -32,7 +33,7 @@
         <button class="btn" id="addBtn"><i class="uil uil-plus"></i> Ajouter</button>
         <div class="menu" id="addMenu">
           <div class="item" data-add="OUVRAGE"><i class="uil uil-water"></i> Ouvrage</div>
-          <div class="item" data-add="CANALISATION"><i class="uil uil-circuit"></i> Canalisation</div>
+          <!-- Canal nodes disabled: pipelines are modeled as edges -->
           <div class="item" data-add="GENERAL"><i class="uil uil-constructor"></i> Général</div>
           <div class="item" data-add="VANNE"><i class="uil uil-sliders-v"></i> Vanne</div>
           <div class="item" data-add="POINT_MESURE"><i class="uil uil-analytics"></i> Point de mesure</div>
@@ -220,12 +221,31 @@
           <li><b>Agencer</b> : mise en page automatique (ELK, avec repli fallback+).</li>
           <li><b>Connecter</b> :
             <ul>
-              <li>Clique une <b>source</b>, puis un <b>tuyau</b> ou un <b>nœud</b>.</li>
-              <li>Canalisation→Canalisation : ordre des <b>enfants</b> dans la fiche du parent.</li>
+              <li>Clique une <b>source</b>, puis un <b>nœud</b> pour créer une <b>arête (canalisation)</b>.</li>
+              <li>La connexion via des <b>nœuds canalisation</b> est désactivée (les canalisations sont des arêtes).</li>
+            </ul>
+          </li>
+          <li><b>Dessiner (D)</b> :
+            <ul>
+              <li>Clic = ajouter un sommet; <b>Double‑clic/Entrée</b> = terminer; <b>Échap</b> = annuler.</li>
+              <li>Clic sur un <b>nœud</b> = démarre/s’attache au nœud (pas de doublon).</li>
+              <li>Clic sur une <b>canalisation</b> = split au point cliqué, crée une jonction, et s’y attache.</li>
+            </ul>
+          </li>
+          <li><b>Éditer (E)</b> :
+            <ul>
+              <li>Clic sur une canalisation pour afficher les <b>poignées</b> (sommets).</li>
+              <li><b>Glisser</b> un sommet pour le déplacer; <b>Alt+clic</b> sur le segment pour insérer un sommet; <b>Suppr</b> pour supprimer.</li>
+            </ul>
+          </li>
+          <li><b>Jonction (J)</b> :
+            <ul>
+              <li>Clic sur une <b>canalisation</b> pour insérer un nœud (jonction par défaut) et <b>découper</b> l’arête.</li>
+              <li>Un <b>mini‑menu</b> propose le type (Jonction/PM/Vanne) et « <b>Démarrer une antenne</b> » pour enchaîner en Dessiner.</li>
             </ul>
           </li>
           <li><b>OUVRAGE/PM/Vanne</b> : la <b>position</b> est gérée dans la fiche <b>Canalisation</b> (séquence). Depuis leur fiche, tu peux changer la <b>canalisation</b>.</li>
-          <li><b>Raccourcis</b> : Ctrl/Cmd+Z (Annuler), Ctrl/Cmd+Y (Rétablir), Ctrl/Cmd+C / Ctrl/Cmd+V (Copier/Coller), L (Agencer), C (Connecter), Échap (Sélection).</li>
+          <li><b>Raccourcis</b> : V (Sélection), D (Dessiner), E (Éditer), J (Jonction), C (Connecter), L (Agencer), Échap (sélection), Ctrl/Cmd+Z (Annuler), Ctrl/Cmd+Y (Rétablir), Ctrl/Cmd+C / Ctrl/Cmd+V (Copier/Coller).</li>
         </ul>
         <footer><button id="helpCloseBtn" class="btn">Fermer</button></footer>
       </article>

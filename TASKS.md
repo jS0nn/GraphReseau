@@ -78,36 +78,36 @@ Référence détaillée
 - Voir `docs/migration-v2-pipes-as-edges.md` (chapitres Portée, Modèle, Backend/Frontend, Plan de livraison, Annexes IGN/Flèches).
 
 Tâches (par étapes de livraison)
-- [ ] Étape 1 — Backend (lecture seule)
-  - [ ] `app/models.py`: ajouter `Node.lon/lat`, `Edge.geometry`, `Edge.pipe_group_id` (optionnels) + validation fallback.
-  - [ ] `app/datasources.py`: GET sérialise `geometry`; conversion BQ WKT/GEOGRAPHY → coords.
-  - [ ] `app/sheets.py`: parse/format `Geometry` ("lon lat; …" > GeoJSON > WKT).
-  - [ ] Tests lecture V1/V2 (GCS JSON, Sheets, BQ).
-- [ ] Étape 2 — Fond de plan + rendu polylignes
-  - [ ] `web/src/vendor.js`: ajouter Leaflet (bundle local).
-  - [ ] `web/src/geo.js`: project/unproject, haversine.
-  - [ ] `web/src/render/render-edges.js`: chemins SVG pour polylignes; flèche directionnelle au milieu.
-  - [ ] `app/config.py`: `MAP_TILES_URL`, `MAP_TILES_ATTRIBUTION` (+ `MAP_TILES_API_KEY` opt.).
-  - [ ] `app/auth_embed.py`: CSP img-src/connect-src pour domaine des tuiles.
-- [ ] Étape 3 — Mode D (dessin) + snapping + Undo
-  - [ ] `web/src/state.js`, `web/src/modes.js` (SELECT, DRAW, EDIT, JUNCTION; V/D/E/J, Échap/Entrée/Shift).
-  - [ ] `web/src/interactions/draw.js`: clics, sommets, terminer/annuler, snapping (rbush).
-  - [ ] Undo/Redo via `web/src/history.js`.
-- [ ] Étape 4 — Mode E (édition)
-  - [ ] `web/src/interactions/edit-geometry.js`: Alt+Drag, Alt+Clic (insert), Suppr (remove vertex).
-- [ ] Étape 5 — Mode J (jonction/inline + split)
-  - [ ] `web/src/interactions/junction.js`: project, split, création nœud; héritage `pipe_group_id`.
-  - [ ] Option « démarrer une antenne » (enchaîner en mode D).
-- [ ] Étape 6 — Exports + QA
-  - [ ] Sauvegarde Sheets (3 formats `Geometry`) et GCS JSON; lecture/écriture tests.
-  - [ ] Option « simplifier avant sauvegarde » (Douglas‑Peucker).
-  - [ ] Mises à jour docs (`README.md`, `TEST_PLAN.md`).
+- [x] Étape 1 — Backend (lecture + formats)
+  - [x] `app/models.py`: `Node.lat/lon` (alias) + `Edge.geometry`, `Edge.pipe_group_id` (optionnels).
+  - [x] `app/datasources.py`: GET sérialise `geometry`; conversion BQ `geometry_wkt` → coords.
+  - [x] `app/sheets.py`: parse `Geometry` ("lon lat; …" > GeoJSON > WKT) et `PipeGroupId` (lecture).
+  - [x] Tests manuels lecture V1/V2 (GCS JSON, Sheets, BQ).
+- [x] Étape 2 — Fond de plan + rendu polylignes
+  - [x] `web/src/vendor.js`: Leaflet (bundle local).
+  - [x] `web/src/geo.js`: project/unproject exact via Leaflet (containerPoint), zéro drift.
+  - [x] `web/src/render/render-edges.js`: polylignes SVG; flèche directionnelle au milieu.
+  - [x] `app/config.py`: env `MAP_TILES_URL`, `MAP_TILES_ATTRIBUTION`, `MAP_TILES_API_KEY`.
+  - [x] `app/auth_embed.py`: CSP dynamique pour l’origine des tuiles (img-src/connect-src).
+  - [x] UX zoom/pan: molette `setZoomAround`, boutons ± (±1 niveau), overlay stabilisé (SVG plein écran, coords Leaflet).
+- [x] Étape 3 — Mode D (dessin) + snapping + Undo
+  - [x] `web/src/state.js`, `web/src/modes.js` (V/D/E/J; Échap/Entrée/Shift).
+  - [x] `web/src/interactions/draw.js`: clics, prévisualisation, terminer; snapping sur nœuds.
+  - [x] Undo/Redo via `history.js`.
+- [x] Étape 4 — Mode E (édition)
+  - [x] `web/src/interactions/edit-geometry.js`: handles, drag vertex; Alt+clic insert; Delete retire sommet.
+- [x] Étape 5 — Mode J (jonction/split)
+  - [x] `web/src/interactions/junction.js`: pick segment, split; nouveau nœud ancré GPS; héritage `pipe_group_id`.
+  - [x] Option « démarrer une antenne » et choix du type inséré (jonction/ouvrage/PM/vanne).
+- [x] Étape 6 — Exports + QA
+  - [x] Sauvegarde Sheets: `Geometry` ("lon lat; …") + `PipeGroupId` (écriture).
+  - [x] Docs `README.md`, `TEST_PLAN.md` mis à jour (fond, V2 tests, GPS lock).
 
 Critères d’acceptation
-- [ ] Données V1 sans `geometry` rendent un segment simple; V2 avec `geometry` rendent polylignes correctes.
-- [ ] Fond IGN visible/synchronisé; CSP conforme; aucun appel CDN.
-- [ ] Flèche directionnelle bien orientée et masquée pour arêtes trop courtes.
-- [ ] Split conserve `pipe_group_id`; PM ancré à `(edge_id, edge_pos_m[, edge_pos_t])`.
+- [x] Données V1 sans `geometry` → courbe simple; V2 avec `geometry` → polylignes correctes.
+- [x] Fond IGN visible/synchronisé; CSP conforme; zéro CDN; zoom molette/boutons OK; pas de drift.
+- [x] Flèche directionnelle bien orientée; masquée si arête très courte.
+- [x] Split conserve `pipe_group_id`; PM/vanne/puits ancrables au GPS.
 
 ## V3 — Affichage progressif des nœuds (dépliage par canalisation)
 

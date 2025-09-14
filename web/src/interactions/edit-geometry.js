@@ -1,8 +1,11 @@
 import { state, updateEdge, subscribe, getMode } from '../state.js'
-import { projectLatLonToUI } from '../geo.js'
+import { projectLatLonToUI, unprojectUIToLatLon, displayXYForNode } from '../geo.js'
+import { NODE_SIZE } from '../render/render-nodes.js'
 
 let currentEdgeId = null
 let selVertex = { edgeId: null, index: -1 }
+let isDraggingVertex = false
+let wired = false
 
 function uiPointsForEdgeGeometry(edge){
   const geom = Array.isArray(edge?.geometry) ? edge.geometry : null
@@ -16,6 +19,21 @@ function uiPointsForEdgeGeometry(edge){
       pts.push([p.x, p.y])
     }
   }
+  // Anchor endpoints to current node positions (junction=center, sinon milieu bord vertical)
+  try{
+    const a = state.nodes.find(n=>n.id===(edge.from_id??edge.source))
+    const b = state.nodes.find(n=>n.id===(edge.to_id??edge.target))
+    if(a && pts.length){
+      const pa = displayXYForNode(a)
+      const Ta = String(a.type||'').toUpperCase()
+      pts[0] = (Ta==='JONCTION') ? [ (pa.x||0), (pa.y||0) ] : [ (pa.x||0) + NODE_SIZE.w, (pa.y||0) + NODE_SIZE.h/2 ]
+    }
+    if(b && pts.length){
+      const pb = displayXYForNode(b)
+      const Tb = String(b.type||'').toUpperCase()
+      pts[pts.length-1] = (Tb==='JONCTION') ? [ (pb.x||0), (pb.y||0) ] : [ (pb.x||0), (pb.y||0) + NODE_SIZE.h/2 ]
+    }
+  }catch{}
   return pts
 }
 
@@ -47,6 +65,19 @@ function nearestSegment(pts, x, y){
   return best
 }
 
+function findNearestEdgeHit(x, y, tol=28){
+  let best = null
+  for(const e of state.edges){
+    const pts = uiPointsForEdgeGeometry(e)
+    if(pts.length < 2) continue
+    const hit = nearestSegment(pts, x, y)
+    if(hit && hit.d2 < tol*tol){
+      if(!best || hit.d2 < best.hit.d2) best = { edge: e, hit }
+    }
+  }
+  return best
+}
+
 function getOverlay(){ return document.getElementById('svg')?.querySelector('g.overlay') }
 
 function clearHandles(){ try{ getOverlay()?.querySelectorAll('g.geom-handles, path.geom-preview')?.forEach(n=>n.remove()) }catch{} }
@@ -70,6 +101,7 @@ function renderHandles(edge){
       selVertex = { edgeId: edge.id, index: idx }
       c.style.cursor='grabbing'
       e.preventDefault(); e.stopPropagation()
+      isDraggingVertex = true
       const move = (ev)=>{
         let x, y
         try{
@@ -81,14 +113,10 @@ function renderHandles(edge){
         const uiPts = uiPointsForEdgeGeometry(edge)
         if(uiPts.length){ uiPts[idx] = [x,y] }
         // Write back to lon/lat
-        const llPts = uiPts.map(([ux,uy])=>{
-          const { unprojectUIToLatLon } = require('../geo.js')
-          const ll = unprojectUIToLatLon(ux, uy)
-          return [ll.lon, ll.lat]
-        })
+        const llPts = uiPts.map(([ux,uy])=>{ const ll = unprojectUIToLatLon(ux, uy); return [ll.lon, ll.lat] })
         updateEdge(edge.id, { geometry: llPts })
       }
-      const up = ()=>{ document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); c.style.cursor='grab' }
+      const up = ()=>{ document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); c.style.cursor='grab'; isDraggingVertex=false; renderHandles(state.edges.find(x=>x.id===edge.id)) }
       document.addEventListener('mousemove', move)
       document.addEventListener('mouseup', up)
     })
@@ -102,54 +130,96 @@ function onEdgeClick(e, datum){
   currentEdgeId = datum.id
   const edge = state.edges.find(x=>x.id===currentEdgeId)
   if(!Array.isArray(edge?.geometry) || edge.geometry.length<2){
-    // initialize from endpoints in UI then convert to lon/lat
+    // initialize from endpoints: if GPS présent, utiliser directement, sinon unproject depuis UI
     const a = state.nodes.find(n=>n.id===(datum.source??datum.from_id))
     const b = state.nodes.find(n=>n.id===(datum.target??datum.to_id))
     if(a && b){
-      const pa = projectLatLonToUI(a.gps_lat||0, a.gps_lon||0)
-      const pb = projectLatLonToUI(b.gps_lat||0, b.gps_lon||0)
-      const { unprojectUIToLatLon } = require('../geo.js')
-      const A = unprojectUIToLatLon(pa.x, pa.y)
-      const B = unprojectUIToLatLon(pb.x, pb.y)
+      let A, B
+      if(Number.isFinite(+a.gps_lat) && Number.isFinite(+a.gps_lon)) A = { lon:+a.gps_lon, lat:+a.gps_lat }
+      else { const pa = displayXYForNode(a); A = unprojectUIToLatLon(pa.x, pa.y) }
+      if(Number.isFinite(+b.gps_lat) && Number.isFinite(+b.gps_lon)) B = { lon:+b.gps_lon, lat:+b.gps_lat }
+      else { const pb = displayXYForNode(b); B = unprojectUIToLatLon(pb.x, pb.y) }
       updateEdge(datum.id, { geometry: [[A.lon,A.lat],[B.lon,B.lat]] })
     }
   }
   renderHandles(state.edges.find(x=>x.id===currentEdgeId))
 }
 
-export function attachEditGeometry(gEdges){
-  // re-render handles when selection/edge updates
+export function attachEditGeometry(_gEdges){
+  if(wired) return; wired = true
+  // re-render handles when edge updates (avoid during drag)
   subscribe((evt, payload)=>{
     if(getMode()!=='edit') { clearHandles(); return }
-    if(evt.startsWith('edge:') || evt==='graph:set' || evt==='selection:edge'){
+    if((evt.startsWith('edge:') || evt==='graph:set' || evt==='selection:edge' || evt.startsWith('node:')) && !isDraggingVertex){
       const e = state.edges.find(x=>x.id===currentEdgeId)
       if(e) renderHandles(e)
     }
     if(evt==='mode:set' && payload!=='edit') clearHandles()
   })
-  // click to select edge for editing
+  // Re-render on map move/zoom to keep handles synchronized
   try{
-    gEdges.selectAll('g.edge').on('click.editGeom', function(ev, d){ onEdgeClick(ev, d) })
+    document.addEventListener('map:view', ()=>{
+      if(getMode()!=='edit' || isDraggingVertex) return
+      if(!currentEdgeId) return
+      const e = state.edges.find(x=>x.id===currentEdgeId)
+      if(e) renderHandles(e)
+    })
   }catch{}
-  // insert vertex on Alt+Click on any edge path
+  // Delegated click: select nearest g.edge; prefer target.closest
+  const svgRoot = document.getElementById('svg')
+  svgRoot?.addEventListener('click', (ev)=>{
+    if(getMode()!=='edit' || ev.altKey) return
+    const g = ev.target?.closest && ev.target.closest('g.edge')
+    if(!g) return
+    ev.preventDefault(); ev.stopPropagation()
+    const id = g.getAttribute('data-id')
+    const e = id ? state.edges.find(x=>x.id===id) : null
+    if(e) onEdgeClick(ev, { id: e.id, source: e.from_id, target: e.to_id })
+  }, true)
+  // Alt+clic (capture) pour insérer un sommet sur l'arête la plus proche
   const svg = document.getElementById('svg')
   svg?.addEventListener('click', (ev)=>{
     if(getMode()!=='edit' || !ev.altKey) return
-    const e = state.edges.find(x=>x.id===currentEdgeId)
-    if(!e || !Array.isArray(e.geometry)) return
+    ev.preventDefault(); ev.stopPropagation()
     let x, y
-    try{
-      if(window.__leaflet_map){ const pt = window.__leaflet_map.mouseEventToContainerPoint(ev); x=pt.x; y=pt.y }
-    }catch{}
+    try{ if(window.__leaflet_map){ const pt=window.__leaflet_map.mouseEventToContainerPoint(ev); x=pt.x; y=pt.y } }catch{}
     if(x==null||y==null){ const r = svg.getBoundingClientRect(); x=ev.clientX-r.left; y=ev.clientY-r.top }
-    const uiPts = uiPointsForEdgeGeometry(e)
-    const seg = nearestSegment(uiPts, x, y)
+    // Préférence: arête sélectionnée si présente
+    let e = currentEdgeId ? state.edges.find(xx=>xx.id===currentEdgeId) : null
+    let seg = null
+    if(e){
+      const ptsSel = uiPointsForEdgeGeometry(e)
+      if(ptsSel.length>=2){ seg = nearestSegment(ptsSel, x, y) }
+      // Si le point est trop loin de l'arête sélectionnée, bascule sur la plus proche globale
+      if(!seg || !Number.isFinite(seg.d2) || seg.d2 > (32*32)) e = null
+    }
+    if(!e){
+      const found = findNearestEdgeHit(x, y, 32)
+      if(!found) return
+      e = found.edge
+      seg = found.hit
+    }
+    currentEdgeId = e.id
+    // Initialiser la géométrie si manquante
+    if(!Array.isArray(e.geometry) || e.geometry.length<2){
+      const a = state.nodes.find(n=>n.id===(e.from_id??e.source))
+      const b = state.nodes.find(n=>n.id===(e.to_id??e.target))
+      if(a && b){
+        let A, B
+        if(Number.isFinite(+a.gps_lat) && Number.isFinite(+a.gps_lon)) A = { lon:+a.gps_lon, lat:+a.gps_lat }
+        else { const pa = displayXYForNode(a); A = unprojectUIToLatLon(pa.x, pa.y) }
+        if(Number.isFinite(+b.gps_lat) && Number.isFinite(+b.gps_lon)) B = { lon:+b.gps_lon, lat:+b.gps_lat }
+        else { const pb = displayXYForNode(b); B = unprojectUIToLatLon(pb.x, pb.y) }
+        updateEdge(e.id, { geometry: [[A.lon,A.lat],[B.lon,B.lat]] })
+      }
+    }
+    // Recalcule et insère au plus proche
+    const pts = uiPointsForEdgeGeometry(state.edges.find(x=>x.id===e.id))
+    if(!seg){ seg = nearestSegment(pts, x, y) }
     const uiIns = [seg.px, seg.py]
-    const { unprojectUIToLatLon } = require('../geo.js')
     const ll = unprojectUIToLatLon(uiIns[0], uiIns[1])
-    const newGeom = e.geometry.slice()
-    newGeom.splice(seg.i, 0, [ll.lon, ll.lat])
-    updateEdge(e.id, { geometry: newGeom })
+    const geo = (state.edges.find(x=>x.id===e.id)?.geometry || []).slice()
+    if(geo.length>=2){ geo.splice(seg.i, 0, [ll.lon, ll.lat]); updateEdge(e.id, { geometry: geo }) }
     renderHandles(state.edges.find(x=>x.id===e.id))
   }, true)
   // delete current vertex on Delete

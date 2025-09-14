@@ -31,6 +31,38 @@ export function log(msg, level='info'){
   body.scrollTop = body.scrollHeight
 }
 
+// Dev-only verbose logs
+const __DEV_FLAG = (typeof __DEV__!=='undefined' && __DEV__===true)
+let DEV_LOGS = __DEV_FLAG
+try{
+  const qs = new URLSearchParams(location.search)
+  if(qs.get('devlogs')==='1') DEV_LOGS = true
+  if(localStorage.getItem('DEV_LOGS')==='1') DEV_LOGS = true
+}catch{}
+
+export function devlog(...args){
+  if(!DEV_LOGS) return
+  try{ console.debug('[dev]', ...args) }catch{}
+}
+
+export function setDevLogsEnabled(on){
+  DEV_LOGS = !!on
+  try{ localStorage.setItem('DEV_LOGS', on ? '1' : '0') }catch{}
+}
+
+// Optional: wire window error hooks for dev debugging
+export function initDevErrorHooks(){
+  if(!DEV_LOGS) return
+  try{
+    window.addEventListener('error', (e)=>{
+      try{ console.error('[dev:error]', e?.message, e?.filename+':'+e?.lineno+':'+e?.colno, e?.error) }catch{}
+    })
+    window.addEventListener('unhandledrejection', (e)=>{
+      try{ console.error('[dev:promise]', e?.reason) }catch{}
+    })
+  }catch{}
+}
+
 // Subscribe common editor events to the log (dev or not)
 let wired = false
 export function wireStateLogs(){

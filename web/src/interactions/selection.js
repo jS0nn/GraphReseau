@@ -5,6 +5,7 @@ export function attachSelection(gNodes, gEdges){
     .on('click', (e, d) => {
       e.stopPropagation()
       const mode = getMode()
+      if(String(d?.type||'').toUpperCase()==='JONCTION') return // ignore pure junctions
       if(mode==='delete'){
         if(confirm(`Supprimer le nœud ${(d.name||d.id)} et ses liens ?`)){
           removeNode(d.id); selectNodeById(null); selectEdgeById(null)

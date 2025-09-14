@@ -13,13 +13,23 @@ export function initCanvas(){
   const zoom = d3.zoom()
     .filter((event)=> {
       const isWheel = event.type === 'wheel'
+      const isDbl = event.type === 'dblclick'
+      const isPointerDown = event.type === 'mousedown' || event.type === 'pointerdown' || event.type === 'touchstart'
       // When a map is active, handle wheel at app level (Leaflet setZoomAround) instead of d3.zoom
       if(isWheel){
         if(isMapActive && isMapActive()) return false
         return !(event.ctrlKey||event.metaKey)
       }
+      // Disable double‑click zoom to avoid interfering with draw finish
+      if(isDbl) return false
       // For drag pan: allow when not starting on nodes/edges and not using Ctrl/Cmd (reserved for marquee)
-      const isPointerDown = event.type === 'mousedown' || event.type === 'pointerdown' || event.type === 'touchstart'
+      if(isPointerDown && (isMapActive && isMapActive())){
+        // Still let d3 capture pointerdown to compute dx/dy, but block when starting on a node/edge
+        if(event.ctrlKey||event.metaKey||event.shiftKey) return false
+        if(event.button === 2) return false
+        const trg = event.target
+        return !(trg && trg.closest && trg.closest('g.node, g.edge'))
+      }
       if(isPointerDown){
         if(event.ctrlKey||event.metaKey||event.shiftKey) return false
         if(event.button === 2) return false
@@ -51,6 +61,7 @@ export function initCanvas(){
             map.setZoom(z1, { animate: false })
           }catch{}
         }
+        try{ root.attr('transform', null) }catch{}
         root.__lastZoomTransform = t
         // Do not apply the transform on the SVG root when a map is active
         return

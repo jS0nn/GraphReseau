@@ -5,37 +5,56 @@ import { NODE_SIZE } from './render-nodes.js'
 import { ensurePipeStyle } from '../style/pipes.js'
 import { showTooltip, hideTooltip, scheduleHide, cancelHide } from '../ui/tooltip.js'
 
+function anchorFor(node, isSource){
+  if(!node) return { x:0, y:0 }
+  const p = displayXYForNode(node)
+  const T = String(node.type||'').toUpperCase()
+  if(T==='JONCTION'){
+    return { x: p.x||0, y: (p.y||0) }
+  }
+  if(isSource){
+    return { x: (p.x||0) + NODE_SIZE.w, y: (p.y||0) + NODE_SIZE.h/2 }
+  }
+  return { x: (p.x||0), y: (p.y||0) + NODE_SIZE.h/2 }
+}
+
 function pathFor(a, b){
   if(!a || !b) return ''
-  const pa = displayXYForNode(a)
-  const pb = displayXYForNode(b)
-  const ax = (pa.x||0) + NODE_SIZE.w
-  const ay = (pa.y||0) + NODE_SIZE.h/2
-  const bx = (pb.x||0)
-  const by = (pb.y||0) + NODE_SIZE.h/2
+  const A = anchorFor(a, true)
+  const B = anchorFor(b, false)
+  const ax = A.x, ay = A.y
+  const bx = B.x, by = B.y
   const dx = Math.max(40, (bx - ax) / 2)
   const c1x = ax + dx, c1y = ay
   const c2x = bx - dx, c2y = by
   return `M${ax},${ay} C${c1x},${c1y} ${c2x},${c2y} ${bx},${by}`
 }
 
-function pathForGeometry(geom){
+function pathForGeometry(geom, aNode, bNode){
   if(!Array.isArray(geom) || geom.length < 2) return ''
-  let d = ''
+  const pts = []
   for(let i=0;i<geom.length;i++){
     const g = geom[i]
     if(!Array.isArray(g) || g.length<2) continue
     const lon = +g[0], lat = +g[1]
     if(!Number.isFinite(lat) || !Number.isFinite(lon)) continue
     const p = projectLatLonToUI(lat, lon)
-    if(i===0) d += `M${p.x},${p.y}`; else d += ` L${p.x},${p.y}`
+    pts.push([p.x, p.y])
+  }
+  // Anchor endpoints to current node positions to keep attachment live during moves
+  if(aNode){ const A = anchorFor(aNode, true); pts[0] = [A.x, A.y] }
+  if(bNode){ const B = anchorFor(bNode, false); pts[pts.length-1] = [B.x, B.y] }
+  let d = ''
+  for(let i=0;i<pts.length;i++){
+    const p = pts[i]
+    if(!p) continue
+    if(i===0) d += `M${p[0]},${p[1]}`; else d += ` L${p[0]},${p[1]}`
   }
   return d
 }
 
-function midArrowForGeometry(geom){
+function midArrowForGeometry(geom, aNode, bNode){
   if(!Array.isArray(geom) || geom.length < 2) return ''
-  // Build UI points
   const pts = []
   for(const g of geom){
     if(!Array.isArray(g) || g.length<2) continue
@@ -44,6 +63,8 @@ function midArrowForGeometry(geom){
     const p = projectLatLonToUI(lat, lon)
     pts.push([p.x, p.y])
   }
+  if(aNode){ const A = anchorFor(aNode, true); pts[0] = [A.x, A.y] }
+  if(bNode){ const B = anchorFor(bNode, false); pts[pts.length-1] = [B.x, B.y] }
   if(pts.length < 2) return ''
   // Compute total length and midpoint
   let L = 0
@@ -91,6 +112,7 @@ export function renderEdges(gEdges, edges){
 
   const sel = gEdges.selectAll('g.edge').data(data, d => d.id)
   const enter = sel.enter().append('g').attr('class','edge').attr('tabindex', 0)
+  enter.attr('data-id', d=>d.id)
   enter.append('path').attr('class','line')
   enter.append('path').attr('class','midArrow').attr('marker-end','url(#arrow)')
   enter.append('path').attr('class','hit')
@@ -98,9 +120,10 @@ export function renderEdges(gEdges, edges){
   const DEFAULT_EDGE_WIDTH = 1.8
   sel.merge(enter)
     .attr('class', d => `edge ${state.selection.edgeId===d.id?'selected':''}`)
+    .attr('data-id', d=>d.id)
     .each(function(d){
       const a = index.get(d.source), b = index.get(d.target)
-      const dStr = Array.isArray(d.geometry) && d.geometry.length>=2 ? pathForGeometry(d.geometry) : pathFor(a, b)
+      const dStr = Array.isArray(d.geometry) && d.geometry.length>=2 ? pathForGeometry(d.geometry, a, b) : pathFor(a, b)
       const varWidth = !!state.edgeVarWidth
       const baseW = varWidth ? (style.widthForEdge({ from_id:d.source, to_id:d.target }) || DEFAULT_EDGE_WIDTH) : DEFAULT_EDGE_WIDTH
       const sel = state.selection.edgeId===d.id
@@ -110,7 +133,7 @@ export function renderEdges(gEdges, edges){
         .attr('stroke', d.active ? style.colorForEdge({ from_id:d.source, to_id:d.target }) : 'var(--muted)')
         .attr('stroke-width', w)
       // Mid arrow oriented along polyline (or center between nodes)
-      const midD = Array.isArray(d.geometry) && d.geometry.length>=2 ? midArrowForGeometry(d.geometry) : ''
+      const midD = Array.isArray(d.geometry) && d.geometry.length>=2 ? midArrowForGeometry(d.geometry, a, b) : ''
       d3.select(this).select('path.midArrow')
         .attr('d', midD || null)
         .attr('stroke', d.active ? style.colorForEdge({ from_id:d.source, to_id:d.target }) : 'var(--muted)')

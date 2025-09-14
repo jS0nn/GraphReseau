@@ -10,10 +10,16 @@ function highlightPotentialTargets(gNodes, on){
     if(!on || !src) return false
     const T = (src.type||'').toUpperCase()
     const DT = (d.type||'').toUpperCase()
-    if(T==='OUVRAGE') return DT==='CANALISATION' || DT==='COLLECTEUR'
-    if(T==='CANALISATION' || T==='COLLECTEUR') return DT==='OUVRAGE' || DT==='POINT_MESURE' || DT==='VANNE' || DT==='CANALISATION' || DT==='COLLECTEUR'
-    if(T==='POINT_MESURE' || T==='VANNE') return DT==='CANALISATION' || DT==='COLLECTEUR'
-    return true
+    // New rules (pipes as edges):
+    // - Do NOT target canal nodes anymore
+    if(DT==='CANALISATION' || DT==='COLLECTEUR') return false
+    // - Inline devices cannot be connected via Connecter (use Junction/Draw)
+    if(T==='POINT_MESURE' || T==='VANNE') return false
+    // - From a regular node (OUVRAGE/GENERAL/JONCTION), allow other regular nodes
+    if(T==='OUVRAGE' || T==='GENERAL' || T==='JONCTION'){
+      return (DT==='OUVRAGE' || DT==='GENERAL' || DT==='JONCTION') && d.id!==src.id
+    }
+    return false
   })
 }
 
@@ -27,7 +33,7 @@ export function attachConnect(gNodes){
         const res = connectByRules(sourceId, d.id)
         if(res?.ok){
           if(res.type==='inline' || res.type==='well'){ selectNodeById(res.nodeId) }
-          setStatus(res.type==='canal' ? 'Branchement canal → canal' : 'Connecté')
+          setStatus(res.type==='edge' ? 'Arête créée' : 'Connecté')
         } else {
           setStatus('Connexion non valide')
         }

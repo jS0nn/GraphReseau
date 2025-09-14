@@ -7,8 +7,9 @@ import { renderNodes, NODE_SIZE } from './render/render-nodes.js'
 import { renderEdges } from './render/render-edges.js'
 import { renderInline } from './render/render-inline.js'
 import { autoLayout } from './layout.js'
-import { initLogsUI, log, wireStateLogs } from './ui/logs.js'
+import { initLogsUI, log, wireStateLogs, initDevErrorHooks } from './ui/logs.js'
 import { initForms } from './ui/forms.js'
+import { showModeHelp } from './ui/mode-help.js'
 import { initModesUI } from './modes.js'
 import { initMap, fitMapToNodes, syncGeoProjection } from './map.js'
 import { state, setGraph, getGraph as getStateGraph, subscribe, selectNodeById, selectEdgeById, copySelection, pasteClipboard, removeEdge, removeNodes, removeNode, addNode, setMode } from './state.js'
@@ -18,6 +19,8 @@ import { attachNodeDrag } from './interactions/drag.js'
 import { attachSelection } from './interactions/selection.js'
 import { attachMarquee } from './interactions/marquee.js'
 import { attachDraw } from './interactions/draw.js'
+import { attachEditGeometry } from './interactions/edit-geometry.js'
+import { attachJunction } from './interactions/junction.js'
 
 function ensureHUD(){
   let hud = document.getElementById('hud')
@@ -144,7 +147,18 @@ function bindToolbar(canvas){
       renderAll(canvas)
     })
   }
-  byId('loadBtn')?.addEventListener('click', async ()=>{ const g = await getGraph(); setGraph(g) })
+  byId('loadBtn')?.addEventListener('click', async ()=>{
+    try{
+      setStatus('Chargement…')
+      const g = await getGraph()
+      setGraph(g)
+      setStatus('Chargé')
+    }catch(err){
+      console.error('[dev] load failed', err)
+      setStatus('Erreur de chargement')
+      alert('Erreur de chargement du graphe. Vérifie la connexion et les paramètres.')
+    }
+  })
   // Help dialog
   const helpBtn = byId('helpBtn')
   const helpDlg = document.getElementById('helpDlg')
@@ -216,6 +230,8 @@ function renderAll(canvas){
   renderEdges(canvas.gEdges, state.edges)
   renderNodes(canvas.gNodes, state.nodes)
   renderInline(canvas.gInline, state.nodes)
+  // Re-attach edit handlers so new edges get click listeners
+  attachEditGeometry(canvas.gEdges)
   updateHUD()
   // Re-attach interactions to updated selections
   attachSelection(canvas.gNodes, canvas.gEdges)
@@ -277,6 +293,8 @@ function attachInteractions(canvas){
       if(e.key.toLowerCase()==='c'){ e.preventDefault(); setMode('connect') }
       if(e.key.toLowerCase()==='d'){ e.preventDefault(); setMode('draw') }
       if(e.key.toLowerCase()==='e'){ e.preventDefault(); setMode('edit') }
+      if(e.key.toLowerCase()==='j'){ e.preventDefault(); setMode('junction') }
+      if(e.key.toLowerCase()==='e'){ e.preventDefault(); setMode('edit') }
       if(e.key==='='||e.key==='+'){ e.preventDefault(); canvas.zoomBy(1.15) }
       if(e.key==='-'){ e.preventDefault(); canvas.zoomBy(1/1.15) }
     }
@@ -297,6 +315,7 @@ function attachInteractions(canvas){
 
 export async function boot(){
   initLogsUI()
+  initDevErrorHooks()
   wireStateLogs()
   initModesUI()
   initForms()
@@ -312,6 +331,14 @@ export async function boot(){
   })
   // Re-render overlays on map moves to keep geometry aligned
   try{ document.addEventListener('map:view', ()=> { renderAll(canvas) }) }catch{}
+
+  // Feature flag: pipes as edges (URL param: ?pipes=edges or ?pipes_as_edges=1)
+  try{
+    const q = new URLSearchParams(window.location.search)
+    const v = q.get('pipes')
+    const ve = q.get('pipes_as_edges')
+    if((v && v.toLowerCase()==='edges') || ve==='1'){ window.__PIPES_AS_EDGES__ = true }
+  }catch{}
 
   // Load graph
   const graph = await getGraph().catch(err=>{ log('Chargement échoué: '+err, 'error'); return { nodes:[], edges:[] } })
@@ -332,7 +359,11 @@ export async function boot(){
     if(evt==='mode:set'){
       if(payload==='connect') setStatus('Clique une source, puis une cible (nœud)')
       else if(payload==='delete') setStatus('Veuillez sélectionner l’élément à supprimer')
+      else if(payload==='draw') setStatus('Clic = sommet · Double‑clic = terminer · Échap = annuler')
+      else if(payload==='edit') setStatus('Clic = poignées · Alt+clic = insérer · Suppr = supprimer')
+      else if(payload==='junction') setStatus('Clic segment = insérer une jonction et découper')
       else setStatus('')
+      try{ showModeHelp(payload) }catch{}
     }
   })
   // Push snapshots on meaningful changes (node/edge + graph/sequence updates)
@@ -357,6 +388,8 @@ export async function boot(){
   attachInteractions(canvas)
   attachMarquee(canvas.svg, canvas.gOverlay)
   attachDraw(canvas.svg, canvas.gOverlay)
+  attachEditGeometry(canvas.gEdges)
+  attachJunction()
 
   // Context menu (right-click) – Agencer
   try{
