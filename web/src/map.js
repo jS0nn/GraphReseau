@@ -34,8 +34,25 @@ export function initMap(){
         tilesUrl += (tilesUrl.includes('?') ? '&' : '?') + 'key=' + encodeURIComponent(apiKey)
       }
     }
-    map = L.map(el, { zoomControl: false, attributionControl: !!tilesAttr, doubleClickZoom: false })
-    tilesLayer = L.tileLayer(tilesUrl, { attribution: tilesAttr })
+    // Allow closer zoom and smoother fractional zoom steps
+    map = L.map(el, {
+      zoomControl: false,
+      attributionControl: !!tilesAttr,
+      doubleClickZoom: false,
+      // Increase max zoom; Leaflet will overzoom beyond maxNativeZoom of tiles
+      maxZoom: 22,
+      // Make programmatic zoom changes feel smoother
+      zoomSnap: 0.25,
+      zoomDelta: 0.5,
+    })
+    // Expose higher logical maxZoom and overzoom from native 18+ when needed
+    tilesLayer = L.tileLayer(tilesUrl, {
+      attribution: tilesAttr,
+      maxZoom: 22,
+      // Common native max for many providers; adjust if your tiles go higher
+      maxNativeZoom: 18,
+      detectRetina: true,
+    })
     tilesLayer.addTo(map)
     try{ map.doubleClickZoom && map.doubleClickZoom.disable() }catch{}
     window.__MAP_ACTIVE = true

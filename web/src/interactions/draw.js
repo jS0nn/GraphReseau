@@ -7,7 +7,15 @@ import { getMap, isMapActive } from '../map.js'
 const SNAP_TOL = 32 // px for nodes (distance to node rectangle)
 const EDGE_TOL = 24 // px for snapping onto existing edges
 
-let drawing = null // { pointsUI: [ [x,y],... ], previewPath, snappedIds: string[] }
+// drawing shape:
+// {
+//   pointsUI: [ [x,y], ... ], // UI cache for preview rendering
+//   pointsLL: [ [lon,lat], ... ], // authoritative vertices in GPS for consistency on view changes
+//   previewPath: SVGPathElement,
+//   snappedIds: string[],
+//   _hasPhantom?: boolean
+// }
+let drawing = null
 let overlayRef = null
 let antennaSeedNodeId = null
 
@@ -70,7 +78,20 @@ function nearestNodeUI([x,y], tolPx = SNAP_TOL){
 
 function updatePreview(){
   if(!drawing) return
-  const d = drawing.pointsUI
+  // Recompute UI from GPS when available to keep preview anchored on map moves
+  if(Array.isArray(drawing.pointsLL) && drawing.pointsLL.length){
+    const ui = []
+    for(const ll of drawing.pointsLL){
+      if(!Array.isArray(ll) || ll.length<2) continue
+      const lon = +ll[0], lat = +ll[1]
+      if(Number.isFinite(lat) && Number.isFinite(lon)){
+        const p = projectLatLonToUI(lat, lon)
+        ui.push([p.x, p.y])
+      }
+    }
+    drawing.pointsUI = ui
+  }
+  const d = drawing.pointsUI || []
   let path = ''
   for(let i=0;i<d.length;i++){
     const p = d[i]
@@ -87,7 +108,7 @@ function startDrawing(gOverlay){
   p.setAttribute('stroke','var(--accent)')
   p.setAttribute('stroke-width','2')
   gOverlay.node().appendChild(p)
-  drawing = { pointsUI: [], previewPath: p, snappedIds: [] }
+  drawing = { pointsUI: [], pointsLL: [], previewPath: p, snappedIds: [] }
 }
 
 function stopDrawing(){
@@ -98,18 +119,18 @@ function stopDrawing(){
 
 function finishDrawing(){
   if(!drawing) return
-  const pts = drawing.pointsUI
-  if(pts.length < 2){ stopDrawing(); return }
-  // Compute lat/lon geometry from stored UI points
-  const geometry = pts.map(([x,y])=>{
-    const ll = unprojectUIToLatLon(x, y)
-    return [ll.lon, ll.lat]
-  })
+  // Drop phantom if present
+  if(drawing._hasPhantom){ drawing.pointsLL.pop(); drawing._hasPhantom=false }
+  const ptsLL = Array.isArray(drawing.pointsLL) ? drawing.pointsLL.slice() : []
+  if(ptsLL.length < 2){ stopDrawing(); return }
+  // Geometry is already in [lon,lat]
+  const geometry = ptsLL
   // Endpoints
-  const startUI = pts[0]
-  const endUI = pts[pts.length-1]
+  const projectUI = (ll)=>{ const p = projectLatLonToUI(ll[1], ll[0]); return [p.x, p.y] }
+  const startUI = projectUI(ptsLL[0])
+  const endUI = projectUI(ptsLL[ptsLL.length-1])
   let aId = drawing.snappedIds?.[0] || nearestNodeUI(startUI)?.id || null
-  let bId = drawing.snappedIds?.[pts.length-1] || nearestNodeUI(endUI)?.id || null
+  let bId = drawing.snappedIds?.[ptsLL.length-1] || nearestNodeUI(endUI)?.id || null
   let createdA = false, createdB = false
   // Create endpoints if needed (OUVRAGE) and lock to GPS if available
   if(!aId){
@@ -294,6 +315,13 @@ export function attachDraw(svgSel, gOverlay){
   overlayRef = gOverlay
   // React to mode changes: clear preview when leaving draw mode
   subscribe((evt)=>{ if(evt==='mode:set' && getMode()!=='draw') stopDrawing() })
+  // Keep preview in sync with map moves/zooms by reprojecting from GPS
+  try{
+    document.addEventListener('map:view', ()=>{
+      if(getMode()!=='draw' || !drawing) return
+      updatePreview()
+    })
+  }catch{}
 
   function onClick(evt){
     if(getMode()!=='draw') return
@@ -333,6 +361,11 @@ export function attachDraw(svgSel, gOverlay){
         }
       } else { try{ console.debug('[dev] draw click free', Math.round(ui[0]), Math.round(ui[1])) }catch{} }
     }
+    // Store authoritative GPS for anchoring across view changes
+    const ll = unprojectUIToLatLon(usePt[0], usePt[1])
+    if(!Array.isArray(drawing.pointsLL)) drawing.pointsLL = []
+    drawing.pointsLL.push([ll.lon, ll.lat])
+    // UI cache will be recomputed from GPS in updatePreview
     drawing.pointsUI.push(usePt)
     drawing.snappedIds.push(snappedId)
     updatePreview()
@@ -344,8 +377,17 @@ export function attachDraw(svgSel, gOverlay){
     const snap = nearestNodeUI(ui)
     const p = snap ? centerUIForNode(snap.node) : ui
     // Update the last phantom point for live preview
-    if(!drawing._hasPhantom){ drawing.pointsUI.push(p); drawing._hasPhantom = true }
-    else drawing.pointsUI[drawing.pointsUI.length-1] = p
+    const ll = unprojectUIToLatLon(p[0], p[1])
+    if(!drawing._hasPhantom){
+      // Prime both LL and UI caches
+      drawing.pointsLL.push([ll.lon, ll.lat])
+      drawing.pointsUI.push(p)
+      drawing._hasPhantom = true
+    } else {
+      // Replace last phantom
+      if(Array.isArray(drawing.pointsLL) && drawing.pointsLL.length){ drawing.pointsLL[drawing.pointsLL.length-1] = [ll.lon, ll.lat] }
+      drawing.pointsUI[drawing.pointsUI.length-1] = p
+    }
     updatePreview()
   }
 
@@ -379,6 +421,8 @@ export function startDrawingFromNodeId(nodeId){
     if(!drawing) startDrawing(overlayRef)
     const c = centerUIForNode(n)
     drawing.pointsUI = [[c[0], c[1]]]
+    const ll = unprojectUIToLatLon(c[0], c[1])
+    drawing.pointsLL = [[ll.lon, ll.lat]]
     drawing.snappedIds = [nodeId]
     antennaSeedNodeId = nodeId
     updatePreview()

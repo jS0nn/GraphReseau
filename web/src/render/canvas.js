@@ -41,7 +41,8 @@ export function initCanvas(){
       return true
     })
     // Allow wider zoom range so zoom-fit can always include all elements
-    .scaleExtent([0.02, 5])
+    // Increase max from 5 -> 10 to enable 2x closer zoom
+    .scaleExtent([0.02, 10])
     .on('zoom', (e)=> {
       const map = getMap && getMap()
       if(isMapActive && isMapActive() && map){
