@@ -33,7 +33,7 @@ Cette feuille de route structure le chantier de nettoyage post‑migration (Apps
 - [ ] **Revues visuelles**: scénario QA (chargement, édition, sauvegarde) sur dataset réel.
 
 ## Phase 4 — Schéma partagé & génération de types
-- [ ] **Exposer le schéma Pydantic** (`Graph.model_json_schema()`) via script `scripts/export_schema.py`.
+- [x] **Exposer le schéma Pydantic** (`Graph.model_json_schema()`) via script `scripts/export_schema.py`.
 - [ ] **Générer les types TypeScript** (ex. `pydantic2ts` ou `datamodel-code-generator`) ➜ `web/src/types/graph.d.ts` et remplacer les `any` dans les modules front.
 - [ ] **Centraliser la sanitation**: créer un package `shared/graph_transform.py` + `web/src/shared/graph-transform.js` dérivé du schéma pour éviter la duplication.
 - [ ] **Tests de compatibilité**: valider qu’un JSON produit côté front est accepté par l’API (contract tests).

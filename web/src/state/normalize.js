@@ -73,14 +73,14 @@ function safeGeoCenter(nodes){
   return null
 }
 
-function backfillNodePosition(node, step, { force=false } = {}){
+function backfillNodePosition(node, step, { force=false, center=null } = {}){
   let changed = false
   const prevX = node.x
   const prevY = node.y
   const xBad = force || !Number.isFinite(node.x) || Math.abs(+node.x || 0) > XY_ABS_MAX
   const yBad = force || !Number.isFinite(node.y) || Math.abs(+node.y || 0) > XY_ABS_MAX
   if(xBad || yBad){
-    const pos = uiPosFromNodeGPS(node)
+    const pos = uiPosFromNodeGPS(node, center ? { centerLat: center.centerLat, centerLon: center.centerLon } : undefined)
     if(pos){
       const nextX = snapToGrid(pos.x, step)
       const nextY = snapToGrid(pos.y, step)
@@ -107,10 +107,10 @@ export function normalizeGraph(graph, { gridStep=8 } = {}){
   const step = Number.isFinite(gridStep) && gridStep > 0 ? gridStep : 8
   const rawNodes = Array.isArray(graph?.nodes) ? graph.nodes.slice() : []
   const nodes = rawNodes.map(normalizeNode)
-  for(const node of nodes){ backfillNodePosition(node, step) }
+  const geoCenter = safeGeoCenter(nodes)
+  for(const node of nodes){ backfillNodePosition(node, step, { center: geoCenter }) }
   const rawEdges = Array.isArray(graph?.edges) ? graph.edges.slice() : []
   const edges = dedupeEdges(rawEdges.map(normalizeEdge))
-  const geoCenter = safeGeoCenter(nodes)
   const filteredNodes = nodes.filter(n => !shouldFilterNode(n))
   return { nodes: filteredNodes, edges, geoCenter }
 }
@@ -118,11 +118,11 @@ export function normalizeGraph(graph, { gridStep=8 } = {}){
 export function reprojectNodesFromGPS(nodes, { gridStep=8, force=false } = {}){
   const step = Number.isFinite(gridStep) && gridStep > 0 ? gridStep : 8
   const list = Array.isArray(nodes) ? nodes : []
+  const center = safeGeoCenter(list)
   let changed = false
   for(const node of list){
     if(!node) continue
-    if(backfillNodePosition(node, step, { force })) changed = true
+    if(backfillNodePosition(node, step, { force, center })) changed = true
   }
-  const geoCenter = safeGeoCenter(list)
-  return { changed, geoCenter }
+  return { changed, geoCenter: center }
 }

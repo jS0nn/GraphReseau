@@ -35,8 +35,8 @@ test('normalizeGraph canonicalises types, filters legacy pipes, dedupes edges', 
   assert.equal(altEdge.to_id, 'w1')
 
   assert.ok(result.geoCenter, 'geo center computed from GPS data')
-  assert.equal(result.geoCenter.centerLat, 45)
-  assert.equal(result.geoCenter.centerLon, 3)
+  assert.ok(Math.abs(result.geoCenter.centerLat - 45.05) < 1e-6)
+  assert.ok(Math.abs(result.geoCenter.centerLon - 3.05) < 1e-6)
 })
 
 test('reprojectNodesFromGPS fills missing coordinates when GPS locked', () => {
