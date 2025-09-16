@@ -1,5 +1,5 @@
 import { d3 } from './vendor.js'
-import { setGraph, state } from './state.js'
+import { setGraph, state } from './state/index.js'
 import { autoLayout } from './layout.js'
 import { renderNodes } from './render/render-nodes.js'
 

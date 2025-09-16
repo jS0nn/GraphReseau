@@ -1,4 +1,4 @@
-import { setMode, getMode, subscribe } from './state.js'
+import { setMode, getMode, subscribe } from './state/index.js'
 import { showTooltip, scheduleHide, cancelHide } from './ui/tooltip.js'
 
 function el(id){ return document.getElementById(id) }

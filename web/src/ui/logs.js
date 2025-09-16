@@ -1,4 +1,4 @@
-import { subscribe, state } from '../state.js'
+import { subscribe, state } from '../state/index.js'
 
 let inited = false
 

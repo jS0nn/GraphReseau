@@ -1,5 +1,4 @@
-import { state, addNode, addEdge, updateEdge, removeEdge, updateNode, getMode, subscribe, moveWellToCanal } from '../state.js'
-import { isCanal } from '../utils.js'
+import { state, addNode, addEdge, updateEdge, removeEdge, updateNode, getMode, subscribe } from '../state/index.js'
 import { displayXYForNode, unprojectUIToLatLon, projectLatLonToUI } from '../geo.js'
 import { NODE_SIZE } from '../render/render-nodes.js'
 import { getMap, isMapActive } from '../map.js'
@@ -178,18 +177,6 @@ function finishDrawing(){
     const B = state.nodes.find(n=>n.id===bId)
     if(A && (!A.branch_id || A.branch_id==='')){ updateNode(aId, { branch_id: pgid }) }
     if(B && (!B.branch_id || B.branch_id==='')){ updateNode(bId, { branch_id: pgid }) }
-  }catch{}
-  // If one endpoint is a canal node and the other was newly created, assign the new well to that canal
-  try{
-    const A = state.nodes.find(n=>n.id===aId)
-    const B = state.nodes.find(n=>n.id===bId)
-    if(createdA && isCanal(B)){
-      const pos = Array.isArray(B?.collector_well_ids) ? B.collector_well_ids.length : 0
-      moveWellToCanal(aId, B.id, { position: pos })
-    } else if(createdB && isCanal(A)){
-      const pos = Array.isArray(A?.collector_well_ids) ? A.collector_well_ids.length : 0
-      moveWellToCanal(bId, A.id, { position: pos })
-    }
   }catch{}
   // If started as an antenna from a junction, ensure created ouvrages are in the same branch/group
   if(antennaSeedNodeId){

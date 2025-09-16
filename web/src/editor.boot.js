@@ -12,8 +12,8 @@ import { initForms } from './ui/forms.js'
 import { showModeHelp } from './ui/mode-help.js'
 import { initModesUI } from './modes.js'
 import { initMap, fitMapToNodes, syncGeoProjection } from './map.js'
-import { state, setGraph, getGraph as getStateGraph, subscribe, selectNodeById, selectEdgeById, copySelection, pasteClipboard, removeEdge, removeNodes, removeNode, addNode, setMode } from './state.js'
-import { createHistory } from './history.js'
+import { state, setGraph, getGraph as getStateGraph, subscribe, selectNodeById, selectEdgeById, copySelection, pasteClipboard, removeEdge, removeNodes, removeNode, addNode, setMode } from './state/index.js'
+import { createHistory } from './state/history.js'
 import { attachNodeDrag } from './interactions/drag.js'
 import { attachSelection } from './interactions/selection.js'
 import { attachMarquee } from './interactions/marquee.js'
@@ -95,8 +95,8 @@ function bindToolbar(canvas){
     // Re-render to apply theme-dependent styles (edge colors/widths)
     try{ renderAll(canvas) }catch{}
   })
-  byId('zoomInBtn')?.addEventListener('click', ()=> canvas.zoomBy(1.15))
-  byId('zoomOutBtn')?.addEventListener('click', ()=> canvas.zoomBy(1/1.15))
+  byId('zoomInBtn')?.addEventListener('click', ()=> canvas.zoomBy(canvas.zoomStep))
+  byId('zoomOutBtn')?.addEventListener('click', ()=> canvas.zoomBy(1 / canvas.zoomStep))
   byId('zoomFitBtn')?.addEventListener('click', ()=> {
     if(window.__MAP_ACTIVE){
       try{ fitMapToNodes() }catch{}
@@ -292,8 +292,8 @@ function attachInteractions(canvas){
       if(e.key.toLowerCase()==='e'){ e.preventDefault(); setMode('edit') }
       if(e.key.toLowerCase()==='i'){ e.preventDefault(); setMode('junction') }
       if(e.key.toLowerCase()==='e'){ e.preventDefault(); setMode('edit') }
-      if(e.key==='='||e.key==='+'){ e.preventDefault(); canvas.zoomBy(1.15) }
-      if(e.key==='-'){ e.preventDefault(); canvas.zoomBy(1/1.15) }
+      if(e.key==='='||e.key==='+'){ e.preventDefault(); canvas.zoomBy(canvas.zoomStep) }
+      if(e.key==='-'){ e.preventDefault(); canvas.zoomBy(1 / canvas.zoomStep) }
     }
   })
   // Capture delete even when focus is in inputs if a selection exists
@@ -328,16 +328,6 @@ export async function boot(){
   })
   // Re-render overlays on map moves to keep geometry aligned
   try{ document.addEventListener('map:view', ()=> { renderAll(canvas) }) }catch{}
-
-  // Feature flag: pipes as edges (URL param: ?pipes=edges or ?pipes_as_edges=1)
-  try{
-    const q = new URLSearchParams(window.location.search)
-    const v = q.get('pipes')
-    const ve = q.get('pipes_as_edges')
-    if((v && v.toLowerCase()==='edges') || ve==='1'){ window.__PIPES_AS_EDGES__ = true }
-    // Default to edges-only model when unspecified
-    if(typeof window.__PIPES_AS_EDGES__ === 'undefined'){ window.__PIPES_AS_EDGES__ = true }
-  }catch{}
 
   // Load graph
   const graph = await getGraph().catch(err=>{ log('Chargement échoué: '+err, 'error'); return { nodes:[], edges:[] } })

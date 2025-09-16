@@ -1,4 +1,4 @@
-import { selectNodeById, selectEdgeById, getMode, removeNode, removeEdge, toggleMultiSelection } from '../state.js'
+import { selectNodeById, selectEdgeById, getMode, removeNode, removeEdge, toggleMultiSelection } from '../state/index.js'
 
 export function attachSelection(gNodes, gEdges){
   gNodes.selectAll('g.node')

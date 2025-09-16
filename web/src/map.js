@@ -1,5 +1,5 @@
 import { L } from './vendor.js'
-import { subscribe, state } from './state.js'
+import { subscribe, state } from './state/index.js'
 import { setGeoCenter, setGeoScale, setGeoScaleXY } from './geo.js'
 
 let map = null

@@ -1,4 +1,4 @@
-import { state } from './state.js'
+import { state } from './state/index.js'
 import { genId } from './utils.js'
 
 export function addNode(partial = {}){

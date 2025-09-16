@@ -1,5 +1,5 @@
 import { d3 } from '../vendor.js'
-import { moveNode, getMode, state, updateNode } from '../state.js'
+import { moveNode, getMode, state, updateNode } from '../state/index.js'
 import { unprojectUIToLatLon } from '../geo.js'
 
 export function attachNodeDrag(gNodes, onEnd){

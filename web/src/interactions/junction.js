@@ -1,11 +1,10 @@
-import { state, addNode, addEdge, removeEdge, updateEdge, updateNode, getMode, subscribe, renameNodeId, setMode, moveInlineToCanal, selectNodeById } from '../state.js'
+import { state, addNode, addEdge, removeEdge, updateEdge, updateNode, getMode, subscribe, renameNodeId, setMode, selectNodeById } from '../state/index.js'
 import { genIdWithTime as genId } from '../utils.js'
 import { projectLatLonToUI, unprojectUIToLatLon, displayXYForNode } from '../geo.js'
 import { NODE_SIZE } from '../render/render-nodes.js'
 import { showMiniMenu } from '../ui/mini-menu.js'
 import { startDrawingFromNodeId } from './draw.js'
 import { devlog } from '../ui/logs.js'
-import { isCanal } from '../utils.js'
 
 function centerXY(node){
   try{
@@ -152,41 +151,37 @@ export function attachJunction(){
         // Inherit diameter from the branch if available: look for a neighbor CANALISATION on either endpoint
         const fromNode = state.nodes.find(nn=>nn.id===fromId)
         const toNode = state.nodes.find(nn=>nn.id===toId)
-        const dia = isCanal(fromNode)? +fromNode.diameter_mm : (isCanal(toNode)? +toNode.diameter_mm : NaN)
-        if(Number.isFinite(dia) && dia>0){ n.diameter_mm = dia }
+        const candidates = [fromNode?.diameter_mm, toNode?.diameter_mm]
+          .map(v => {
+            const num = Number(v)
+            return Number.isFinite(num) && num > 0 ? num : null
+          })
+          .filter(v => v != null)
+        if(candidates.length){ n.diameter_mm = candidates[0] }
         updateNode(targetId, { branch_id: n.branch_id, diameter_mm: n.diameter_mm })
       }catch{}
     }
 
-    function attachInlineToCanalByHit(inlineId){
+    function attachInlineToEdge(inlineId){
       try{
         const fromNode = state.nodes.find(nn=>nn.id===fromId)
         const toNode = state.nodes.find(nn=>nn.id===toId)
-        const canal = isCanal(fromNode) ? fromNode : (isCanal(toNode) ? toNode : null)
-        if(canal){
-          const wells = Array.isArray(canal.collector_well_ids) ? canal.collector_well_ids.map(id=>state.nodes.find(n=>n.id===id)).filter(Boolean) : []
-          const countAbove = wells.filter(w => (displayXYForNode(w)?.y ?? 0) <= hit.py).length
-          const posIndex = Math.max(0, Math.min(wells.length, countAbove))
-          moveInlineToCanal(inlineId, canal.id, posIndex)
-          const dia = +canal.diameter_mm
-          if(Number.isFinite(dia) && dia>0) updateNode(inlineId, { diameter_mm: dia })
-        } else {
-          // No canal node context (pipeline was drawn as edge only)
-          const anchorEdgeId = e1?.id || e2?.id || edge.id
-          // Derive a diameter from endpoints when possible (fallback to keep previous value)
-          const dA = Number.isFinite(+fromNode?.diameter_mm) && +fromNode.diameter_mm>0 ? +fromNode.diameter_mm : null
-          const dB = Number.isFinite(+toNode?.diameter_mm) && +toNode.diameter_mm>0 ? +toNode.diameter_mm : null
-          const dia = dA ?? dB
-          const patch = { pm_collector_edge_id: anchorEdgeId }
-          if(dia!=null) Object.assign(patch, { diameter_mm: dia })
-          updateNode(inlineId, patch)
-        }
-      }catch(err){ try{ console.debug('[dev] attachInlineToCanal error', err) }catch{} }
+        const anchorEdgeId = e1?.id || e2?.id || edge.id
+        const candidates = [fromNode?.diameter_mm, toNode?.diameter_mm]
+          .map(v => {
+            const num = Number(v)
+            return Number.isFinite(num) && num > 0 ? num : null
+          })
+          .filter(v => v != null)
+        const patch = { pm_collector_edge_id: anchorEdgeId }
+        if(candidates.length){ Object.assign(patch, { diameter_mm: candidates[0] }) }
+        updateNode(inlineId, patch)
+      }catch(err){ try{ console.debug('[dev] attachInlineToEdge error', err) }catch{} }
     }
     showMiniMenu(x, y, [
       { label: 'Jonction', onClick: ()=> { updateNode(node.id, { type:'JONCTION' }); try{ setMode('select') }catch{} } },
-      { label: 'Point de mesure', onClick: ()=> { const nid = genId('POINT_MESURE'); renameNodeId(node.id, nid); updateNode(nid, { type:'POINT_MESURE', gps_lat: topLeftLL.lat, gps_lon: topLeftLL.lon, gps_locked: true }); inheritBranchAttrs(nid); attachInlineToCanalByHit(nid); try{ setMode('select'); selectNodeById(nid) }catch{} } },
-      { label: 'Vanne', onClick: ()=> { const nid = genId('VANNE'); renameNodeId(node.id, nid); updateNode(nid, { type:'VANNE', gps_lat: topLeftLL.lat, gps_lon: topLeftLL.lon, gps_locked: true }); inheritBranchAttrs(nid); attachInlineToCanalByHit(nid); try{ setMode('select'); selectNodeById(nid) }catch{} } },
+      { label: 'Point de mesure', onClick: ()=> { const nid = genId('POINT_MESURE'); renameNodeId(node.id, nid); updateNode(nid, { type:'POINT_MESURE', gps_lat: topLeftLL.lat, gps_lon: topLeftLL.lon, gps_locked: true }); inheritBranchAttrs(nid); attachInlineToEdge(nid); try{ setMode('select'); selectNodeById(nid) }catch{} } },
+      { label: 'Vanne', onClick: ()=> { const nid = genId('VANNE'); renameNodeId(node.id, nid); updateNode(nid, { type:'VANNE', gps_lat: topLeftLL.lat, gps_lon: topLeftLL.lon, gps_locked: true }); inheritBranchAttrs(nid); attachInlineToEdge(nid); try{ setMode('select'); selectNodeById(nid) }catch{} } },
       { label: 'Démarrer une antenne', onClick: ()=> { try{ setMode('draw') }catch{} startDrawingFromNodeId(node.id) } },
     ])
   }, true)
