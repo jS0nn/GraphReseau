@@ -24,10 +24,9 @@ def _client():
 
 
 # Header sets identical to Apps Script
-# V8 adds pm_collector_edge_id after pm_pos_index
 NODE_HEADERS_FR_V8 = [
     'id','nom','type','id_branche','diametre_exterieur_mm','sdr_ouvrage','commentaire',
-    'puits_amont','well_collector_id','well_pos_index','pm_collecteur_id','pm_pos_index','pm_collector_edge_id','gps_lat','gps_lon','x','y','x_UI','y_UI'
+    'pm_collector_edge_id','pm_pos_index','gps_lat','gps_lon','x','y','x_UI','y_UI'
 ]
 NODE_HEADERS_FR_V7 = [
     'id','nom','type','id_branche','diametre_exterieur_mm','sdr_ouvrage','commentaire',
@@ -173,12 +172,8 @@ def _row_to_node(row: Dict[str, Any], header_set: List[str], full_row: Dict[str,
         diameter_mm=_num(row.get("diametre_exterieur_mm") or row.get("diametre_mm") or row.get("diameter_mm") or row.get("diametre_exterieur") or row.get("diametreExterieur")),
         sdr_ouvrage=(row.get("sdr_ouvrage") or row.get("sdrOuvrage") or ""),
         commentaire=(row.get("commentaire") or ""),
-        collector_well_ids=_split_ids(row.get("puits_amont") or ""),
-        well_collector_id=(row.get("well_collector_id") or ""),
         well_pos_index=_int(row.get("well_pos_index")),
-        pm_collector_id=(row.get("pm_collecteur_id") or row.get("pm_collector_id") or ""),
         pm_collector_edge_id=(row.get("pm_collector_edge_id") or row.get("pm_edge_id") or ""),
-        pm_pos_index=_int(row.get("pm_pos_index")),
         gps_lat=_num(row.get("gps_lat")),
         gps_lon=_num(row.get("gps_lon")),
         x=_num(row.get("x")),
@@ -394,7 +389,7 @@ def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Grap
     svc = _client()
 
     # Always write FR V8 headers + extra business headers on output
-    node_headers = NODE_HEADERS_FR_V8 + EXTRA_SHEET_HEADERS
+    node_headers = ['id','nom','type','id_branche','diametre_exterieur_mm','sdr_ouvrage','commentaire','pm_collector_edge_id','pm_pos_index','gps_lat','gps_lon','x','y','x_UI','y_UI'] + EXTRA_SHEET_HEADERS
     # Extend edge headers with optional 'commentaire' + geometry + pipe group
     edge_headers = EDGE_HEADERS_FR_V2 + ['commentaire','Geometry','PipeGroupId']
 
@@ -444,12 +439,8 @@ def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Grap
             ("" if n.diameter_mm is None else n.diameter_mm),
             n.sdr_ouvrage or "",
             n.commentaire or "",
-            ";".join((n.collector_well_ids or [])) if isinstance(n.collector_well_ids, list) else "",
-            n.well_collector_id or "",
-            ("" if n.well_pos_index is None else n.well_pos_index),
-            n.pm_collector_id or "",
+            n.pm_collector_edge_id or "",
             ("" if n.pm_pos_index is None else n.pm_pos_index),
-            (getattr(n, 'pm_collector_edge_id', "") or ""),
             ("" if n.gps_lat is None else n.gps_lat),
             ("" if n.gps_lon is None else n.gps_lon),
             ("" if x_preserved is None else x_preserved),

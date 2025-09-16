@@ -42,10 +42,27 @@ function updateHUD(){
 
 function setStatus(msg){ const el=document.getElementById('status'); if(el) el.textContent = msg||'' }
 
+function computeSidebarInset(containerWidth){
+  let inset = 0
+  try{
+    const propEl = document.getElementById('prop')
+    if(!propEl) return 0
+    if(document.body.classList.contains('prop-collapsed')) return 0
+    const style = window.getComputedStyle(propEl)
+    if(!style || style.display === 'none') return 0
+    const raw = propEl.getBoundingClientRect()?.width || propEl.offsetWidth || 0
+    const margin = (parseFloat(style.marginLeft)||0) + (parseFloat(style.marginRight)||0)
+    const total = raw + margin
+    if(total > 0) inset = Math.min(total * 0.55, containerWidth * 0.4)
+  }catch{}
+  return inset
+}
+
 function computeZoomFitTransform(containerEl, nodes){
   const w = containerEl.clientWidth || 1200
   const h = containerEl.clientHeight || 800
   const M = 60 // margin around content
+  const sidebarOffset = computeSidebarInset(w)
 
   // Try to use actual rendered content bbox (nodes+edges), independent of current zoom
   try{
@@ -63,7 +80,7 @@ function computeZoomFitTransform(containerEl, nodes){
         const scale = Math.min(w / bw, h / bh)
         const tx = (w - scale * bw)/2 - scale * minX
         const ty = (h - scale * bh)/2 - scale * minY
-        return { k: scale, x: tx, y: ty }
+        return { k: scale, x: tx + sidebarOffset, y: ty }
       }
     }
   }catch{/* fallback to nodes extents below */}
@@ -84,7 +101,7 @@ function computeZoomFitTransform(containerEl, nodes){
   const scale = Math.min(w / bw, h / bh)
   const tx = (w - scale * bw)/2 - scale * minX
   const ty = (h - scale * bh)/2 - scale * minY
-  return { k: scale, x: tx, y: ty }
+  return { k: scale, x: tx + sidebarOffset, y: ty }
 }
 
 function bindToolbar(canvas){
@@ -94,6 +111,7 @@ function bindToolbar(canvas){
     adjustWrapTop()
     // Re-render to apply theme-dependent styles (edge colors/widths)
     try{ renderAll(canvas) }catch{}
+    try{ document.dispatchEvent(new CustomEvent('theme:change')) }catch{}
   })
   byId('zoomInBtn')?.addEventListener('click', ()=> canvas.zoomBy(canvas.zoomStep))
   byId('zoomOutBtn')?.addEventListener('click', ()=> canvas.zoomBy(1 / canvas.zoomStep))

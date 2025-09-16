@@ -26,6 +26,9 @@ export function renderNodes(gNodes, nodes){
     .attr('cx', NODE_W/2)
     .attr('cy', NODE_H/2)
     .attr('r', MARKER_R)
+    .attr('fill', '#fff')
+    .attr('stroke', '#111827')
+    .attr('stroke-width', 1.5)
 
   // Info bubble positioned to the right of the marker
   enter.append('rect')
@@ -34,6 +37,8 @@ export function renderNodes(gNodes, nodes){
     .attr('y', 0)
     .attr('width', NODE_W)
     .attr('height', NODE_H)
+    .attr('rx', 14)
+    .attr('ry', 14)
 
   // Generous hit target covering marker + bubble
   enter.append('rect')
@@ -70,6 +75,10 @@ export function renderNodes(gNodes, nodes){
     .select('text.label')
       .attr('x', (NODE_W/2) + MARKER_R + BUBBLE_GAP + 8)
       .text(d => d.name||d.id)
+  sel.merge(enter)
+    .select('rect.box')
+      .attr('rx', 14)
+      .attr('ry', 14)
   // Toggle visuals for junctions
   sel.merge(enter).each(function(d){
     const isJ = (String(d.type||'').toUpperCase()==='JONCTION')

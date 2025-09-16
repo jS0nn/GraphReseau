@@ -1,5 +1,5 @@
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 
 class Node(BaseModel):
@@ -10,7 +10,7 @@ class Node(BaseModel):
     diameter_mm: Optional[float] = None
     sdr_ouvrage: Optional[str] = ""
     commentaire: Optional[str] = ""
-    collector_well_ids: List[str] = []
+    collector_well_ids: List[str] = Field(default_factory=list)
     well_collector_id: Optional[str] = ""
     well_pos_index: Optional[int] = None
     pm_collector_id: Optional[str] = ""
@@ -71,5 +71,5 @@ class Edge(BaseModel):
 
 
 class Graph(BaseModel):
-    nodes: List[Node] = []
-    edges: List[Edge] = []
+    nodes: List[Node] = Field(default_factory=list)
+    edges: List[Edge] = Field(default_factory=list)

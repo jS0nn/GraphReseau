@@ -10,6 +10,8 @@ export function initCanvas(){
   const gOverlay = root.select('.overlay')
 
   let spacePan = false
+  const zoomStep = 1.25
+  const logZoomStep = Math.log(zoomStep)
   const zoom = d3.zoom()
     .filter((event)=> {
       const isWheel = event.type === 'wheel'
@@ -39,6 +41,14 @@ export function initCanvas(){
       }
       // Other events: default allow
       return true
+    })
+    .wheelDelta((event)=> {
+      // Normalise wheel delta so one notch matches the button zoom step
+      const mode = event.deltaMode
+      const denom = mode === 1 ? 3 : mode === 2 ? 120 : 100
+      const notches = -event.deltaY / (denom || 1)
+      const clamped = Math.max(-2, Math.min(2, notches))
+      return clamped * logZoomStep
     })
     // Allow wider zoom range so zoom-fit can always include all elements
     // Increase max from 5 -> 10 to enable 2x closer zoom
@@ -109,5 +119,5 @@ export function initCanvas(){
   }
   function setSpacePan(on){ spacePan = !!on; svg.style('cursor', on ? 'grab' : null) }
 
-  return { svg, root, gInline, gEdges, gNodes, gOverlay, zoomBy, zoomReset, zoom, setSpacePan }
+  return { svg, root, gInline, gEdges, gNodes, gOverlay, zoomBy, zoomReset, zoom, setSpacePan, zoomStep }
 }

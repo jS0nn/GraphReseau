@@ -52,7 +52,7 @@ body.prop-collapsed #wrap{ grid-template-columns:1fr 0 }
 #map{ position:absolute; inset:0; z-index:0; pointer-events:none }
 body.map-hidden #map{ display:none }
 svg{ position:absolute; inset:0; z-index:1; width:100%; height:100% }
-.node rect.box{rx:10; ry:10; stroke:var(--stroke); fill:var(--node); filter: drop-shadow(0 2px 16px rgba(0,0,0,.22))}
+.node rect.box{rx:14; ry:14; stroke:var(--stroke); fill:var(--node); fill-opacity:.82; filter: drop-shadow(0 2px 16px rgba(0,0,0,.22))}
 .node.selected rect.box{stroke:var(--accent); stroke-width:2}
 .node.halo rect.box{ stroke: var(--accent); stroke-width: 2; filter: drop-shadow(0 0 8px rgba(106,168,255,.35)) }
 .node.PUITS rect.box{fill:var(--c-puits)}
