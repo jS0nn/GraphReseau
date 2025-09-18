@@ -134,14 +134,16 @@ Vérifications utiles
   - `sheets.py`: client Sheets (mapping d’entêtes FR/EN, sérialisation V1→V5)
   - `gcp_auth.py`: création des credentials (ADC + impersonation)
   - `auth_embed.py`: CSP et contrôles d’accès pour l’embed (clé `k`, Referer)
+  - `shared/graph_transform.py`: sanitisation commune (réutilisée par les datasources/tests)
   - `routers/api.py`: endpoints `/api/graph`
   - `routers/embed.py`: endpoint `/embed/editor` (Jinja template)
   - `templates/index.html`: HTML d’embed qui charge les bundles
   - `static/`: bundles et assets copiés par le build
 - `web/` (frontend source — dev)
-  - `src/`: `editor.js`, `editor.boot.js`, `render/*`, `interactions/*`, `state.js`, `api.js`, etc.
+  - `src/`: `editor.js`, `editor.boot.js`, `render/*`, `interactions/*`, `state/*`, `shared/*`, etc.
   - `styles/`: `app.css`, `editor.css`, `theme.css`, `base.css`
   - `index.html`: page de dev locale
+  - `types/graph.d.ts`: types TypeScript générés à partir du schéma Pydantic (`npm run types:generate`)
 - `build.mjs`: script esbuild (bundle JS/CSS + copie des vendors)
 - `dev-embed.html`: page utilitaire pour tester l’embed (sert de parent pour le Referer)
 - `.env.example` / `.env.dev`: variables d’environnement (exemple / dev local)
@@ -164,6 +166,8 @@ Vérifications utiles
 ## 10) Tâches fréquentes (checklist)
 - Mettre à jour les dépendances Python: `pip install -U -r requirements.txt`
 - Rebuilder le frontend: `npm run build`
+- Régénérer les types TS (si schéma Graph modifié): `npm run types:generate`
+- Lancer les tests backend: `python -m unittest discover -s tests -p "test_*.py"`
 - Prévisualiser un JSON local: `curl "http://127.0.0.1:8080/api/graph?source=gcs_json&gcs_uri=file:///ABS/PATH/graph.json"`
 - Sauvegarder vers JSON local: `curl -X POST "http://127.0.0.1:8080/api/graph?source=gcs_json&gcs_uri=file:///ABS/PATH/graph.json" -H "Content-Type: application/json" --data-binary @graph.json`
 - Vérifier l’embed: `curl -I -H "Referer: http://localhost:8000" "http://127.0.0.1:8080/embed/editor?k=$EMBED_STATIC_KEY&sheet_id=$SHEET_ID_DEFAULT&mode=ro"`

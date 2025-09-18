@@ -5,6 +5,7 @@
   "scripts": {
     "build": "node build.mjs",
     "build:dev": "BUILD_DEV=1 node build.mjs",
+    "types:generate": "python scripts/export_schema.py --out docs/graph.schema.json --ts-out web/src/types/graph.d.ts",
     "migrate:nodes": "bash scripts/migrate_nodes_npm.sh",
     "test": "node --test web/tests/**/*.mjs"
   },

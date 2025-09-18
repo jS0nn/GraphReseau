@@ -25,6 +25,7 @@ Cette feuille de route structure le chantier de nettoyage post‑migration (Apps
 - [x] **Scinder `web/src/state.js`** en modules : `state/index.js` (store), `state/normalize.js`, `state/history.js`, `state/graph-rules.js`. Retirer fonctions `moveWellToCanal`, `child_canal_ids`, `connectByRules` devenues obsolètes.
 - [x] **Nettoyer les interactions**: supprimer `web/src/interactions/connect.js` et ajuster `editor.boot.js` pour ne plus l’importer; vérifier `draw.js`/`junction.js`.
 - [x] **Couverture**: écrire tests unitaires front (vitest ou tiny runner) pour `normalizeGraph` et `sanitiseGraph`.
+- [x] **Correctifs post-audit**: corriger le menu contextuel du mode dessin (`showMiniMenu`) et éliminer les arêtes orphelines à la suppression de nœuds.
 
 ## Phase 3 — UI & exports alignés sur le nouvel état
 - [x] **Refondre `web/src/ui/forms.js`**: simplifier les panneaux Propriétés en se basant sur les arêtes (sélection, affectations). Supprimer sections canal-specific obsolètes.
@@ -34,17 +35,17 @@ Cette feuille de route structure le chantier de nettoyage post‑migration (Apps
 
 ## Phase 4 — Schéma partagé & génération de types
 - [x] **Exposer le schéma Pydantic** (`Graph.model_json_schema()`) via script `scripts/export_schema.py`.
-- [ ] **Générer les types TypeScript** (ex. `pydantic2ts` ou `datamodel-code-generator`) ➜ `web/src/types/graph.d.ts` et remplacer les `any` dans les modules front.
-- [ ] **Centraliser la sanitation**: créer un package `shared/graph_transform.py` + `web/src/shared/graph-transform.js` dérivé du schéma pour éviter la duplication.
-- [ ] **Tests de compatibilité**: valider qu’un JSON produit côté front est accepté par l’API (contract tests).
+- [x] **Générer les types TypeScript** (ex. `pydantic2ts` ou `datamodel-code-generator`) ➜ `web/src/types/graph.d.ts` et remplacer les `any` dans les modules front.
+- [x] **Centraliser la sanitation**: créer un package `shared/graph_transform.py` + `web/src/shared/graph-transform.js` dérivé du schéma pour éviter la duplication.
+- [x] **Tests de compatibilité**: valider qu’un JSON produit côté front est accepté par l’API (contract tests).
+- [x] **Mutualiser les helpers géométriques** (`draw.js`, `junction.js`, `edit-geometry.js`) pour garantir un seul jeu de tolérances/splitting.
 
 ## Phase 5 — Nettoyage final & documentation
-- [ ] **Supprimer dossiers/artefacts legacy**: vérifier `frontend/`, scripts non utilisés, anciennes pages.
-- [ ] **Mettre à jour la doc** (`AGENTS.md`, `README`, `TEST_PLAN.md`) avec la nouvelle architecture et les scripts.
-- [ ] **Préparer changelog** et plan de migration (checklist pour production, re-déploiement Cloud Run, communication aux utilisateurs).
+- [x] **Supprimer dossiers/artefacts legacy**: vérifier `frontend/`, scripts non utilisés, anciennes pages.
+- [x] **Mettre à jour la doc** (`AGENTS.md`, `README`, `TEST_PLAN.md`) avec la nouvelle architecture et les scripts.
+- [x] **Préparer changelog** et plan de migration (checklist pour production, re-déploiement Cloud Run, communication aux utilisateurs).
 
 ## Suivi & gouvernance
 - **Tableau de bord**: reporter l’avancement dans `TASKS.md` (section Refactoring) et/ou un board project.
 - **Revue hebdo**: point rapide avec l’équipe pour débloquer dépendances et valider les incréments.
 - **Critères de sortie**: tests verts (backend/frontend), QA validée, documentation à jour, absence de code heritage « canalisations = nœuds » détecté via `rg`.
-

@@ -1,5 +1,7 @@
 # Plan de tests manuels — Éditeur Réseau (V1/V2)
 
+> Tests automatisés complémentaires : `python -m unittest discover -s tests -p "test_*.py"`
+
 ## Lecture / Écriture — Sheets
 - Lancer le backend (`uvicorn ... --env-file .env.dev`) avec `DATA_SOURCE=sheet`.
 - GET `/api/graph` renvoie un graph JSON non vide (Nodes/Edges).

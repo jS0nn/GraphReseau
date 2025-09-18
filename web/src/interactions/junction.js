@@ -1,87 +1,10 @@
 import { state, addNode, addEdge, removeEdge, updateEdge, updateNode, getMode, subscribe, renameNodeId, setMode, selectNodeById } from '../state/index.js'
 import { genIdWithTime as genId } from '../utils.js'
-import { projectLatLonToUI, unprojectUIToLatLon, displayXYForNode } from '../geo.js'
-import { NODE_SIZE } from '../constants/nodes.js'
+import { unprojectUIToLatLon } from '../geo.js'
 import { showMiniMenu } from '../ui/mini-menu.js'
 import { startDrawingFromNodeId } from './draw.js'
 import { devlog } from '../ui/logs.js'
-
-function centerXY(node){
-  try{
-    const p = displayXYForNode(node)
-    const T = String(node?.type||'').toUpperCase()
-    return (T==='JONCTION') ? [ (p.x||0), (p.y||0) ] : [ (p.x||0) + NODE_SIZE.w/2, (p.y||0) + NODE_SIZE.h/2 ]
-  }catch{ return [0,0] }
-}
-
-function uiPointsForEdgeGeometry(edge){
-  if(Array.isArray(edge?.geometry) && edge.geometry.length>=2){
-    const pts=[]
-    for(const g of edge.geometry){
-      if(Array.isArray(g)&&g.length>=2){
-        const lon=+g[0], lat=+g[1]
-        if(Number.isFinite(lat)&&Number.isFinite(lon)){
-          const p=projectLatLonToUI(lat, lon)
-          pts.push([p.x,p.y])
-        }
-      }
-    }
-    // Anchor endpoints to current node centers to avoid legacy left-edge offsets
-    try{
-      const a = state.nodes.find(n=>n.id===(edge.from_id??edge.source))
-      const b = state.nodes.find(n=>n.id===(edge.to_id??edge.target))
-      if(a && pts.length){ const ca = centerXY(a); pts[0] = [ca[0], ca[1]] }
-      if(b && pts.length){ const cb = centerXY(b); pts[pts.length-1] = [cb[0], cb[1]] }
-    }catch{}
-    return pts
-  }
-  // Fallback to straight segment between endpoints
-  const a = state.nodes.find(n=>n.id===(edge.from_id??edge.source))
-  const b = state.nodes.find(n=>n.id===(edge.to_id??edge.target))
-  if(!a||!b) return []
-  const ca = centerXY(a)
-  const cb = centerXY(b)
-  return [[ca[0], ca[1]], [cb[0], cb[1]]]
-}
-
-function nearestOnPolyline(pts, x, y){
-  let best = { seg:-1, t:0, d2: Infinity, px:0, py:0 }
-  for(let i=1;i<pts.length;i++){
-    const ax=pts[i-1][0], ay=pts[i-1][1]
-    const bx=pts[i][0],   by=pts[i][1]
-    const abx = bx-ax, aby = by-ay
-    const apx = x-ax,  apy = y-ay
-    const ab2 = abx*abx + aby*aby || 1
-    let t = (apx*abx + apy*aby) / ab2
-    if(t<0) t=0; if(t>1) t=1
-    const px = ax + t*abx, py = ay + t*aby
-    const dx = x-px, dy=y-py
-    const d2 = dx*dx + dy*dy
-    if(d2 < best.d2){ best = { seg:i, t, d2, px, py } }
-  }
-  return best
-}
-
-function splitGeometry(geom, uiPts, insert){
-  // insert: { seg, t, px, py }
-  const ll = unprojectUIToLatLon(insert.px, insert.py)
-  const ins = [ll.lon, ll.lat]
-  if(Array.isArray(geom) && geom.length>=2){
-    const before = []
-    const after = []
-    const cutIdx = insert.seg
-    for(let i=0;i<geom.length;i++){
-      if(i<cutIdx) before.push(geom[i])
-      else if(i>=cutIdx) after.push(geom[i])
-    }
-    // ensure we include insert at the boundary
-    if(before.length && (before[before.length-1][0]!==ins[0] || before[before.length-1][1]!==ins[1])) before.push(ins)
-    if(after.length && (after[0][0]!==ins[0] || after[0][1]!==ins[1])) after.unshift(ins)
-    return { g1: before, g2: after }
-  }
-  // Fallback: build from endpoints using insert point
-  return { g1: [geom?.[0]||ins, ins], g2: [ins, geom?.[1]||ins] }
-}
+import { centerUIForNode, edgeGeometryToUIPoints, nearestPointOnPolyline, splitGeometryAt, ensureEdgeGeometry } from '../shared/geometry.js'
 
 function eventToUI(evt){
   try{ if(window.__leaflet_map){ const pt=window.__leaflet_map.mouseEventToContainerPoint(evt); return [pt.x,pt.y] } }catch{}
@@ -100,31 +23,23 @@ export function attachJunction(){
     // Find nearest edge with a polyline
     let best=null
     for(const e of state.edges){
-      const pts = uiPointsForEdgeGeometry(e)
+      const pts = edgeGeometryToUIPoints(e, state.nodes)
       if(pts.length<2) continue
-      const hit = nearestOnPolyline(pts, ux, uy)
+      const hit = nearestPointOnPolyline(pts, ux, uy)
       // 24px tolerance
       if(hit && hit.d2 < (24*24)){
-        if(!best || hit.d2 < best.hit.d2) best = { edge:e, pts, hit }
+        if(!best || hit.d2 < best.hit.d2) best = { edge:e, hit }
       }
     }
     if(!best) return
-    const { edge, pts, hit } = best
+    const { edge, hit } = best
     // Build new node at insertion
     const centerLL = unprojectUIToLatLon(hit.px, hit.py)
     const node = addNode({ type:'JONCTION', gps_lat: centerLL.lat, gps_lon: centerLL.lon, gps_locked: true, name:'' })
     // Split geometry
-    let geom = Array.isArray(edge.geometry) && edge.geometry.length>=2 ? edge.geometry.slice() : null
-    if(!geom){
-      // create simple 2-pt geometry from endpoints
-      const a = state.nodes.find(n=>n.id===(edge.from_id??edge.source))
-      const b = state.nodes.find(n=>n.id===(edge.to_id??edge.target))
-      const ca = centerXY(a), cb = centerXY(b)
-      const A = unprojectUIToLatLon(ca[0], ca[1])
-      const B = unprojectUIToLatLon(cb[0], cb[1])
-      geom = [[A.lon,A.lat],[B.lon,B.lat]]
-    }
-    const parts = splitGeometry(geom, pts, hit)
+    const geom = ensureEdgeGeometry(edge, state.nodes)
+    if(!geom) return
+    const parts = splitGeometryAt(geom, hit)
     const fromId = edge.from_id ?? edge.source
     const toId   = edge.to_id   ?? edge.target
     // Remove old edge and add new ones

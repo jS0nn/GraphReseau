@@ -211,6 +211,12 @@ export function removeNode(id){
     node.pm_pos_index = ''
     node.pm_offset_m = ''
   }
+  const relatedEdges = state.edges.filter(e => (e.from_id ?? e.source) === id || (e.to_id ?? e.target) === id)
+  relatedEdges.forEach(edge => {
+    if(edge?.id){
+      removeEdge(edge.id)
+    }
+  })
   state.nodes = state.nodes.filter(n => n.id !== id)
   notify('node:remove', { id })
 }

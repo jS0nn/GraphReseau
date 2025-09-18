@@ -2,21 +2,10 @@ import { genIdWithTime as genId, snap as snapToGrid } from '../utils.js'
 import { computeCenterFromNodes, uiPosFromNodeGPS, unprojectUIToLatLon } from '../geo.js'
 import { canonicalizeNodeType, shouldFilterNode } from './graph-rules.js'
 import { NODE_SIZE } from '../constants/nodes.js'
+import { normalizeNumericValue, normalizeEdge, dedupeEdges } from '../shared/graph-transform.js'
 
 export const XY_ABS_MAX = 100000
 const NUMERIC_NODE_FIELDS = ['x','y','diameter_mm','gps_lat','gps_lon','well_pos_index','pm_pos_index','pm_offset_m','x_ui','y_ui']
-
-function normalizeNumericValue(value){
-  if(value === '' || value === undefined || value === null) return null
-  if(typeof value === 'number') return Number.isFinite(value) ? value : null
-  if(typeof value === 'string'){
-    const norm = value.trim().replace(',', '.').replace(/[^0-9.\-]/g, '')
-    const parsed = parseFloat(norm)
-    return Number.isFinite(parsed) ? parsed : null
-  }
-  const parsed = +value
-  return Number.isFinite(parsed) ? parsed : null
-}
 
 function normalizeNode(raw){
   const node = { ...raw }
@@ -29,41 +18,6 @@ function normalizeNode(raw){
   if(node.y == null && node.y_ui != null) node.y = node.y_ui
   if(typeof node.gps_locked !== 'boolean') node.gps_locked = true
   return node
-}
-
-function normalizeEdge(raw){
-  return {
-    id: raw.id,
-    from_id: raw.from_id ?? raw.source,
-    to_id: raw.to_id ?? raw.target,
-    active: raw.active !== false,
-    commentaire: raw.commentaire || '',
-    geometry: Array.isArray(raw.geometry) ? raw.geometry : null,
-    pipe_group_id: raw.pipe_group_id || null,
-  }
-}
-
-function dedupeEdges(edges){
-  const used = new Set()
-  const result = []
-  for(const edge of edges){
-    const key = edge.id || ''
-    if(!key){ result.push(edge); continue }
-    if(!used.has(key)){
-      used.add(key)
-      result.push(edge)
-      continue
-    }
-    const duplicate = result.some(e => e.id === key && (e.from_id ?? e.source) === (edge.from_id ?? edge.source) && (e.to_id ?? e.target) === (edge.to_id ?? edge.target))
-    if(duplicate) continue
-    let newId = genId('E')
-    let guard = 0
-    while(result.some(e => e.id === newId) && guard++ < 5){ newId = genId('E') }
-    edge.id = newId
-    used.add(newId)
-    result.push(edge)
-  }
-  return result
 }
 
 function safeGeoCenter(nodes){

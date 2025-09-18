@@ -1,5 +1,11 @@
 // Native API client for the editor (replaces Apps Script bridge)
 
+/**
+ * @typedef {import('./types/graph').Graph} Graph
+ */
+
+import { sanitizeGraphPayload } from './shared/graph-transform.js'
+
 function parseSearch() {
   const p = new URLSearchParams(location.search)
   return {
@@ -32,6 +38,9 @@ function buildParamsForSource(q) {
   return params
 }
 
+/**
+ * @returns {Promise<Graph>}
+ */
 export async function getGraph() {
   const q = parseSearch()
   const params = buildParamsForSource(q)
@@ -51,76 +60,14 @@ export async function getGraph() {
   return data
 }
 
-function sanitizeGraph(graph){
-  const nodes = Array.isArray(graph?.nodes) ? graph.nodes.map(n => {
-    const m = { ...n }
-    // Normalize numbers: convert '' to null; retain numbers
-    // Always reflect current UI positions into x_ui/y_ui for persistence
-    if(m.x != null) m.x_ui = m.x
-    if(m.y != null) m.y_ui = m.y
-    const numKeys = ['diameter_mm','gps_lat','gps_lon','well_pos_index','pm_pos_index','pm_offset_m','x_ui','y_ui']
-    numKeys.forEach(k => {
-      if(m[k] === '' || m[k] === undefined) m[k] = null
-      else if(m[k] != null) {
-        const v = +m[k]
-        m[k] = Number.isFinite(v) ? v : null
-      }
-    })
-    return m
-  }) : []
-  // Normalize + deduplicate edges by id; ensure id presence
-  const edgesRaw = Array.isArray(graph?.edges) ? graph.edges.map(e => {
-    // Normalize and keep geometry + pipe_group_id
-    let geom = null
-    try{
-      if(Array.isArray(e.geometry) && e.geometry.length>=2){
-        const ok = []
-        for(const pt of e.geometry){
-          if(Array.isArray(pt) && pt.length>=2){
-            const lon = +pt[0], lat = +pt[1]
-            if(Number.isFinite(lon) && Number.isFinite(lat)) ok.push([lon, lat])
-          }
-        }
-        if(ok.length>=2) geom = ok
-      }
-    }catch{}
-    return {
-      id: e.id,
-      from_id: e.from_id ?? e.source,
-      to_id: e.to_id ?? e.target,
-      active: e.active !== false,
-      commentaire: e.commentaire || '',
-      geometry: geom,
-      pipe_group_id: e.pipe_group_id || null,
-    }
-  }) : []
-  const edges = []
-  const seenIds = new Set()
-  function genUid(){
-    // lightweight unique id client-side (prefix E-)
-    return 'E-' + Math.random().toString(36).slice(2,8).toUpperCase() + Date.now().toString(36).toUpperCase().slice(-4)
-  }
-  for(const e of edgesRaw){
-    if(!e.from_id || !e.to_id) continue
-    let id = e.id || genUid()
-    if(seenIds.has(id)){
-      // If an identical edge with same id already queued, skip; else reassign id
-      const existsSame = edges.some(x => x.id===id && x.from_id===e.from_id && x.to_id===e.to_id)
-      if(existsSame) continue
-      let nid = genUid(), guard=0
-      while(seenIds.has(nid) && guard++<5) nid = genUid()
-      id = nid
-    }
-    seenIds.add(id)
-    edges.push({ ...e, id })
-  }
-  return { nodes, edges }
-}
-
+/**
+ * @param {Graph} graph
+ * @returns {Promise<{ok: boolean}>}
+ */
 export async function saveGraph(graph) {
   const q = parseSearch()
   const params = buildParamsForSource(q)
-  const payload = sanitizeGraph(graph || {})
+  const payload = sanitizeGraphPayload(graph || {})
   const res = await fetch('/api/graph?' + params.toString(), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

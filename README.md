@@ -16,6 +16,8 @@ app/
   models.py      # Pydantic Graph/Node/Edge
   sheets.py      # read_nodes_edges / write_nodes_edges (ADC)
   auth_embed.py  # clé statique + référer + CSP
+  shared/
+    graph_transform.py  # sanitisation commune (backend)
   routers/
     api.py       # GET/POST /api/graph
     embed.py     # GET /embed/editor
@@ -27,7 +29,9 @@ app/
 web/
   index.html     # dev only
   styles/        # base.css, theme.css, app.css
+  types/         # graph.d.ts (types TS générés depuis le schéma Pydantic)
   src/           # vendor.js, shim.js, main.js, modules
+    shared/      # helpers communs (géométrie, sanitation front)
 ```
 
 ## Démarrage local
@@ -67,6 +71,13 @@ Endpoints:
 
 Note: les sauvegardes depuis l’UI écrivent l’onglet `Nodes` au format FR V5 (en-têtes normalisés) et n’incluent pas les colonnes métiers ajoutées par le script de migration. Évitez d’écraser ces colonnes ou travaillez sur une copie dédiée si nécessaire.
 - Embed: `GET /embed/editor?k=dev-embed-key&sheet_id=...&mode=ro`
+
+## Tests
+
+- Activer la venv et installer les dépendances (`pip install -r requirements.txt`).
+- Lancer tous les tests backend :
+  - `python -m unittest discover -s tests -p "test_*.py"`
+- Les tests couvrent la sanitisation (`app/shared`), les datasources et les contrats FastAPI (mock `save_graph`).
 
 ## Déploiement Cloud Run (source)
 
@@ -160,6 +171,12 @@ Lancer l’API avec: `uvicorn app.main:app --reload --port 8080 --env-file .env.
 - Si `edges[i].geometry` est présent (liste `[lon,lat]`), l’arête est rendue en polyligne sur l’orthophoto, avec une flèche au milieu orientée amont→aval.
 - Sinon, fallback visuel (courbe) entre nœuds.
 - Les nœuds avec GPS (lat/lon) peuvent être « ancrés »: coche « Ancrer au GPS » dans Propriétés pour empêcher le déplacement (déverrouiller pour repasser en XY libres).
+
+### Génération des types TypeScript
+- Le schéma Pydantic peut être exporté vers JSON et TypeScript via `scripts/export_schema.py`.
+- Exemple : `python scripts/export_schema.py --out docs/graph.schema.json --ts-out web/src/types/graph.d.ts`
+- Ou via npm : `npm run types:generate`
+- Le fichier `web/src/types/graph.d.ts` est auto-généré ; ne pas l’éditer à la main.
 
 ## Impersonation (résumé)
 ### Stratégie recommandée (local + Cloud Run)
