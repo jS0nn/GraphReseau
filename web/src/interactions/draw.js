@@ -5,8 +5,8 @@ import { getMap, isMapActive } from '../map.js'
 import { showMiniMenu } from '../ui/mini-menu.js'
 import { centerUIForNode, edgeGeometryToUIPoints, nearestPointOnPolyline, splitGeometryAt, ensureEdgeGeometry } from '../shared/geometry.js'
 
-const SNAP_TOL = 6 // px for nodes (distance to node rectangle)
-const EDGE_TOL = 6 // px for snapping onto existing edges
+const SNAP_TOL = 15 // px for nodes (distance to node rectangle)
+const EDGE_TOL = 15 // px for snapping onto existing edges
 
 // drawing shape:
 // {
