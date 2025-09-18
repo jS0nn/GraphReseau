@@ -22,7 +22,10 @@ import { attachDraw } from './interactions/draw.js'
 import { attachEditGeometry } from './interactions/edit-geometry.js'
 import { attachJunction } from './interactions/junction.js'
 
+const DEV_BUILD = (typeof __DEV__ !== 'undefined' && __DEV__ === true)
+
 function ensureHUD(){
+  if(!DEV_BUILD) return null
   let hud = document.getElementById('hud')
   if(!hud){ hud = document.createElement('div'); hud.id='hud'; document.body.appendChild(hud) }
   return hud
@@ -37,7 +40,9 @@ function adjustWrapTop(){
 }
 
 function updateHUD(){
+  if(!DEV_BUILD) return
   const hud = ensureHUD()
+  if(!hud) return
   hud.textContent = `${state.nodes.length} nœuds • ${state.edges.length} arêtes`
 }
 
