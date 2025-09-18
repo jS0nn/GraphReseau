@@ -1,7 +1,7 @@
 import { d3 } from '../vendor.js'
 import { setMultiSelection, state } from '../state/index.js'
 import { vn } from '../utils.js'
-import { NODE_SIZE } from '../render/render-nodes.js'
+import { NODE_SIZE } from '../constants/nodes.js'
 import { isMapActive } from '../map.js'
 import { displayXYForNode } from '../geo.js'
 

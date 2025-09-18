@@ -1,5 +1,6 @@
 import { state, subscribe, updateNode, removeNode, removeEdge, clearSelection, addNode, addEdge, selectEdgeById, selectNodeById } from '../state/index.js'
 import { displayXYForNode, unprojectUIToLatLon } from '../geo.js'
+import { NODE_SIZE } from '../constants/nodes.js'
 import { genIdWithTime as genId, defaultName, vn, snap } from '../utils.js'
 import { log } from './logs.js'
 function setStatus(msg){ const el=document.getElementById('status'); if(el) el.textContent = msg||'' }
@@ -131,9 +132,12 @@ export function initForms(){
             return
           }
           if(!n.gps_locked && to){
-            // Lock: compute GPS from current UI x/y and set gps_lat/lon
+            // Lock: compute GPS from the visual marker center and set gps_lat/lon
             const p = displayXYForNode(n) // when unlocked, this is {x,y}
-            const ll = unprojectUIToLatLon(+p.x||0, +p.y||0)
+            const type = String(n.type||'').toUpperCase()
+            const cx = (+p.x||0) + (type === 'JONCTION' ? 0 : NODE_SIZE.w/2)
+            const cy = (+p.y||0) + (type === 'JONCTION' ? 0 : NODE_SIZE.h/2)
+            const ll = unprojectUIToLatLon(cx, cy)
             const patch = { gps_locked: true }
             if(Number.isFinite(ll?.lat) && Number.isFinite(ll?.lon)){
               patch.gps_lat = ll.lat

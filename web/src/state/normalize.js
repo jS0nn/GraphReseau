@@ -1,6 +1,7 @@
 import { genIdWithTime as genId, snap as snapToGrid } from '../utils.js'
 import { computeCenterFromNodes, uiPosFromNodeGPS, unprojectUIToLatLon } from '../geo.js'
 import { canonicalizeNodeType, shouldFilterNode } from './graph-rules.js'
+import { NODE_SIZE } from '../constants/nodes.js'
 
 export const XY_ABS_MAX = 100000
 const NUMERIC_NODE_FIELDS = ['x','y','diameter_mm','gps_lat','gps_lon','well_pos_index','pm_pos_index','pm_offset_m','x_ui','y_ui']
@@ -77,10 +78,38 @@ function backfillNodePosition(node, step, { force=false, center=null } = {}){
   let changed = false
   const prevX = node.x
   const prevY = node.y
+  const type = String(node?.type || '').toUpperCase()
+  const offsetX = (type === 'JONCTION') ? 0 : NODE_SIZE.w/2
+  const offsetY = (type === 'JONCTION') ? 0 : NODE_SIZE.h/2
+  const gpsOpts = center ? { centerLat: center.centerLat, centerLon: center.centerLon } : undefined
+
+  let gpsPos = null
+  if(node.gps_locked){
+    gpsPos = uiPosFromNodeGPS(node, gpsOpts)
+    if(gpsPos && offsetX && offsetY && Number.isFinite(+node.x) && Number.isFinite(+node.y)){
+      const tol = 2
+      const xVal = +node.x
+      const yVal = +node.y
+      const legacyDx = Math.abs(xVal - gpsPos.x)
+      const legacyDy = Math.abs(yVal - gpsPos.y)
+      const newDx = Math.abs(xVal - (gpsPos.x - offsetX))
+      const newDy = Math.abs(yVal - (gpsPos.y - offsetY))
+      if(legacyDx <= tol && legacyDy <= tol && (newDx > tol || newDy > tol)){
+        try{
+          const centerLL = unprojectUIToLatLon(gpsPos.x + offsetX, gpsPos.y + offsetY)
+          if(Number.isFinite(centerLL?.lat) && Number.isFinite(centerLL?.lon)){
+            node.gps_lat = centerLL.lat
+            node.gps_lon = centerLL.lon
+            gpsPos = uiPosFromNodeGPS(node, gpsOpts)
+          }
+        }catch{}
+      }
+    }
+  }
   const xBad = force || !Number.isFinite(node.x) || Math.abs(+node.x || 0) > XY_ABS_MAX
   const yBad = force || !Number.isFinite(node.y) || Math.abs(+node.y || 0) > XY_ABS_MAX
   if(xBad || yBad){
-    const pos = uiPosFromNodeGPS(node, center ? { centerLat: center.centerLat, centerLon: center.centerLon } : undefined)
+    const pos = gpsPos || uiPosFromNodeGPS(node, gpsOpts)
     if(pos){
       const nextX = snapToGrid(pos.x, step)
       const nextY = snapToGrid(pos.y, step)
@@ -93,7 +122,9 @@ function backfillNodePosition(node, step, { force=false, center=null } = {}){
   }
   if(node.gps_locked && (node.gps_lat == null || node.gps_lon == null) && Number.isFinite(node.x) && Number.isFinite(node.y)){
     try{
-      const ll = unprojectUIToLatLon(+node.x, +node.y)
+      const cx = +node.x + offsetX
+      const cy = +node.y + offsetY
+      const ll = unprojectUIToLatLon(cx, cy)
       if(Number.isFinite(ll?.lat) && Number.isFinite(ll?.lon)){
         node.gps_lat = ll.lat
         node.gps_lon = ll.lon

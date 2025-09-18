@@ -1,6 +1,6 @@
 import { state, updateEdge, subscribe, getMode } from '../state/index.js'
 import { projectLatLonToUI, unprojectUIToLatLon, displayXYForNode } from '../geo.js'
-import { NODE_SIZE } from '../render/render-nodes.js'
+import { NODE_SIZE } from '../constants/nodes.js'
 
 let currentEdgeId = null
 let selVertex = { edgeId: null, index: -1 }

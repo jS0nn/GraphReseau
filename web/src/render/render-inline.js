@@ -1,6 +1,6 @@
 import { d3 } from '../vendor.js'
 import { state } from '../state/index.js'
-import { NODE_SIZE } from './render-nodes.js'
+import { NODE_SIZE } from '../constants/nodes.js'
 import { ensurePipeStyle } from '../style/pipes.js'
 import { displayXYForNode, projectLatLonToUI } from '../geo.js'
 import { showTooltip, hideTooltip, scheduleHide, cancelHide } from '../ui/tooltip.js'

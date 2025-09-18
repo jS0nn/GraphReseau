@@ -1,12 +1,11 @@
 import { d3 } from '../vendor.js'
 import { state } from '../state/index.js'
 import { displayXYForNode } from '../geo.js'
-import { isCanal, vn } from '../utils.js'
+import { isCanal } from '../utils.js'
 import { ensurePipeStyle } from '../style/pipes.js'
+import { NODE_WIDTH, NODE_HEIGHT, NODE_MARKER_RADIUS, NODE_BUBBLE_GAP, NODE_SIZE } from '../constants/nodes.js'
 
-const NODE_W = 120, NODE_H = 48
-const MARKER_R = 6
-const BUBBLE_GAP = 8 // gap between marker and info bubble
+const BUBBLE_GAP = NODE_BUBBLE_GAP // gap between marker and info bubble
 
 export function renderNodes(gNodes, nodes){
   // Deduplicate by id defensively to avoid display ghosts if state has duplicates
@@ -17,15 +16,21 @@ export function renderNodes(gNodes, nodes){
 
   const cls = (t) => String(t||'').toUpperCase()
   const enter = sel.enter().append('g').attr('class', d => `node ${cls(d.type)}`)
-    .attr('transform', d => { const p = displayXYForNode(d); return `translate(${p.x},${p.y})` })
+    .attr('transform', d => {
+      const p = displayXYForNode(d)
+      const isJ = String(d.type||'').toUpperCase()==='JONCTION'
+      const tx = (p.x||0) - (isJ ? NODE_WIDTH/2 : 0)
+      const ty = (p.y||0) - (isJ ? NODE_HEIGHT/2 : 0)
+      return `translate(${tx},${ty})`
+    })
 
   // Visuals
   // Marker centered on the node position (future: replace with icon)
   enter.append('circle')
     .attr('class','marker-dot')
-    .attr('cx', NODE_W/2)
-    .attr('cy', NODE_H/2)
-    .attr('r', MARKER_R)
+    .attr('cx', NODE_WIDTH/2)
+    .attr('cy', NODE_HEIGHT/2)
+    .attr('r', NODE_MARKER_RADIUS)
     .attr('fill', '#fff')
     .attr('stroke', '#111827')
     .attr('stroke-width', 1.5)
@@ -33,10 +38,10 @@ export function renderNodes(gNodes, nodes){
   // Info bubble positioned to the right of the marker
   enter.append('rect')
     .attr('class','box')
-    .attr('x', (NODE_W/2) + MARKER_R + BUBBLE_GAP)
+    .attr('x', (NODE_WIDTH/2) + NODE_MARKER_RADIUS + BUBBLE_GAP)
     .attr('y', 0)
-    .attr('width', NODE_W)
-    .attr('height', NODE_H)
+    .attr('width', NODE_WIDTH)
+    .attr('height', NODE_HEIGHT)
     .attr('rx', 14)
     .attr('ry', 14)
 
@@ -45,19 +50,19 @@ export function renderNodes(gNodes, nodes){
     .attr('class','hit')
     .attr('x', -10)
     .attr('y', -10)
-    .attr('width', (NODE_W/2) + MARKER_R + BUBBLE_GAP + NODE_W + 20)
-    .attr('height', NODE_H+20)
+    .attr('width', (NODE_WIDTH/2) + NODE_MARKER_RADIUS + BUBBLE_GAP + NODE_WIDTH + 20)
+    .attr('height', NODE_HEIGHT+20)
     .style('fill','transparent')
 
   // Labels inside the bubble
   enter.append('text').attr('class','label')
-    .attr('x', (NODE_W/2) + MARKER_R + BUBBLE_GAP + 8)
+    .attr('x', (NODE_WIDTH/2) + NODE_MARKER_RADIUS + BUBBLE_GAP + 8)
     .attr('y', 18)
     .text(d => d.name||d.id)
   // No explicit type line (kept for quieter UI)
   // enter.append('text').attr('class','sublabel').attr('x', 8).attr('y', 34).text(d => (d.type||'').toUpperCase())
   enter.append('text').attr('class','sublabel pos')
-    .attr('x', (NODE_W/2) + MARKER_R + BUBBLE_GAP + 8)
+    .attr('x', (NODE_WIDTH/2) + NODE_MARKER_RADIUS + BUBBLE_GAP + 8)
     .attr('y', 46)
     .text(d => formatSublabel(d))
 
@@ -68,12 +73,13 @@ export function renderNodes(gNodes, nodes){
     })
     .attr('transform', d => {
       const p = displayXYForNode(d)
-      const T = String(d.type||'').toUpperCase()
-      // Junction: interpret (x,y) as the visual point (center); otherwise (x,y) is top-left of the box
-      return (T==='JONCTION') ? `translate(${p.x},${p.y})` : `translate(${p.x},${p.y})`
+      const isJ = String(d.type||'').toUpperCase()==='JONCTION'
+      const tx = (p.x||0) - (isJ ? NODE_WIDTH/2 : 0)
+      const ty = (p.y||0) - (isJ ? NODE_HEIGHT/2 : 0)
+      return `translate(${tx},${ty})`
     })
     .select('text.label')
-      .attr('x', (NODE_W/2) + MARKER_R + BUBBLE_GAP + 8)
+      .attr('x', (NODE_WIDTH/2) + NODE_MARKER_RADIUS + BUBBLE_GAP + 8)
       .text(d => d.name||d.id)
   sel.merge(enter)
     .select('rect.box')
@@ -89,7 +95,7 @@ export function renderNodes(gNodes, nodes){
     g.select('text.sublabel').style('display', isJ? 'none':'')
     // Marker is always visible
     const dot = g.select('circle.marker-dot')
-    dot.attr('cx', NODE_W/2).attr('cy', NODE_H/2).attr('r', MARKER_R).style('display','')
+    dot.attr('cx', NODE_WIDTH/2).attr('cy', NODE_HEIGHT/2).attr('r', NODE_MARKER_RADIUS).style('display','')
   })
   // Apply dynamic border color for CANALISATION nodes
   sel.merge(enter)
@@ -101,12 +107,12 @@ export function renderNodes(gNodes, nodes){
     })
   sel.merge(enter)
     .select('text.sublabel.pos')
-      .attr('x', (NODE_W/2) + MARKER_R + BUBBLE_GAP + 8)
+      .attr('x', (NODE_WIDTH/2) + NODE_MARKER_RADIUS + BUBBLE_GAP + 8)
       .text(d => formatSublabel(d))
   sel.exit().remove()
 }
 
-export const NODE_SIZE = { w: NODE_W, h: NODE_H }
+export { NODE_SIZE }
 
 function formatSublabel(nd){
   const T = (nd.type||'').toUpperCase()

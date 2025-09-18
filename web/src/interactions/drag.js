@@ -1,6 +1,7 @@
 import { d3 } from '../vendor.js'
 import { moveNode, getMode, state, updateNode } from '../state/index.js'
 import { unprojectUIToLatLon } from '../geo.js'
+import { NODE_SIZE } from '../constants/nodes.js'
 
 export function attachNodeDrag(gNodes, onEnd){
   // Only when in 'select' mode to avoid blocking clicks in 'connect' mode
@@ -62,9 +63,12 @@ export function attachNodeDrag(gNodes, onEnd){
         overrideIds.forEach(id => {
           const n = state.nodes.find(nn=>nn.id===id)
           if(!n) return
+          const type = String(n.type||'').toUpperCase()
           const x = +n.x || 0, y = +n.y || 0
+          const cx = x + (type === 'JONCTION' ? 0 : NODE_SIZE.w/2)
+          const cy = y + (type === 'JONCTION' ? 0 : NODE_SIZE.h/2)
           try{
-            const ll = unprojectUIToLatLon(x, y)
+            const ll = unprojectUIToLatLon(cx, cy)
             if(Number.isFinite(ll?.lat) && Number.isFinite(ll?.lon)){
               updateNode(id, { gps_lat: ll.lat, gps_lon: ll.lon, gps_locked: true })
             }

@@ -1,10 +1,10 @@
 import { state, addNode, addEdge, updateEdge, removeEdge, updateNode, getMode, subscribe } from '../state/index.js'
 import { displayXYForNode, unprojectUIToLatLon, projectLatLonToUI } from '../geo.js'
-import { NODE_SIZE } from '../render/render-nodes.js'
+import { NODE_SIZE } from '../constants/nodes.js'
 import { getMap, isMapActive } from '../map.js'
 
-const SNAP_TOL = 32 // px for nodes (distance to node rectangle)
-const EDGE_TOL = 24 // px for snapping onto existing edges
+const SNAP_TOL = 6 // px for nodes (distance to node rectangle)
+const EDGE_TOL = 6 // px for snapping onto existing edges
 
 // drawing shape:
 // {
@@ -60,16 +60,16 @@ function getLatLonFromEvent(evt){
 
 function nearestNodeUI([x,y], tolPx = SNAP_TOL){
   let best = null
+  const tol2 = tolPx * tolPx
   for(const n of state.nodes){
-    const p = displayXYForNode(n) // top-left of the node box
-    const ax = p.x, ay = p.y
-    const bx = ax + NODE_SIZE.w, by = ay + NODE_SIZE.h
-    // Distance from point to axis-aligned rectangle
-    const dx = (x < ax) ? (ax - x) : (x > bx ? x - bx : 0)
-    const dy = (y < ay) ? (ay - y) : (y > by ? y - by : 0)
-    const d2 = dx*dx + dy*dy
-    if(d2 <= tolPx*tolPx){
-      if(!best || d2 < best.d2) best = { id: n.id, x: Math.min(Math.max(x, ax), bx), y: Math.min(Math.max(y, ay), by), d2, node: n }
+    const [cx, cy] = centerUIForNode(n)
+    const dx = x - cx
+    const dy = y - cy
+    const d2 = dx * dx + dy * dy
+    if(d2 <= tol2){
+      if(!best || d2 < best.d2){
+        best = { id: n.id, x: cx, y: cy, d2, node: n }
+      }
     }
   }
   return best
@@ -116,14 +116,19 @@ function stopDrawing(){
   drawing = null
 }
 
+function discardPhantomPoint(){
+  if(!drawing || !drawing._hasPhantom) return
+  if(Array.isArray(drawing.pointsLL) && drawing.pointsLL.length){ drawing.pointsLL.pop() }
+  if(Array.isArray(drawing.pointsUI) && drawing.pointsUI.length){ drawing.pointsUI.pop() }
+  drawing._hasPhantom = false
+}
+
 function finishDrawing(){
   if(!drawing) return
-  // Drop phantom if present
-  if(drawing._hasPhantom){ drawing.pointsLL.pop(); drawing._hasPhantom=false }
+  // Drop phantom if present so we only keep confirmed vertices
+  discardPhantomPoint()
   const ptsLL = Array.isArray(drawing.pointsLL) ? drawing.pointsLL.slice() : []
   if(ptsLL.length < 2){ stopDrawing(); return }
-  // Geometry is already in [lon,lat]
-  const geometry = ptsLL
   // Endpoints
   const projectUI = (ll)=>{ const p = projectLatLonToUI(ll[1], ll[0]); return [p.x, p.y] }
   const startUI = projectUI(ptsLL[0])
@@ -133,14 +138,14 @@ function finishDrawing(){
   let createdA = false, createdB = false
   // Create endpoints if needed (OUVRAGE) and lock to GPS if available
   if(!aId){
-    // startUI/endUI represent the intended CENTER; translate to top-left for rectangular nodes
-    const ll = unprojectUIToLatLon(startUI[0] - NODE_SIZE.w/2, startUI[1] - NODE_SIZE.h/2)
+    // startUI/endUI already represent the intended CENTER
+    const ll = unprojectUIToLatLon(startUI[0], startUI[1])
     const na = addNode({ type:'OUVRAGE', gps_lat: ll.lat, gps_lon: ll.lon, gps_locked: true })
     aId = na.id
     createdA = true
   }
   if(!bId){
-    const ll = unprojectUIToLatLon(endUI[0] - NODE_SIZE.w/2, endUI[1] - NODE_SIZE.h/2)
+    const ll = unprojectUIToLatLon(endUI[0], endUI[1])
     const nb = addNode({ type:'OUVRAGE', gps_lat: ll.lat, gps_lon: ll.lon, gps_locked: true })
     bId = nb.id
     createdB = true
@@ -151,41 +156,94 @@ function finishDrawing(){
     if(!n) return
     const has = Number.isFinite(+n.gps_lat) && Number.isFinite(+n.gps_lon)
     if(!has){
-      // ui is the intended CENTER; convert to top-left for rectangular nodes (non-junction)
-      const T = String(n.type||'').toUpperCase()
-      const cx = ui[0], cy = ui[1]
-      const ox = (T==='JONCTION') ? 0 : NODE_SIZE.w/2
-      const oy = (T==='JONCTION') ? 0 : NODE_SIZE.h/2
-      const ll = unprojectUIToLatLon(cx - ox, cy - oy)
+      // ui matches the visual marker center; lock GPS to that point
+      const ll = unprojectUIToLatLon(ui[0], ui[1])
       if(Number.isFinite(ll?.lat) && Number.isFinite(ll?.lon)) updateNode(id, { gps_lat: ll.lat, gps_lon: ll.lon, gps_locked: true })
     }
   }
   ensureNodeHasGPS(aId, startUI)
   ensureNodeHasGPS(bId, endUI)
-  const e = addEdge(aId, bId, { active: true })
-  updateEdge(e.id, { geometry })
-  // Assign a pipe group id to this new edge and propagate branch id to endpoints
-  try{
-    const findGroupFromNeighbors = (nid)=>{
-      const inc = state.edges.filter(x => (x.from_id??x.source)===nid || (x.to_id??x.target)===nid)
-      for(const x of inc){ if(x.pipe_group_id){ return x.pipe_group_id } }
-      return null
+
+  const snappedIds = Array.isArray(drawing.snappedIds) ? drawing.snappedIds.slice() : []
+  const pointCount = ptsLL.length
+  while(snappedIds.length < pointCount) snappedIds.push(null)
+  snappedIds[0] = aId
+  snappedIds[pointCount-1] = bId
+  const nodeAtIndex = snappedIds.map(id => id || null)
+
+  const segments = []
+  let segStartIdx = 0
+  let segStartNode = nodeAtIndex[0] || aId
+  for(let i=1;i<pointCount;i++){
+    const maybeNode = nodeAtIndex[i]
+    if(maybeNode && segStartNode){
+      if(maybeNode !== segStartNode){
+        const slice = ptsLL.slice(segStartIdx, i+1).map(pt => [pt[0], pt[1]])
+        if(slice.length >= 2){ segments.push({ from: segStartNode, to: maybeNode, geometry: slice }) }
+        segStartIdx = i
+        segStartNode = maybeNode
+      } else {
+        segStartIdx = i
+      }
     }
-    let pgid = findGroupFromNeighbors(aId) || findGroupFromNeighbors(bId) || e.id
-    updateEdge(e.id, { pipe_group_id: pgid })
-    const A = state.nodes.find(n=>n.id===aId)
-    const B = state.nodes.find(n=>n.id===bId)
-    if(A && (!A.branch_id || A.branch_id==='')){ updateNode(aId, { branch_id: pgid }) }
-    if(B && (!B.branch_id || B.branch_id==='')){ updateNode(bId, { branch_id: pgid }) }
-  }catch{}
-  // If started as an antenna from a junction, ensure created ouvrages are in the same branch/group
-  if(antennaSeedNodeId){
-    try{
-      const branchId = (state.edges.find(x=>x.id===e.id)?.pipe_group_id) || e.id
-      if(createdA){ const nn = state.nodes.find(n=>n.id===aId); if(nn){ nn.branch_id = branchId; updateNode(aId, { branch_id: branchId }) } }
-      if(createdB){ const nn = state.nodes.find(n=>n.id===bId); if(nn){ nn.branch_id = branchId; updateNode(bId, { branch_id: branchId }) } }
-    }catch{}
   }
+  if(!segments.length){
+    const slice = ptsLL.map(pt => [pt[0], pt[1]])
+    if(slice.length >= 2) segments.push({ from: aId, to: bId, geometry: slice })
+  }
+
+  const edgesCreated = []
+  const nodeSegments = new Map()
+  const registerEdgeForNode = (nodeId, edgeId)=>{
+    if(!nodeId || !edgeId) return
+    const arr = nodeSegments.get(nodeId) || []
+    arr.push(edgeId)
+    nodeSegments.set(nodeId, arr)
+  }
+  for(const seg of segments){
+    const edge = addEdge(seg.from, seg.to, { active: true })
+    updateEdge(edge.id, { geometry: seg.geometry })
+    edgesCreated.push(edge)
+    registerEdgeForNode(seg.from, edge.id)
+    registerEdgeForNode(seg.to, edge.id)
+  }
+  if(!edgesCreated.length){ stopDrawing(); antennaSeedNodeId = null; return }
+
+  const pgid = edgesCreated[0]?.id
+  if(pgid){
+    for(const edge of edgesCreated){ updateEdge(edge.id, { pipe_group_id: pgid }) }
+  }
+
+  const nodeIdsOnPath = new Set(nodeAtIndex.filter(Boolean))
+  const assignNodeToBranch = (id) => {
+    const n = state.nodes.find(nn=>nn.id===id)
+    if(!n) return
+    if(pgid && n.branch_id !== pgid){ updateNode(id, { branch_id: pgid }) }
+    else if(!pgid && !n.branch_id){ updateNode(id, { branch_id: edgesCreated[0]?.id || '' }) }
+  }
+  const assignInlineToEdge = (id) => {
+    const n = state.nodes.find(nn=>nn.id===id)
+    if(!n) return
+    const T = String(n.type||'').toUpperCase()
+    if(T==='POINT_MESURE' || T==='VANNE'){
+      const usableEdges = nodeSegments.get(id) || []
+      const targetEdge = usableEdges[0] || edgesCreated[0]?.id || null
+      const patch = {}
+      if(targetEdge && n.pm_collector_edge_id !== targetEdge){ patch.pm_collector_edge_id = targetEdge }
+      if(n.pm_collector_id){ patch.pm_collector_id = '' }
+      if(Object.keys(patch).length){ updateNode(id, patch) }
+    }
+  }
+  assignNodeToBranch(aId)
+  assignNodeToBranch(bId)
+  assignInlineToEdge(aId)
+  assignInlineToEdge(bId)
+  for(const nid of nodeIdsOnPath){
+    if(nid===aId || nid===bId) continue
+    assignNodeToBranch(nid)
+    assignInlineToEdge(nid)
+  }
+
   stopDrawing()
   antennaSeedNodeId = null
 }
@@ -330,16 +388,15 @@ export function attachDraw(svgSel, gOverlay){
             showMiniMenu(evt.clientX, evt.clientY, [
               { label: 'Jonction', onClick: ()=> updateNode(res.nodeId, { type:'JONCTION' }) },
               { label: 'Point de mesure', onClick: ()=> {
-                  // Positionner le centre sous la souris: convertir en top‑left avant d'écrire le GPS
                   const cx = res.ui?.[0] ?? 0, cy = res.ui?.[1] ?? 0
-                  const topLeft = unprojectUIToLatLon(cx - NODE_SIZE.w/2, cy - NODE_SIZE.h/2)
-                  updateNode(res.nodeId, { type:'POINT_MESURE', gps_lat: topLeft.lat, gps_lon: topLeft.lon, gps_locked: true })
+                  const ll = unprojectUIToLatLon(cx, cy)
+                  updateNode(res.nodeId, { type:'POINT_MESURE', gps_lat: ll.lat, gps_lon: ll.lon, gps_locked: true })
                 }
               },
               { label: 'Vanne', onClick: ()=> {
                   const cx = res.ui?.[0] ?? 0, cy = res.ui?.[1] ?? 0
-                  const topLeft = unprojectUIToLatLon(cx - NODE_SIZE.w/2, cy - NODE_SIZE.h/2)
-                  updateNode(res.nodeId, { type:'VANNE', gps_lat: topLeft.lat, gps_lon: topLeft.lon, gps_locked: true })
+                  const ll = unprojectUIToLatLon(cx, cy)
+                  updateNode(res.nodeId, { type:'VANNE', gps_lat: ll.lat, gps_lon: ll.lon, gps_locked: true })
                 }
               },
             ])
@@ -381,7 +438,7 @@ export function attachDraw(svgSel, gOverlay){
   function onDblClick(evt){
     if(getMode()!=='draw') return
     if(!drawing) return
-    if(drawing._hasPhantom){ drawing.pointsUI.pop(); drawing._hasPhantom=false }
+    discardPhantomPoint()
     try{ console.debug('[dev] draw finish with', drawing.pointsUI.length, 'points') }catch{}
     finishDrawing()
   }
@@ -389,7 +446,12 @@ export function attachDraw(svgSel, gOverlay){
   function onKey(evt){
     if(getMode()!=='draw') return
     if(evt.key==='Escape'){ stopDrawing() }
-    if(evt.key==='Enter'){ if(drawing){ if(drawing._hasPhantom){ drawing.pointsUI.pop(); drawing._hasPhantom=false } finishDrawing() } }
+    if(evt.key==='Enter'){
+      if(!drawing) return
+      evt.preventDefault()
+      discardPhantomPoint()
+      finishDrawing()
+    }
   }
 
   const svg = svgSel.node()

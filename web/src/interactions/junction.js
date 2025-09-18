@@ -1,7 +1,7 @@
 import { state, addNode, addEdge, removeEdge, updateEdge, updateNode, getMode, subscribe, renameNodeId, setMode, selectNodeById } from '../state/index.js'
 import { genIdWithTime as genId } from '../utils.js'
 import { projectLatLonToUI, unprojectUIToLatLon, displayXYForNode } from '../geo.js'
-import { NODE_SIZE } from '../render/render-nodes.js'
+import { NODE_SIZE } from '../constants/nodes.js'
 import { showMiniMenu } from '../ui/mini-menu.js'
 import { startDrawingFromNodeId } from './draw.js'
 import { devlog } from '../ui/logs.js'
@@ -112,9 +112,6 @@ export function attachJunction(){
     const { edge, pts, hit } = best
     // Build new node at insertion
     const centerLL = unprojectUIToLatLon(hit.px, hit.py)
-    // For rectangle nodes (PM/Vanne), we want the click to be the visual center.
-    // Compute the GPS for the top-left corner by offsetting half the node size in UI space.
-    const topLeftLL = unprojectUIToLatLon(hit.px - NODE_SIZE.w/2, hit.py - NODE_SIZE.h/2)
     const node = addNode({ type:'JONCTION', gps_lat: centerLL.lat, gps_lon: centerLL.lon, gps_locked: true, name:'' })
     // Split geometry
     let geom = Array.isArray(edge.geometry) && edge.geometry.length>=2 ? edge.geometry.slice() : null
@@ -180,8 +177,8 @@ export function attachJunction(){
     }
     showMiniMenu(x, y, [
       { label: 'Jonction', onClick: ()=> { updateNode(node.id, { type:'JONCTION' }); try{ setMode('select') }catch{} } },
-      { label: 'Point de mesure', onClick: ()=> { const nid = genId('POINT_MESURE'); renameNodeId(node.id, nid); updateNode(nid, { type:'POINT_MESURE', gps_lat: topLeftLL.lat, gps_lon: topLeftLL.lon, gps_locked: true }); inheritBranchAttrs(nid); attachInlineToEdge(nid); try{ setMode('select'); selectNodeById(nid) }catch{} } },
-      { label: 'Vanne', onClick: ()=> { const nid = genId('VANNE'); renameNodeId(node.id, nid); updateNode(nid, { type:'VANNE', gps_lat: topLeftLL.lat, gps_lon: topLeftLL.lon, gps_locked: true }); inheritBranchAttrs(nid); attachInlineToEdge(nid); try{ setMode('select'); selectNodeById(nid) }catch{} } },
+      { label: 'Point de mesure', onClick: ()=> { const nid = genId('POINT_MESURE'); renameNodeId(node.id, nid); updateNode(nid, { type:'POINT_MESURE', gps_lat: centerLL.lat, gps_lon: centerLL.lon, gps_locked: true }); inheritBranchAttrs(nid); attachInlineToEdge(nid); try{ setMode('select'); selectNodeById(nid) }catch{} } },
+      { label: 'Vanne', onClick: ()=> { const nid = genId('VANNE'); renameNodeId(node.id, nid); updateNode(nid, { type:'VANNE', gps_lat: centerLL.lat, gps_lon: centerLL.lon, gps_locked: true }); inheritBranchAttrs(nid); attachInlineToEdge(nid); try{ setMode('select'); selectNodeById(nid) }catch{} } },
       { label: 'Démarrer une antenne', onClick: ()=> { try{ setMode('draw') }catch{} startDrawingFromNodeId(node.id) } },
     ])
   }, true)

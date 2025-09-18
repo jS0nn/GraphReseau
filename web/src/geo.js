@@ -1,6 +1,8 @@
 // Lightweight GPS → UI projection helpers
 // Equirectangular projection around a configurable center with adjustable scale.
 
+import { NODE_SIZE } from './constants/nodes.js'
+
 // Shared config (mutable via setters)
 export const geoConfig = {
   // Pixels per degree (lon/lat). Adjust to zoom points in/out in the UI.
@@ -102,10 +104,13 @@ export function uiPosFromNodeGPS(node, opts={}){
 // Display coordinates for a node considering GPS when available.
 // Returns { x, y } in UI pixels. Falls back to node.x/node.y if no GPS.
 export function displayXYForNode(node){
-  // Only render from GPS when explicitly locked to GPS
   if(node && node.gps_locked){
     const p = uiPosFromNodeGPS(node)
-    if(p) return p
+    if(p){
+      const type = String(node?.type || '').toUpperCase()
+      if(type === 'JONCTION') return { x: p.x, y: p.y }
+      return { x: p.x - (NODE_SIZE.w/2), y: p.y - (NODE_SIZE.h/2) }
+    }
   }
   return { x: (+node.x||0), y: (+node.y||0) }
 }
