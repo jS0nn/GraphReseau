@@ -2,6 +2,16 @@ import { L } from './vendor.js'
 import { subscribe, state } from './state/index.js'
 import { setGeoCenter, setGeoScale, setGeoScaleXY } from './geo.js'
 
+function consumeAutoFitSuppression(){
+  const g = typeof globalThis !== 'undefined' ? globalThis : null
+  if(!g) return false
+  if(g.__MAP_SUPPRESS_AUTOFIT){
+    g.__MAP_SUPPRESS_AUTOFIT = false
+    return true
+  }
+  return false
+}
+
 let map = null
 let tilesLayer = null
 
@@ -57,9 +67,12 @@ export function initMap(){
     try{ map.doubleClickZoom && map.doubleClickZoom.disable() }catch{}
     window.__MAP_ACTIVE = true
     try{ window.__leaflet_map = map }catch{}
-    // Fit to current nodes with GPS when graph loads/changes
+    // Fit to current nodes with GPS when graph loads/changes unless a caller suppressed it (e.g. undo/redo)
     subscribe((ev)=>{
-      if(ev === 'graph:set') fitMapToNodes()
+      if(ev === 'graph:set'){
+        if(consumeAutoFitSuppression()) return
+        fitMapToNodes()
+      }
     })
     // Initial fit attempt (if state already present)
     fitMapToNodes()

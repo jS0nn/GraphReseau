@@ -12,8 +12,8 @@ import { initLogsUI, log, wireStateLogs, initDevErrorHooks } from './ui/logs.js'
 import { initForms } from './ui/forms.js'
 import { showModeHelp } from './ui/mode-help.js'
 import { initModesUI } from './modes.js'
-import { initMap, fitMapToNodes, syncGeoProjection } from './map.js'
-import { state, setGraph, getGraph as getStateGraph, subscribe, selectNodeById, selectEdgeById, copySelection, pasteClipboard, removeEdge, removeNodes, removeNode, addNode, setMode } from './state/index.js'
+import { initMap, fitMapToNodes, syncGeoProjection, getMap } from './map.js'
+import { state, setGraph, getGraph as getStateGraph, subscribe, selectNodeById, selectEdgeById, copySelection, pasteClipboard, removeEdge, removeNodes, removeNode, addNode, setMode, setViewMode, getViewMode } from './state/index.js'
 import { createHistory } from './state/history.js'
 import { attachNodeDrag } from './interactions/drag.js'
 import { attachSelection } from './interactions/selection.js'
@@ -170,6 +170,30 @@ function bindToolbar(canvas){
       renderAll(canvas)
     })
   }
+  let graphBtn = null
+  function updateGraphBtn(){
+    if(!graphBtn) return
+    const isGraph = getViewMode() === 'graph'
+    graphBtn.classList.toggle('active', isGraph)
+    graphBtn.setAttribute('aria-pressed', isGraph ? 'true' : 'false')
+    graphBtn.title = isGraph ? 'Vue graphe (cliquer pour revenir au terrain)' : 'Vue terrain (cliquer pour vue graphe)'
+  }
+  if(DEV_BUILD){
+    graphBtn = document.getElementById('graphViewBtn')
+    if(!graphBtn){
+      graphBtn = document.createElement('button')
+      graphBtn.id = 'graphViewBtn'
+      graphBtn.type = 'button'
+      graphBtn.className = 'btn'
+      graphBtn.innerHTML = '<i class="uil uil-sitemap"></i> Graphe'
+      mapBtn?.insertAdjacentElement('afterend', graphBtn)
+    }
+    graphBtn.addEventListener('click', ()=>{
+      const next = getViewMode() === 'graph' ? 'geo' : 'graph'
+      setViewMode(next)
+    })
+    updateGraphBtn()
+  }
   byId('loadBtn')?.addEventListener('click', async ()=>{
     try{
       setStatus('Chargement…')
@@ -227,6 +251,7 @@ function bindToolbar(canvas){
       if(!addBtn.contains(e.target) && !addMenu.contains(e.target)) addMenu.classList.remove('open')
     })
   }
+  return { updateGraphBtn }
 }
 
 function downloadJSON(obj, name){
@@ -237,6 +262,12 @@ function downloadJSON(obj, name){
 
 let pushAfterDrag = ()=>{}
 let zoomFitTimer = null
+
+function suppressNextMapAutoFit(){
+  const g = typeof globalThis !== 'undefined' ? globalThis : null
+  if(!g) return
+  g.__MAP_SUPPRESS_AUTOFIT = true
+}
 
 function applyZoomFit(canvas){
   const t = computeZoomFitTransform(document.getElementById('canvas'), state.nodes)
@@ -341,13 +372,54 @@ export async function boot(){
   initModesUI()
   initForms()
   const canvas = initCanvas()
-  bindToolbar(canvas)
+  const toolbarHandles = bindToolbar(canvas)
+  let previousMapActive = null
+
+  function applyViewMode(mode){
+    const isGraph = mode === 'graph'
+    document.body.classList.toggle('graph-view', isGraph)
+    try{ toolbarHandles?.updateGraphBtn?.() }catch{}
+    if(isGraph){
+      previousMapActive = typeof window.__MAP_ACTIVE !== 'undefined' ? window.__MAP_ACTIVE : null
+      window.__MAP_ACTIVE = false
+      renderAll(canvas)
+      requestZoomFit(canvas, 120)
+    } else {
+      if(previousMapActive !== null){
+        window.__MAP_ACTIVE = previousMapActive
+      } else if(typeof window.__MAP_ACTIVE === 'undefined'){
+        window.__MAP_ACTIVE = !!window.__leaflet_map
+      }
+      // Reset zoom transform so the SVG overlay lines up with Leaflet again
+      try{
+        const d3 = window.d3
+        if(d3){ canvas.svg.interrupt(); canvas.svg.call(canvas.zoom.transform, d3.zoomIdentity) }
+        canvas.root?.attr('transform', null)
+      }catch{}
+      renderAll(canvas)
+      if(window.__MAP_ACTIVE){
+        const map = getMap && getMap()
+        try{ map && map.invalidateSize && map.invalidateSize() }catch{}
+        const refreshMap = ()=>{
+          try{ fitMapToNodes() }catch{}
+          try{ syncGeoProjection() }catch{}
+        }
+        if(typeof requestAnimationFrame==='function') requestAnimationFrame(()=> requestAnimationFrame(refreshMap))
+        else refreshMap()
+      } else {
+        requestZoomFit(canvas, 120)
+      }
+    }
+  }
   adjustWrapTop(); window.addEventListener('resize', adjustWrapTop)
 
   // Render on state changes (no auto zoom-fit here)
   subscribe(function(evt, payload){
     if(evt==='graph:set' || evt.startsWith('node:') || evt.startsWith('edge:') || evt.startsWith('selection:')){
       renderAll(canvas)
+    }
+    if(evt === 'view:set'){
+      applyViewMode(payload)
     }
   })
   // Re-render overlays on map moves to keep geometry aligned
@@ -358,6 +430,7 @@ export async function boot(){
   setGraph(graph)
   // Initialize orthophoto map and sync projection (if configured)
   try{ initMap(); fitMapToNodes(); syncGeoProjection() }catch{}
+  applyViewMode(getViewMode())
   // History
   const history = createHistory(
     () => JSON.parse(JSON.stringify(getStateGraph())),
@@ -421,8 +494,8 @@ export async function boot(){
   // We don't have a dedicated drag-end event; wire in keyboard undo/redo and on Ctrl/Cmd+S we push explicitly when necessary.
   window.addEventListener('keydown', (e)=>{
     const m=e.metaKey||e.ctrlKey
-    if(m && (e.key==='z'||e.key==='Z')){ e.preventDefault(); history.undo() }
-    if(m && (e.key==='y'||(e.shiftKey&&(e.key==='Z'||e.key==='z')))){ e.preventDefault(); history.redo() }
+    if(m && (e.key==='z'||e.key==='Z')){ e.preventDefault(); suppressNextMapAutoFit(); history.undo() }
+    if(m && (e.key==='y'||(e.shiftKey&&(e.key==='Z'||e.key==='z')))){ e.preventDefault(); suppressNextMapAutoFit(); history.redo() }
     if(m && (e.key==='s'||e.key==='S')){ e.preventDefault(); history.push('save') }
   })
 }

@@ -12,7 +12,7 @@
   --c-plat:#5c3a1d; /* général */
   --c-vanne:#2c2b40;
   --c-pm:#20385c;
-  --edge-hit: 28px; --pm-dash: 5 4; --valve-dash: 2 6; --log-border:#2b3f69; --prop-width:420px;
+  --edge-hit: 28px; --log-border:#2b3f69; --prop-width:420px;
 }
 body[data-theme="light"]{
   --bg:#f6f8fc; --panel:#ffffff; --muted:#374151; --text:#1d2433;
@@ -51,6 +51,8 @@ body.prop-collapsed #wrap{ grid-template-columns:1fr 0 }
 #canvas{position:relative; overflow:hidden; background: linear-gradient(0deg, transparent 24%, var(--grid) 25%, var(--grid) 26%, transparent 27%, transparent 74%, var(--grid) 75%, var(--grid) 76%, transparent 77%), linear-gradient(90deg, transparent 24%, var(--grid) 25%, var(--grid) 26%, transparent 27%, transparent 74%, var(--grid) 75%, var(--grid) 76%, transparent 77%); background-size:32px 32px,32px 32px}
 #map{ position:absolute; inset:0; z-index:0; pointer-events:none }
 body.map-hidden #map{ display:none }
+body.graph-view #map{ display:none !important }
+body.graph-view #canvas{ background: radial-gradient(circle at 20% 20%, rgba(106,168,255,0.08), transparent 55%), radial-gradient(circle at 80% 30%, rgba(148,187,233,0.08), transparent 60%), linear-gradient(0deg, transparent 24%, var(--grid) 25%, var(--grid) 26%, transparent 27%, transparent 74%, var(--grid) 75%, var(--grid) 76%, transparent 77%), linear-gradient(90deg, transparent 24%, var(--grid) 25%, var(--grid) 26%, transparent 27%, transparent 74%, var(--grid) 75%, var(--grid) 76%, transparent 77%); background-size:32px 32px,32px 32px,32px 32px,32px 32px }
 svg{ position:absolute; inset:0; z-index:1; width:100%; height:100% }
 .node rect.box{rx:14; ry:14; stroke:var(--stroke); fill:var(--node); fill-opacity:.82; filter: drop-shadow(0 2px 16px rgba(0,0,0,.22))}
 .node.selected rect.box{stroke:var(--accent); stroke-width:2}
@@ -69,8 +71,13 @@ svg{ position:absolute; inset:0; z-index:1; width:100%; height:100% }
 .edge path.line{fill:none; stroke-linecap:round}
 .edge path.hit{stroke:rgba(0,0,0,0); stroke-width:var(--edge-hit); fill:none; pointer-events:stroke}
 #arrow path, #arrowSel path{ fill: context-stroke; stroke: context-stroke; }
-.pm-connector { stroke-dasharray: var(--pm-dash); stroke-width:1.6; fill:none; pointer-events:none }
-.valve-connector { stroke-dasharray: var(--valve-dash); stroke-width:1.6; fill:none; pointer-events:none }
+.pm-connector,
+.valve-connector {
+  stroke-dasharray: none;
+  stroke-width: 1.6;
+  fill: none;
+  pointer-events: none;
+}
 aside#prop{background:var(--panel); border-left:1px solid #2b3f69; padding:14px 14px 80px; overflow:auto}
 body.prop-collapsed aside#prop{padding:0; border-left:none; visibility:hidden; pointer-events:none}
 .card{background:#1b2b4b; border:1px solid #2f4b7d; border-radius:14px; padding:12px; box-shadow:var(--shadow)}

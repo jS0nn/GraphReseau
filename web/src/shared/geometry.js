@@ -1,5 +1,5 @@
-import { displayXYForNode, projectLatLonToUI, unprojectUIToLatLon } from '../geo.js'
-import { NODE_SIZE } from '../constants/nodes.js'
+import { projectLatLonToUI, unprojectUIToLatLon } from '../geo.js'
+import { getNodeCanvasPosition, getNodeCenterPosition, isGraphView } from '../view/view-mode.js'
 
 function toNodeLookup(nodes){
   if(nodes instanceof Map) return nodes
@@ -12,10 +12,8 @@ function toNodeLookup(nodes){
 
 export function centerUIForNode(node){
   try{
-    const p = displayXYForNode(node)
-    const type = String(node?.type || '').toUpperCase()
-    if(type === 'JONCTION') return [ (p.x || 0), (p.y || 0) ]
-    return [ (p.x || 0) + NODE_SIZE.w / 2, (p.y || 0) + NODE_SIZE.h / 2 ]
+    const c = getNodeCenterPosition(node)
+    return [ c.x || 0, c.y || 0 ]
   }catch{
     return [0, 0]
   }
@@ -23,7 +21,8 @@ export function centerUIForNode(node){
 
 export function edgeGeometryToUIPoints(edge, nodes){
   const lookup = toNodeLookup(nodes)
-  const geometry = Array.isArray(edge?.geometry) && edge.geometry.length >= 2 ? edge.geometry : null
+  const useGeometry = !isGraphView() && Array.isArray(edge?.geometry) && edge.geometry.length >= 2
+  const geometry = useGeometry ? edge.geometry : null
   const pts = []
   if(geometry){
     for(const g of geometry){
@@ -87,6 +86,7 @@ export function nearestPointOnPolyline(pts, x, y){
 }
 
 export function ensureEdgeGeometry(edge, nodes){
+  if(isGraphView()) return null
   if(Array.isArray(edge?.geometry) && edge.geometry.length >= 2){
     return edge.geometry
   }

@@ -1,4 +1,4 @@
-import { state, addNode, addEdge, removeEdge, updateEdge, updateNode, getMode, subscribe, renameNodeId, setMode, selectNodeById } from '../state/index.js'
+import { state, addNode, addEdge, removeEdge, updateEdge, updateNode, getMode, subscribe, renameNodeId, setMode, selectNodeById, suspendOrphanPrune } from '../state/index.js'
 import { genIdWithTime as genId } from '../utils.js'
 import { unprojectUIToLatLon } from '../geo.js'
 import { showMiniMenu } from '../ui/mini-menu.js'
@@ -35,7 +35,7 @@ export function attachJunction(){
     const { edge, hit } = best
     // Build new node at insertion
     const centerLL = unprojectUIToLatLon(hit.px, hit.py)
-    const node = addNode({ type:'JONCTION', gps_lat: centerLL.lat, gps_lon: centerLL.lon, gps_locked: true, name:'' })
+    const node = addNode({ type:'JONCTION', gps_lat: centerLL.lat, gps_lon: centerLL.lon, gps_locked: true, name:'', x: hit.px, y: hit.py })
     // Split geometry
     const geom = ensureEdgeGeometry(edge, state.nodes)
     if(!geom) return
@@ -46,11 +46,15 @@ export function attachJunction(){
     const keepActive = edge.active!==false
     const commentaire = edge.commentaire || ''
     const pgid = edge.pipe_group_id || ''
-    removeEdge(edge.id)
-    const e1 = addEdge(fromId, node.id, { active: keepActive, commentaire, pipe_group_id: pgid })
-    updateEdge(e1.id, { geometry: parts.g1 })
-    const e2 = addEdge(node.id, toId, { active: keepActive, commentaire, pipe_group_id: pgid })
-    updateEdge(e2.id, { geometry: parts.g2 })
+    let e1 = null
+    let e2 = null
+    suspendOrphanPrune(()=>{
+      removeEdge(edge.id)
+      e1 = addEdge(fromId, node.id, { active: keepActive, commentaire, pipe_group_id: pgid })
+      if(e1?.id){ updateEdge(e1.id, { geometry: parts.g1 }) }
+      e2 = addEdge(node.id, toId, { active: keepActive, commentaire, pipe_group_id: pgid })
+      if(e2?.id){ updateEdge(e2.id, { geometry: parts.g2 }) }
+    })
     devlog('junction:split', edge.id, '->', e1.id, e2.id, 'new node', node.id)
     // Mini menu: choose type + optionally start antenna
     const x = ev.clientX, y = ev.clientY

@@ -11,6 +11,7 @@ export const state = {
   selection: { nodeId: null, edgeId: null, multi: new Set() },
   clipboard: null,
   mode: 'select',
+  viewMode: 'geo',
   gridStep: 8,
   _spawnIndex: 0,
   edgeVarWidth: false,
@@ -20,12 +21,100 @@ const listeners = new Set()
 export function subscribe(fn){ listeners.add(fn); return () => listeners.delete(fn) }
 function notify(event, payload){ for(const fn of listeners) fn(event, payload, state) }
 
+const REMOVABLE_NODE_TYPES = new Set(['JONCTION', 'JUNCTION'])
+let isPruningOrphans = false
+let pruneSuspendCount = 0
+let prunePending = false
+let pruneScheduled = false
+
+function shouldAutoRemoveNode(node){
+  if(!node || !node.id) return false
+  const type = String(node.type || '').toUpperCase()
+  if(REMOVABLE_NODE_TYPES.has(type)) return true
+  const name = typeof node.name === 'string' ? node.name.trim() : ''
+  if(!type && !name) return true
+  return false
+}
+
+export function pruneOrphanNodes(){
+  prunePending = false
+  pruneScheduled = false
+  if(isPruningOrphans) return
+  isPruningOrphans = true
+  try{
+    while(true){
+      const connected = new Set()
+      for(const edge of state.edges){
+        if(!edge) continue
+        const fromId = edge.from_id ?? edge.source
+        const toId = edge.to_id ?? edge.target
+        if(fromId) connected.add(fromId)
+        if(toId) connected.add(toId)
+      }
+      const toRemove = []
+      for(const node of state.nodes){
+        if(!node?.id) continue
+        if(connected.has(node.id)) continue
+        if(!shouldAutoRemoveNode(node)) continue
+        toRemove.push(node.id)
+      }
+      if(!toRemove.length) break
+      for(const id of toRemove){
+        const idx = state.nodes.findIndex(n => n && n.id === id)
+        if(idx < 0) continue
+        state.nodes.splice(idx, 1)
+        if(state.selection.nodeId === id){
+          selectNodeById(null)
+        }else if(state.selection.multi && state.selection.multi.has(id)){
+          const remaining = Array.from(state.selection.multi).filter(x => x !== id)
+          setMultiSelection(remaining)
+        }
+        notify('node:remove', { id })
+      }
+    }
+  }finally{
+    isPruningOrphans = false
+  }
+}
+
+export function suspendOrphanPrune(fn){
+  pruneSuspendCount++
+  try{
+    return typeof fn === 'function' ? fn() : undefined
+  }finally{
+    pruneSuspendCount = Math.max(0, pruneSuspendCount - 1)
+    if(pruneSuspendCount === 0 && prunePending){
+      scheduleOrphanPrune()
+    }
+  }
+}
+
+function scheduleOrphanPrune(){
+  if(pruneSuspendCount > 0){
+    prunePending = true
+    return
+  }
+  if(pruneScheduled) return
+  pruneScheduled = true
+  const run = ()=>{
+    if(pruneSuspendCount > 0){
+      pruneScheduled = false
+      prunePending = true
+      return
+    }
+    pruneOrphanNodes()
+  }
+  if(typeof queueMicrotask === 'function'){ queueMicrotask(run) }
+  else setTimeout(run, 0)
+}
+
 export function setGraph(graph){
   const { nodes, edges, geoCenter } = normalizeGraph(graph, { gridStep: state.gridStep })
   state.nodes = nodes
   state.edges = edges
   clearSelection()
   if(geoCenter) applyGeoCenter(geoCenter.centerLat, geoCenter.centerLon)
+  pruneOrphanNodes()
   notify('graph:set')
 }
 
@@ -74,6 +163,16 @@ export function toggleMultiSelection(id){
 
 export function setMode(mode){ state.mode = mode; notify('mode:set', mode) }
 export function getMode(){ return state.mode }
+
+export function setViewMode(mode){
+  if(!mode) return
+  const next = String(mode)
+  if(state.viewMode === next) return
+  state.viewMode = next
+  notify('view:set', next)
+}
+
+export function getViewMode(){ return state.viewMode }
 
 export function copySelection(){
   const ids = new Set(Array.from(state.selection.multi || []))
@@ -257,4 +356,5 @@ export function removeEdge(id){
   if(index < 0) return
   state.edges.splice(index, 1)
   notify('edge:remove', { id })
+  scheduleOrphanPrune()
 }

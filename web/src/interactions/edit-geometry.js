@@ -1,4 +1,4 @@
-import { state, updateEdge, subscribe, getMode } from '../state/index.js'
+import { state, updateEdge, subscribe, getMode, selectEdgeById } from '../state/index.js'
 import { unprojectUIToLatLon } from '../geo.js'
 import { edgeGeometryToUIPoints, nearestPointOnPolyline, ensureEdgeGeometry } from '../shared/geometry.js'
 
@@ -92,6 +92,9 @@ function onEdgeClick(e, datum){
   if(!datum) return
   currentEdgeId = datum.id
   const edge = state.edges.find(x=>x.id===currentEdgeId)
+  if(edge){
+    selectEdgeById(edge.id)
+  }
   if(!Array.isArray(edge?.geometry) || edge.geometry.length<2){
     const fallbackGeom = ensureEdgeGeometry(edge, state.nodes)
     if(fallbackGeom) updateEdge(datum.id, { geometry: fallbackGeom })
@@ -103,10 +106,14 @@ export function attachEditGeometry(_gEdges){
   if(wired) return; wired = true
   // re-render handles when edge updates (avoid during drag)
   subscribe((evt, payload)=>{
+    if(evt === 'selection:edge'){
+      currentEdgeId = payload || null
+      if(!currentEdgeId){ selVertex = { edgeId: null, index: -1 } }
+    }
     if(getMode()!=='edit') { clearHandles(); return }
     if((evt.startsWith('edge:') || evt==='graph:set' || evt==='selection:edge' || evt.startsWith('node:')) && !isDraggingVertex){
-      const e = state.edges.find(x=>x.id===currentEdgeId)
-      if(e) renderHandles(e)
+      const e = currentEdgeId ? state.edges.find(x=>x.id===currentEdgeId) : null
+      if(e) renderHandles(e); else clearHandles()
     }
     if(evt==='mode:set' && payload!=='edit') clearHandles()
   })
@@ -158,6 +165,7 @@ export function attachEditGeometry(_gEdges){
     seg = nearestSegment(edgeGeometryToUIPoints(e, state.nodes), x, y)
   }
     currentEdgeId = e.id
+    selectEdgeById(e.id)
     // Initialiser la géométrie si manquante
     if(!Array.isArray(e.geometry) || e.geometry.length<2){
       const fallbackGeom = ensureEdgeGeometry(e, state.nodes)

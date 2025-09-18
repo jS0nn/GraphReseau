@@ -3,7 +3,7 @@ import { setMultiSelection, state } from '../state/index.js'
 import { vn } from '../utils.js'
 import { NODE_SIZE } from '../constants/nodes.js'
 import { isMapActive } from '../map.js'
-import { displayXYForNode } from '../geo.js'
+import { getNodeCanvasPosition, getNodeCenterPosition } from '../view/view-mode.js'
 
 export function attachMarquee(svg, gOverlay){
   let start = null
@@ -50,14 +50,21 @@ export function attachMarquee(svg, gOverlay){
     const y1 = Math.min(start.y, end.y), y2 = Math.max(start.y, end.y)
     const inside = state.nodes.filter(n => {
       // Use displayed UI coordinates so GPS-anchored nodes are correctly hit-tested
-      const p = displayXYForNode(n)
+      const pos = getNodeCanvasPosition(n)
       const T = String(n?.type||'').toUpperCase()
       // Junction nodes render as a small dot around their center; others render as a box from top-left
       const isJ = (T === 'JONCTION')
       const w = isJ ? 10 : NODE_SIZE.w
       const h = isJ ? 10 : NODE_SIZE.h
-      const nx1 = vn(isJ ? (p.x - w/2) : p.x, 0)
-      const ny1 = vn(isJ ? (p.y - h/2) : p.y, 0)
+      let nx1, ny1
+      if(isJ){
+        const center = getNodeCenterPosition(n)
+        nx1 = vn(center.x - w/2, 0)
+        ny1 = vn(center.y - h/2, 0)
+      }else{
+        nx1 = vn(pos.x, 0)
+        ny1 = vn(pos.y, 0)
+      }
       const nx2 = nx1 + w, ny2 = ny1 + h
       return nx1>=x1 && ny1>=y1 && nx2<=x2 && ny2<=y2
     }).map(n => n.id)

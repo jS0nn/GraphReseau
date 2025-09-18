@@ -1,9 +1,9 @@
 import { d3 } from '../vendor.js'
 import { state } from '../state/index.js'
-import { displayXYForNode } from '../geo.js'
 import { isCanal } from '../utils.js'
 import { ensurePipeStyle } from '../style/pipes.js'
 import { NODE_WIDTH, NODE_HEIGHT, NODE_MARKER_RADIUS, NODE_BUBBLE_GAP, NODE_SIZE } from '../constants/nodes.js'
+import { getNodeCanvasPosition } from '../view/view-mode.js'
 
 const BUBBLE_GAP = NODE_BUBBLE_GAP // gap between marker and info bubble
 
@@ -17,7 +17,7 @@ export function renderNodes(gNodes, nodes){
   const cls = (t) => String(t||'').toUpperCase()
   const enter = sel.enter().append('g').attr('class', d => `node ${cls(d.type)}`)
     .attr('transform', d => {
-      const p = displayXYForNode(d)
+      const p = getNodeCanvasPosition(d)
       const isJ = String(d.type||'').toUpperCase()==='JONCTION'
       const tx = (p.x||0) - (isJ ? NODE_WIDTH/2 : 0)
       const ty = (p.y||0) - (isJ ? NODE_HEIGHT/2 : 0)
@@ -72,7 +72,7 @@ export function renderNodes(gNodes, nodes){
       return `node ${cls(d.type)} ${isSel?'selected':''}`
     })
     .attr('transform', d => {
-      const p = displayXYForNode(d)
+      const p = getNodeCanvasPosition(d)
       const isJ = String(d.type||'').toUpperCase()==='JONCTION'
       const tx = (p.x||0) - (isJ ? NODE_WIDTH/2 : 0)
       const ty = (p.y||0) - (isJ ? NODE_HEIGHT/2 : 0)

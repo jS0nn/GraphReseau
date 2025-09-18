@@ -1,19 +1,14 @@
 import { d3 } from '../vendor.js'
 import { state } from '../state/index.js'
-import { projectLatLonToUI, displayXYForNode } from '../geo.js'
-import { NODE_SIZE } from '../constants/nodes.js'
+import { projectLatLonToUI } from '../geo.js'
 import { ensurePipeStyle } from '../style/pipes.js'
 import { showTooltip, hideTooltip, scheduleHide, cancelHide } from '../ui/tooltip.js'
+import { getNodeCanvasPosition, getNodeCenterPosition, isGraphView } from '../view/view-mode.js'
 
 function anchorFor(node /*, isSource*/){
   if(!node) return { x:0, y:0 }
-  const p = displayXYForNode(node)
-  const T = String(node.type||'').toUpperCase()
-  // Always attach at the visual center of the element for cleaner connections
-  if(T==='JONCTION'){
-    return { x: p.x||0, y: (p.y||0) }
-  }
-  return { x: (p.x||0) + NODE_SIZE.w/2, y: (p.y||0) + NODE_SIZE.h/2 }
+  const c = getNodeCenterPosition(node)
+  return { x: c.x || 0, y: c.y || 0 }
 }
 
 function pathFor(a, b){
@@ -121,20 +116,29 @@ export function renderEdges(gEdges, edges){
     .attr('data-id', d=>d.id)
     .each(function(d){
       const a = index.get(d.source), b = index.get(d.target)
-      const dStr = Array.isArray(d.geometry) && d.geometry.length>=2 ? pathForGeometry(d.geometry, a, b) : pathFor(a, b)
+      const useGeometry = !isGraphView() && Array.isArray(d.geometry) && d.geometry.length>=2
+      const dStr = useGeometry ? pathForGeometry(d.geometry, a, b) : pathFor(a, b)
       const varWidth = !!state.edgeVarWidth
       const baseW = varWidth ? (style.widthForEdge({ from_id:d.source, to_id:d.target }) || DEFAULT_EDGE_WIDTH) : DEFAULT_EDGE_WIDTH
       const sel = state.selection.edgeId===d.id
-      const w = sel ? (baseW * 1.18) : baseW
+      const baseColor = d.active ? style.colorForEdge({ from_id:d.source, to_id:d.target }) : 'var(--muted)'
+      const hiColor = d.active ? 'var(--edge-color-sel)' : 'var(--muted)'
+      const strokeColor = sel ? hiColor : baseColor
+      const w = sel ? Math.max(baseW * 1.6, baseW + 1.4) : baseW
+      if(sel && this.parentNode){
+        try{ this.parentNode.appendChild(this) }catch{}
+      }
+      d3.select(this)
+        .style('filter', sel ? 'drop-shadow(0 0 6px rgba(106,168,255,0.55))' : null)
       d3.select(this).select('path.line')
         .attr('d', dStr)
-        .attr('stroke', d.active ? style.colorForEdge({ from_id:d.source, to_id:d.target }) : 'var(--muted)')
+        .attr('stroke', strokeColor)
         .attr('stroke-width', w)
       // Mid arrow oriented along polyline (or center between nodes)
-      const midD = Array.isArray(d.geometry) && d.geometry.length>=2 ? midArrowForGeometry(d.geometry, a, b) : ''
+      const midD = useGeometry ? midArrowForGeometry(d.geometry, a, b) : ''
       d3.select(this).select('path.midArrow')
         .attr('d', midD || null)
-        .attr('stroke', d.active ? style.colorForEdge({ from_id:d.source, to_id:d.target }) : 'var(--muted)')
+        .attr('stroke', strokeColor)
         .attr('stroke-width', Math.max(1, w*0.9))
         .attr('marker-end', sel ? 'url(#arrowSel)' : 'url(#arrow)')
       d3.select(this).select('path.hit')

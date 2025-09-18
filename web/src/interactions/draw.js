@@ -1,4 +1,4 @@
-import { state, addNode, addEdge, updateEdge, removeEdge, updateNode, getMode, subscribe } from '../state/index.js'
+import { state, addNode, addEdge, updateEdge, removeEdge, updateNode, getMode, subscribe, suspendOrphanPrune } from '../state/index.js'
 import { displayXYForNode, unprojectUIToLatLon, projectLatLonToUI } from '../geo.js'
 import { NODE_SIZE } from '../constants/nodes.js'
 import { getMap, isMapActive } from '../map.js'
@@ -265,12 +265,16 @@ function splitEdgeAt(edge, hit){
   const pgid = edge.pipe_group_id || ''
   // Create the new node at hit point, lock to GPS
   const ll = unprojectUIToLatLon(hit.px, hit.py)
-  const node = addNode({ type:'JONCTION', gps_lat: ll.lat, gps_lon: ll.lon, gps_locked: true, name:'' })
-  removeEdge(edge.id)
-  const e1 = addEdge(fromId, node.id, { active: keepActive, commentaire, pipe_group_id: pgid })
-  updateEdge(e1.id, { geometry: parts.g1 })
-  const e2 = addEdge(node.id, toId, { active: keepActive, commentaire, pipe_group_id: pgid })
-  updateEdge(e2.id, { geometry: parts.g2 })
+  const node = addNode({ type:'JONCTION', gps_lat: ll.lat, gps_lon: ll.lon, gps_locked: true, name:'', x: hit.px, y: hit.py })
+  let e1 = null
+  let e2 = null
+  suspendOrphanPrune(()=>{
+    removeEdge(edge.id)
+    e1 = addEdge(fromId, node.id, { active: keepActive, commentaire, pipe_group_id: pgid })
+    if(e1?.id) updateEdge(e1.id, { geometry: parts.g1 })
+    e2 = addEdge(node.id, toId, { active: keepActive, commentaire, pipe_group_id: pgid })
+    if(e2?.id) updateEdge(e2.id, { geometry: parts.g2 })
+  })
   return { nodeId: node.id, ui: [hit.px, hit.py] }
 }
 
