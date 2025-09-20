@@ -28,41 +28,27 @@ NODE_HEADERS_FR_V8 = [
     'id','nom','type','id_branche','diametre_exterieur_mm','sdr_ouvrage','commentaire',
     'pm_collector_edge_id','pm_pos_index','gps_lat','gps_lon','x','y','x_UI','y_UI'
 ]
-NODE_HEADERS_FR_V7 = [
-    'id','nom','type','id_branche','diametre_exterieur_mm','sdr_ouvrage','commentaire',
-    'puits_amont','well_collector_id','well_pos_index','pm_collecteur_id','pm_pos_index','gps_lat','gps_lon','x','y','x_UI','y_UI'
+
+NODE_HEADERS_FR_V9 = [
+    'id','nom','type','id_branche','diametre_exterieur_mm','sdr_ouvrage','materiau','commentaire',
+    'pm_collector_edge_id','pm_pos_index','gps_lat','gps_lon','x','y','x_UI','y_UI'
 ]
-NODE_HEADERS_FR_V6 = [
-    'id','nom','type','id_branche','diametre_exterieur_mm','sdr_ouvrage','commentaire',
-    'puits_amont','well_collector_id','well_pos_index','pm_collecteur_id','pm_pos_index','gps_lat','gps_lon','x','y'
-]
-NODE_HEADERS_FR_V5 = [
-    'id','nom','type','id_branche','diametre_mm',
-    'puits_amont','well_collector_id','well_pos_index','pm_collecteur_id','pm_pos_index','gps_lat','gps_lon','x','y'
-]
-NODE_HEADERS_FR_V4 = [
-    'id','nom','type','id_branche','diametre_mm',
-    'puits_amont','pm_collecteur_id','pm_pos_index','gps_lat','gps_lon','x','y'
-]
-NODE_HEADERS_FR_V3 = [
-    'id','nom','type','id_branche','diametre_mm',
-    'puits_amont','vanne_ouverture_pct','gps_lat','gps_lon','x','y'
-]
-NODE_HEADERS_FR_V2 = [
-    'id','nom','type','id_branche','diametre_mm',
-    'vanne_ouverture_pct','gps_lat','gps_lon','x','y'
-]
-NODE_HEADERS_FR_V1 = [
-    'id','nom','type','id_branche','ordre_branche','diametre_mm',
-    'vanne_ouverture_pct','gps_lat','gps_lon','x','y'
-]
+
 NODE_HEADERS_EN_V1 = [
     'id','name','type','branch_id','order_index','diameter_mm',
     'valve_status','gps_lat','gps_lon','x','y'
 ]
 
-EDGE_HEADERS_FR_V2 = ['id','source_id','cible_id','actif']
-EDGE_HEADERS_FR_V1 = ['id','source_id','cible_id','diametre_mm','longueur_m','actif']
+NODE_HEADERS_EN_V2 = [
+    'id','name','type','branch_id','order_index','diameter_mm','material',
+    'valve_status','gps_lat','gps_lon','x','y'
+]
+
+
+EDGE_HEADERS_FR_V4 = ['id','source_id','cible_id','diametre_mm','sdr','materiau','longueur_m','actif','commentaire','Geometry','PipeGroupId','BranchId']
+EDGE_HEADERS_FR_V3 = ['id','source_id','cible_id','diametre_mm','longueur_m','actif','commentaire','Geometry','PipeGroupId','BranchId']
+EDGE_HEADERS_EN_V3 = ['id','from_id','to_id','diameter_mm','sdr','material','length_m','active','comment','geometry','pipe_group_id','branch_id']
+EDGE_HEADERS_EN_V2 = ['id','from_id','to_id','diameter_mm','length_m','active','comment','geometry','pipe_group_id','branch_id']
 EDGE_HEADERS_EN_V1 = ['id','from_id','to_id','diameter_mm','length_m','active']
 
 EXTRA_SHEET_HEADERS = [
@@ -139,10 +125,8 @@ def _map_type(t: Any) -> str:
     if not isinstance(t, str):
         return 'OUVRAGE'
     s = t.strip().upper()
-    # Also build an accent-less uppercase form for robust matching
     s_noacc = unicodedata.normalize('NFKD', s)
     s_noacc = ''.join(ch for ch in s_noacc if not unicodedata.combining(ch))
-    # Normalize legacy/aliases to new canonical types
     if s == 'COLLECTEUR':
         return 'CANALISATION'
     if s == 'PLATEFORME' or s_noacc == 'GENERAL':
@@ -155,24 +139,48 @@ def _map_type(t: Any) -> str:
 
 
 def _row_to_node(row: Dict[str, Any], header_set: List[str], full_row: Dict[str, Any] | None = None) -> Node:
-    # Unified UI model
     extras: Dict[str, Any] | None = None
     if isinstance(full_row, dict):
         extras = { k: full_row.get(k) for k in EXTRA_SHEET_HEADERS }
 
-    # Keep GENERAL as GENERAL in UI; do not coerce to POINT_MESURE here.
     raw_t = row.get("type")
     node_type = _map_type(raw_t or 'OUVRAGE')
+
+    diameter_mm = _num(
+        row.get("diametre_exterieur_mm")
+        or row.get("diametre_mm")
+        or row.get("diameter_mm")
+        or row.get("diametre_exterieur")
+        or row.get("diametreExterieur")
+    )
+    sdr_ouvrage = row.get("sdr_ouvrage") or row.get("sdrOuvrage") or ""
+    material = row.get("materiau") or row.get("material") or row.get("matériau") or ""
+
+    if node_type != 'CANALISATION':
+        diameter_mm = None
+        sdr_ouvrage = ""
+        material = ""
+
+    site_id = None
+    try:
+        if extras and extras.get("idSite1"):
+            site_id = str(extras.get("idSite1"))
+    except Exception:
+        pass
 
     return Node(
         id=str(row.get("id", "")).strip(),
         name=(row.get("nom") or row.get("name") or ""),
         type=node_type,
         branch_id=(row.get("id_branche") or row.get("branch_id") or ""),
-        diameter_mm=_num(row.get("diametre_exterieur_mm") or row.get("diametre_mm") or row.get("diameter_mm") or row.get("diametre_exterieur") or row.get("diametreExterieur")),
-        sdr_ouvrage=(row.get("sdr_ouvrage") or row.get("sdrOuvrage") or ""),
+        site_id=site_id,
+        diameter_mm=diameter_mm,
+        sdr_ouvrage=sdr_ouvrage,
+        material=material,
         commentaire=(row.get("commentaire") or ""),
         well_pos_index=_int(row.get("well_pos_index")),
+        # attach canonical + legacy kept in sync by model validator
+        attach_edge_id=(row.get("pm_collector_edge_id") or row.get("pm_edge_id") or ""),
         pm_collector_edge_id=(row.get("pm_collector_edge_id") or row.get("pm_edge_id") or ""),
         gps_lat=_num(row.get("gps_lat")),
         gps_lon=_num(row.get("gps_lon")),
@@ -180,25 +188,34 @@ def _row_to_node(row: Dict[str, Any], header_set: List[str], full_row: Dict[str,
         y=_num(row.get("y")),
         x_ui=_num(row.get("x_UI")),
         y_ui=_num(row.get("y_UI")),
-        extras=extras,
+        extras=extras or {},
     )
-
 
 def _row_to_edge(row: Dict[str, Any], header_set: List[str]) -> Edge:
     from_id = row.get("source_id") or row.get("from_id")
     to_id = row.get("cible_id") or row.get("to_id")
     geometry_coords = _parse_geometry_field(row.get("Geometry") or row.get("geometry"))
     pipe_group_id = row.get("PipeGroupId") or row.get("pipe_group_id") or None
+    branch_id = row.get("BranchId") or row.get("branch_id") or pipe_group_id or ""
+    diameter_mm = _num(row.get("diametre_mm") or row.get("diameter_mm"))
+    sdr = row.get("sdr") or row.get("sdr_canalisation") or row.get("sdr_pipe") or row.get("sdr_ouvrage")
+    material = row.get("materiau") or row.get("matériau") or row.get("material")
+    length_m = _num(row.get("longueur_m") or row.get("length_m"))
+
     return Edge(
         id=(row.get("id") or None),
         from_id=str(from_id) if from_id is not None else "",
         to_id=str(to_id) if to_id is not None else "",
         active=_bool(row.get("actif") if "actif" in header_set else row.get("active"), True),
-        commentaire=(row.get("commentaire") or ""),
+        commentaire=(row.get("commentaire") or row.get("comment") or ""),
         geometry=(geometry_coords if geometry_coords else None),
         pipe_group_id=(pipe_group_id or None),
+        branch_id=(branch_id or ""),
+        diameter_mm=(0.0 if diameter_mm is None else float(diameter_mm)),
+        sdr=(sdr or None),
+        material=(material or None),
+        length_m=length_m,
     )
-
 
 def _values_to_dicts(values: List[List[Any]], header: List[str]) -> List[Dict[str, Any]]:
     rows = []
@@ -316,14 +333,9 @@ def read_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, *, site_id: 
         node_header = _detect_header(
             node_header_raw,
             [
+                NODE_HEADERS_FR_V9,
                 NODE_HEADERS_FR_V8,
-                NODE_HEADERS_FR_V7,
-                NODE_HEADERS_FR_V6,
-                NODE_HEADERS_FR_V5,
-                NODE_HEADERS_FR_V4,
-                NODE_HEADERS_FR_V3,
-                NODE_HEADERS_FR_V2,
-                NODE_HEADERS_FR_V1,
+                NODE_HEADERS_EN_V2,
                 NODE_HEADERS_EN_V1,
             ],
         )
@@ -367,7 +379,14 @@ def read_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, *, site_id: 
     if edges_values:
         edge_header_raw = edges_values[0]
         edge_header = _detect_header(
-            edge_header_raw, [EDGE_HEADERS_FR_V2, EDGE_HEADERS_FR_V1, EDGE_HEADERS_EN_V1]
+            edge_header_raw,
+            [
+                EDGE_HEADERS_FR_V4,
+                EDGE_HEADERS_FR_V3,
+                EDGE_HEADERS_EN_V3,
+                EDGE_HEADERS_EN_V2,
+                EDGE_HEADERS_EN_V1,
+            ],
         )
         # Use the full raw header to capture extra columns like Geometry/PipeGroupId
         edge_rows = _values_to_dicts(edges_values[1:], edge_header_raw)
@@ -382,16 +401,15 @@ def read_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, *, site_id: 
             except Exception:
                 continue
 
-    return Graph(nodes=nodes, edges=edges)
+    return Graph(site_id=site_id, nodes=nodes, edges=edges)
 
 
 def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Graph, *, site_id: str | None = None) -> None:
     svc = _client()
 
-    # Always write FR V8 headers + extra business headers on output
-    node_headers = ['id','nom','type','id_branche','diametre_exterieur_mm','sdr_ouvrage','commentaire','pm_collector_edge_id','pm_pos_index','gps_lat','gps_lon','x','y','x_UI','y_UI'] + EXTRA_SHEET_HEADERS
-    # Extend edge headers with optional 'commentaire' + geometry + pipe group
-    edge_headers = EDGE_HEADERS_FR_V2 + ['commentaire','Geometry','PipeGroupId']
+    node_headers = NODE_HEADERS_FR_V9 + EXTRA_SHEET_HEADERS
+    # Nouvelle entête riche pour arêtes (v4)
+    edge_headers = EDGE_HEADERS_FR_V4
 
     # Preserve existing canonical positions (x, y) when saving from UI.
     # We fetch the current sheet to map node id -> (x, y) and re-inject
@@ -409,37 +427,31 @@ def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Grap
     existing_xy_by_id = {}
     if cur_values:
         cur_header = cur_values[0]
-        # Build dict rows using whatever header is present in the sheet
         cur_rows = _values_to_dicts(cur_values[1:], cur_header)
         for r in cur_rows:
             rid = r.get("id")
             if not rid:
                 continue
-            # Keep raw values as-is to avoid unwanted coercion
             existing_xy_by_id[str(rid)] = (r.get("x"), r.get("y"))
 
     node_values = [node_headers]
     for n in graph.nodes:
-        # Reuse existing x/y if present in the sheet; leave blank for new ids
         ex = existing_xy_by_id.get(n.id, (None, None))
         x_preserved, y_preserved = ex[0], ex[1]
-        # Prepare extras with optional site tagging for new/blank values
         extras_map = dict(n.extras or {}) if isinstance(n.extras, dict) else {}
-        if site_id:
-            try:
-                if not extras_map.get('idSite1'):
-                    extras_map['idSite1'] = site_id
-            except Exception:
-                pass
+        if site_id and not extras_map.get('idSite1'):
+            extras_map['idSite1'] = site_id
+        is_canal = str(n.type or "").upper() == 'CANALISATION'
         row_core = [
             n.id,
             n.name or "",
             (n.type or "OUVRAGE"),
-            n.branch_id or "",
-            ("" if n.diameter_mm is None else n.diameter_mm),
-            n.sdr_ouvrage or "",
+            n.branch_id or "",  # recalculé par sanitizer avant l'écriture
+            ("" if not is_canal else ("" if n.diameter_mm is None else n.diameter_mm)),
+            ("" if not is_canal else (n.sdr_ouvrage or "")),
+            ("" if not is_canal else (n.material or "")),
             n.commentaire or "",
-            n.pm_collector_edge_id or "",
+            n.pm_collector_edge_id or n.attach_edge_id or "",
             ("" if n.pm_pos_index is None else n.pm_pos_index),
             ("" if n.gps_lat is None else n.gps_lat),
             ("" if n.gps_lon is None else n.gps_lon),
@@ -469,15 +481,20 @@ def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Grap
     edge_values = [edge_headers]
     for e in graph.edges:
         geom_txt = _format_geometry_lonlat_semicolon(getattr(e, 'geometry', None))
-        pgid = getattr(e, 'pipe_group_id', None) or ''
+        pgid = getattr(e, 'pipe_group_id', None) or getattr(e, 'branch_id', "") or ''
         edge_values.append([
             e.id or "",
             e.from_id,
             e.to_id,
+            (0.0 if getattr(e, 'diameter_mm', None) in (None, "") else float(e.diameter_mm)),
+            (getattr(e, 'sdr', None) or ""),
+            (getattr(e, 'material', None) or ""),
+            ("" if getattr(e, 'length_m', None) in (None, "") else float(e.length_m)),
             True if e.active is None else bool(e.active),
             getattr(e, 'commentaire', "") or "",
             geom_txt,
             pgid,
+            getattr(e, 'branch_id', "") or "",
         ])
 
     data = [
@@ -491,7 +508,6 @@ def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Grap
             spreadsheetId=sheet_id, range=f"{nodes_tab}!A:ZZZ"
         ).execute()
     except Exception:
-        # Non-fatal: proceed with overwrite even if clear fails
         pass
     try:
         svc.spreadsheets().values().clear(

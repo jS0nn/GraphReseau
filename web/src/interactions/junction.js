@@ -1,10 +1,32 @@
 import { state, addNode, addEdge, removeEdge, updateEdge, updateNode, getMode, subscribe, renameNodeId, setMode, selectNodeById, suspendOrphanPrune } from '../state/index.js'
-import { genIdWithTime as genId } from '../utils.js'
+import { genIdWithTime as genId, isCanal } from '../utils.js'
 import { unprojectUIToLatLon } from '../geo.js'
 import { showMiniMenu } from '../ui/mini-menu.js'
 import { startDrawingFromNodeId } from './draw.js'
 import { devlog } from '../ui/logs.js'
 import { centerUIForNode, edgeGeometryToUIPoints, nearestPointOnPolyline, splitGeometryAt, ensureEdgeGeometry } from '../shared/geometry.js'
+
+const finiteDiameter = (value) => {
+  const num = Number(value)
+  return Number.isFinite(num) && num > 0 ? num : null
+}
+
+function pickEdgeProps(edge){
+  if(!edge) return null
+  const diameter_mm = finiteDiameter(edge.diameter_mm)
+  const material = edge.material || ''
+  const sdr = edge.sdr || ''
+  if(diameter_mm == null && !material && !sdr) return null
+  return { diameter_mm, material, sdr }
+}
+
+function mergeEdgeProps(target, props){
+  if(!props) return target
+  if(props.diameter_mm != null) target.diameter_mm = props.diameter_mm
+  if(props.material) target.material = props.material
+  if(props.sdr) target.sdr = props.sdr
+  return target
+}
 
 function eventToUI(evt){
   try{ if(window.__leaflet_map){ const pt=window.__leaflet_map.mouseEventToContainerPoint(evt); return [pt.x,pt.y] } }catch{}
@@ -46,15 +68,24 @@ export function attachJunction(){
     const keepActive = edge.active!==false
     const commentaire = edge.commentaire || ''
     const pgid = edge.pipe_group_id || ''
+    const baseProps = pickEdgeProps(edge)
+    const branchId = edge.branch_id || pgid || edge.id
     let e1 = null
     let e2 = null
+    const buildEdgeOpts = () => {
+      const opts = { active: keepActive, commentaire, pipe_group_id: pgid }
+      if(branchId) opts.branch_id = branchId
+      mergeEdgeProps(opts, baseProps)
+      return opts
+    }
     suspendOrphanPrune(()=>{
       removeEdge(edge.id)
-      e1 = addEdge(fromId, node.id, { active: keepActive, commentaire, pipe_group_id: pgid })
+      e1 = addEdge(fromId, node.id, buildEdgeOpts())
       if(e1?.id){ updateEdge(e1.id, { geometry: parts.g1 }) }
-      e2 = addEdge(node.id, toId, { active: keepActive, commentaire, pipe_group_id: pgid })
+      e2 = addEdge(node.id, toId, buildEdgeOpts())
       if(e2?.id){ updateEdge(e2.id, { geometry: parts.g2 }) }
     })
+    if(branchId) updateNode(node.id, { branch_id: branchId })
     devlog('junction:split', edge.id, '->', e1.id, e2.id, 'new node', node.id)
     // Mini menu: choose type + optionally start antenna
     const x = ev.clientX, y = ev.clientY
@@ -67,14 +98,20 @@ export function attachJunction(){
         // Inherit diameter from the branch if available: look for a neighbor CANALISATION on either endpoint
         const fromNode = state.nodes.find(nn=>nn.id===fromId)
         const toNode = state.nodes.find(nn=>nn.id===toId)
-        const candidates = [fromNode?.diameter_mm, toNode?.diameter_mm]
-          .map(v => {
-            const num = Number(v)
-            return Number.isFinite(num) && num > 0 ? num : null
-          })
+        const canalNeighbors = [fromNode, toNode].filter(isCanal)
+        const diameterCandidates = canalNeighbors
+          .map(nn => finiteDiameter(nn?.diameter_mm))
           .filter(v => v != null)
-        if(candidates.length){ n.diameter_mm = candidates[0] }
-        updateNode(targetId, { branch_id: n.branch_id, diameter_mm: n.diameter_mm })
+        const materialCandidate = canalNeighbors.map(nn => nn?.material).find(val => val)
+        const sdrCandidate = canalNeighbors.map(nn => nn?.sdr_ouvrage).find(val => val)
+        const patch = { branch_id: n.branch_id }
+        if(diameterCandidates.length){ patch.diameter_mm = diameterCandidates[0] }
+        else if(baseProps?.diameter_mm != null){ patch.diameter_mm = baseProps.diameter_mm }
+        if(materialCandidate){ patch.material = materialCandidate }
+        else if(baseProps?.material){ patch.material = baseProps.material }
+        if(sdrCandidate){ patch.sdr_ouvrage = sdrCandidate }
+        else if(baseProps?.sdr){ patch.sdr_ouvrage = baseProps.sdr }
+        updateNode(targetId, patch)
       }catch{}
     }
 

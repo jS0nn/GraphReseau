@@ -2,7 +2,12 @@ import unittest
 from unittest.mock import patch
 
 from app.models import Graph, Node, Edge
-from app.sheets import write_nodes_edges, NODE_HEADERS_FR_V8, EXTRA_SHEET_HEADERS
+from app.sheets import (
+    write_nodes_edges,
+    NODE_HEADERS_FR_V9,
+    EXTRA_SHEET_HEADERS,
+    EDGE_HEADERS_FR_V4,
+)
 
 
 class _FakeResponse:
@@ -53,10 +58,10 @@ class SheetsWriteTests(unittest.TestCase):
     def test_write_preserves_existing_xy_and_formats_edges(self):
         base_row = [
             "N1", "Node 1", "OUVRAGE", "", "", "", "",
-            "", "", "", "", 10, 20, "", "",
+            "", "", "", "", "", 10, 20, "", "",
         ]
         existing_nodes = [
-            NODE_HEADERS_FR_V8,
+            NODE_HEADERS_FR_V9,
             base_row + ["" for _ in EXTRA_SHEET_HEADERS],
         ]
         values_service = _FakeValuesService(existing_nodes)
@@ -94,13 +99,14 @@ class SheetsWriteTests(unittest.TestCase):
         nodes_payload = body["data"][0]["values"]
         edges_payload = body["data"][1]["values"]
 
-        # Headers should match the new edge-only layout (no canal columns)
-        self.assertEqual(nodes_payload[0], NODE_HEADERS_FR_V8 + EXTRA_SHEET_HEADERS)
+        # Headers should match the latest layouts
+        self.assertEqual(nodes_payload[0], NODE_HEADERS_FR_V9 + EXTRA_SHEET_HEADERS)
+        self.assertEqual(edges_payload[0], EDGE_HEADERS_FR_V4)
 
         # First row is headers, second row is N1 data
         n1_row = nodes_payload[1]
-        x_index = NODE_HEADERS_FR_V8.index("x")
-        y_index = NODE_HEADERS_FR_V8.index("y")
+        x_index = NODE_HEADERS_FR_V9.index("x")
+        y_index = NODE_HEADERS_FR_V9.index("y")
         self.assertEqual(n1_row[x_index], 10)
         self.assertEqual(n1_row[y_index], 20)
 
@@ -109,10 +115,15 @@ class SheetsWriteTests(unittest.TestCase):
         self.assertEqual(e1_row[0], "E1")
         self.assertEqual(e1_row[1], "N1")
         self.assertEqual(e1_row[2], "N2")
-        self.assertEqual(e1_row[3], True)
-        self.assertEqual(e1_row[4], "Demo")
-        self.assertEqual(e1_row[5], "1.1 2.2; 3.3 4.4")
-        self.assertEqual(e1_row[6], "PG-99")
+        self.assertEqual(e1_row[3], 0.0)
+        self.assertEqual(e1_row[4], "")
+        self.assertEqual(e1_row[5], "")
+        self.assertEqual(e1_row[6], "")
+        self.assertEqual(e1_row[7], True)
+        self.assertEqual(e1_row[8], "Demo")
+        self.assertEqual(e1_row[9], "1.1 2.2; 3.3 4.4")
+        self.assertEqual(e1_row[10], "PG-99")
+        self.assertEqual(e1_row[11], "PG-99")
 
 
 if __name__ == "__main__":

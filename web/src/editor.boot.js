@@ -453,7 +453,7 @@ export async function boot(){
   })
   // Push snapshots on meaningful changes (node/edge + graph/sequence updates)
   subscribe((evt)=>{
-    if(evt==='node:add' || evt==='node:remove' || evt==='edge:add' || evt==='edge:remove' || evt==='graph:update' || evt==='sequence:update') history.push(evt)
+    if(evt==='node:add' || evt==='node:remove' || evt==='edge:add' || evt==='edge:remove' || evt==='edge:flip' || evt==='graph:update' || evt==='sequence:update') history.push(evt)
   })
   // Do not auto-layout on load; preserve positions from source
   renderAll(canvas)

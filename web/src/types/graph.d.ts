@@ -9,6 +9,10 @@ export interface Edge {
   commentaire?: string | null;
   geometry?: number[][] | null;
   pipe_group_id?: string | null;
+  diameter_mm?: number | null;
+  length_m?: number | null;
+  material?: string | null;
+  sdr?: string | null;
   [key: string]: unknown;
 }
 
@@ -19,6 +23,7 @@ export interface Node {
   branch_id?: string | null;
   diameter_mm?: number | null;
   sdr_ouvrage?: string | null;
+  material?: string | null;
   commentaire?: string | null;
   collector_well_ids?: string[] | null;
   well_collector_id?: string | null;

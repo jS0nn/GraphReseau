@@ -5,10 +5,9 @@ from fastapi import APIRouter, HTTPException, Query
 from ..config import settings
 from ..models import Graph
 from ..datasources import load_graph, save_graph
-
+from ..services.graph_sanitizer import sanitize_graph_for_write
 
 router = APIRouter()
-
 
 @router.get("/graph", response_model=Graph)
 def get_graph(
@@ -22,8 +21,9 @@ def get_graph(
     bq_nodes: Optional[str] = Query(None),
     bq_edges: Optional[str] = Query(None),
     site_id: Optional[str] = Query(None, description="Optional site filter (matches column idSite1 when present in Sheets)"),
+    normalize: Optional[bool] = Query(False, description="If true, returns v1.5 normalized graph (branch_id on edges, diameters filled, lengths computed)")
 ):
-    return load_graph(
+    g = load_graph(
         source=source,
         sheet_id=sheet_id,
         nodes_tab=nodes_tab,
@@ -35,6 +35,7 @@ def get_graph(
         bq_edges=bq_edges,
         site_id=site_id,
     )
+    return sanitize_graph_for_write(g) if normalize else g
 
 
 @router.post("/graph")

@@ -65,9 +65,10 @@ Flux type (lecture):
   - `Graph`:
     - `nodes: List[Node]`
     - `edges: List[Edge]`
-  - `Node` (attributs principaux): `id`, `name`, `type`, `branch_id`, `diameter_mm`, `sdr_ouvrage`, `commentaire`, `collector_well_ids`, `well_collector_id`, `well_pos_index`, `pm_collector_id`, `pm_collector_edge_id`, `pm_pos_index`, `gps_lat`, `gps_lon`, `lat`, `lon`, `x`, `y`, `x_ui`, `y_ui`, `extras`.
+  - `Node` (attributs principaux): `id`, `name`, `type`, `branch_id`, `commentaire`, `collector_well_ids`, `well_collector_id`, `well_pos_index`, `pm_collector_id`, `pm_collector_edge_id`, `pm_pos_index`, `gps_lat`, `gps_lon`, `lat`, `lon`, `x`, `y`, `x_ui`, `y_ui`, `extras`.
+    - Les champs `diameter_mm`, `sdr_ouvrage` et `material` ne sont renseignés que pour les nœuds de type `CANALISATION`. Pour les autres éléments (OUVRAGE, GENERAL, POINT_MESURE, VANNE, ...), ils sont laissés vides côté modèle et calculés à la volée dans l’UI à partir de la canalisation d’attache.
     - Validator `_sync_lon_lat` maintient la coherence `gps_lat/gps_lon` <-> `lat/lon`.
-  - `Edge`: `id`, `from_id`, `to_id`, `active`, `commentaire`, `geometry` (LineString `[lon,lat]`), `pipe_group_id`.
+  - `Edge`: `id`, `from_id`, `to_id`, `active`, `commentaire`, `geometry` (LineString `[lon,lat]`), `pipe_group_id`, `branch_id`, `diameter_mm`, `length_m`, `material`, `sdr`.
 - **Type de graphe**: graphe oriente representant un reseau de collecte (souvent quasi-arborescent). Les aretes `from_id -> to_id` materialisent le flux physique (ex: captage -> collecteur -> rejet). Le layout ELK produit un arbre dirige hierarchique, mais la structure supporte un DAG avec confluences.
 - **Compatibilite colonnes**:
   - Sheets: detection entetes FR/EN versions V1 a V8 (ancien Apps Script). Colonnes metier additionnelles stockees dans `extras` (`idSite1`, `site`, `Regroupement`, etc.).
@@ -82,8 +83,6 @@ Flux type (lecture):
       "name": "Station de pompage",
       "type": "OUVRAGE",
       "branch_id": "BR-001",
-      "diameter_mm": 200,
-      "sdr_ouvrage": "SDR-12",
       "commentaire": "Noeud amont",
       "gps_lat": 44.9084,
       "gps_lon": 4.8721,
@@ -103,6 +102,8 @@ Flux type (lecture):
       "type": "CANALISATION",
       "branch_id": "BR-001",
       "diameter_mm": 180,
+      "sdr_ouvrage": "SDR-11",
+      "material": "PEHD",
       "gps_lat": 44.9081,
       "gps_lon": 4.8735,
       "x": 220,
@@ -201,4 +202,3 @@ gcloud run deploy editeur-reseau-api \
 4. Verifier l embed via `dev-embed.html`.
 5. Pour deployer: `gcloud run deploy` (apres commit des bundles).
 6. Documenter toute evolution (schema Graph, sources) dans `README.md`, `TEST_PLAN.md`, et mettre a jour la presente note si la structure change.
-

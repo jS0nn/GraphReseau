@@ -81,6 +81,8 @@ export function wireStateLogs(){
         log(`+ arête ${payload?.from_id||payload?.source} → ${payload?.to_id||payload?.target}`); break
       case evt==='edge:remove':
         log(`− arête ${payload?.id}`); break
+      case evt==='edge:flip':
+        log(`↺ arête ${payload?.from_id||payload?.source} → ${payload?.to_id||payload?.target}`); break
       case evt==='clipboard:copy':
         log(`Copié: ${payload?.count||0} nœud(s)`); break
       case evt==='clipboard:paste':

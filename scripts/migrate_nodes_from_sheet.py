@@ -8,12 +8,8 @@ Source sheet headers expected (superset):
   diametreInterieur, sdrOuvrage, Lat, Long, x, y, actif, lat, long, dateAjoutligne, ...
 
 Destination format:
-  - First columns match app.sheets.NODE_HEADERS_FR_V5 (to remain compatible with the app)
-  - Extra metadata columns are appended (kept for filtering/audit):
-    [
-      'idOuvragReseauBiogaz','idSite1','site','Regroupement','Canalisation','Casier','emplacement','typeDePointDeMesure',
-      'commentaire','diametreExterieur','diametreInterieur','sdrOuvrage','actif','lat','long','dateAjoutligne'
-    ]
+  - First columns match app.sheets.NODE_HEADERS_FR_V9 (alignées avec l'application)
+  - Extra metadata columns correspond to app.sheets.EXTRA_SHEET_HEADERS (kept for filtering/audit).
 
 Usage:
   python scripts/migrate_nodes_from_sheet.py \
@@ -41,6 +37,7 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 from app.gcp_auth import get_credentials
+from app.sheets import NODE_HEADERS_FR_V9, EXTRA_SHEET_HEADERS
 
 
 def _sheets_client():
@@ -82,18 +79,6 @@ def _num(v: Any) -> Optional[float]:
     return None
 
 
-NODE_HEADERS_FR_V6 = [
-    'id','nom','type','id_branche','diametre_exterieur_mm','sdr_ouvrage','commentaire',
-    'puits_amont','well_collector_id','well_pos_index','pm_collecteur_id','pm_pos_index','gps_lat','gps_lon','x','y'
-]
-
-EXTRA_HEADERS = [
-    # Ne pas dupliquer les colonnes déjà présentes dans le core (id, diametre_exterieur_mm)
-    'idSite1','site','Regroupement','Canalisation','Casier','emplacement','typeDePointDeMesure',
-    'diametreInterieur','sdrOuvrage','actif','dateAjoutligne'
-]
-
-
 def detect_source_tab(svc, sheet_id: str, forced_tab: Optional[str]) -> str:
     if forced_tab:
         return forced_tab
@@ -111,7 +96,7 @@ def detect_source_tab(svc, sheet_id: str, forced_tab: Optional[str]) -> str:
 
 
 def build_output_rows(src_header: List[str], src_rows: List[Dict[str, Any]], site_filter: Optional[str]) -> List[List[Any]]:
-    header = NODE_HEADERS_FR_V6 + EXTRA_HEADERS
+    header = NODE_HEADERS_FR_V9 + EXTRA_SHEET_HEADERS
     out: List[List[Any]] = [header]
 
     def val(d: Dict[str, Any], key: str) -> Any:
@@ -162,7 +147,9 @@ def build_output_rows(src_header: List[str], src_rows: List[Dict[str, Any]], sit
         x = _num(val(d, 'x'))
         y = _num(val(d, 'y'))
 
-        # Core FR V5 columns
+        mat = (val(d, 'materiau') or val(d, 'material') or '')
+
+        # Core FR V9 columns
         core = [
             nid,
             name,
@@ -170,31 +157,19 @@ def build_output_rows(src_header: List[str], src_rows: List[Dict[str, Any]], sit
             branch,
             ("" if diam_mm is None else diam_mm),
             (val(d, 'sdrOuvrage') or ''),
+            mat,
             (val(d, 'commentaire') or ''),
-            "",  # puits_amont (not available)
-            "",  # well_collector_id
-            "",  # well_pos_index
-            "",  # pm_collecteur_id
-            "",  # pm_pos_index
+            '',  # pm_collector_edge_id
+            '',  # pm_pos_index
             ("" if lat is None else lat),
             ("" if lon is None else lon),
             ("" if x is None else x),
             ("" if y is None else y),
+            ("" if x is None else x),
+            ("" if y is None else y),
         ]
 
-        extra = [
-            val(d, 'idSite1'),
-            val(d, 'site'),
-            val(d, 'Regroupement'),
-            val(d, 'Canalisation'),
-            val(d, 'Casier'),
-            val(d, 'emplacement'),
-            val(d, 'typeDePointDeMesure'),
-            val(d, 'diametreInterieur'),
-            val(d, 'sdrOuvrage'),
-            val(d, 'actif'),
-            val(d, 'dateAjoutligne'),
-        ]
+        extra = [val(d, key) for key in EXTRA_SHEET_HEADERS]
 
         out.append(core + extra)
 

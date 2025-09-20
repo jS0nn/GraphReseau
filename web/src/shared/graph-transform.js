@@ -26,6 +26,9 @@ export function normalizeNumericValue(value){
 }
 
 export function normalizeEdge(raw){
+  const diameter = normalizeNumericValue(raw.diameter_mm ?? raw.diametre_mm)
+  const length = normalizeNumericValue(raw.length_m ?? raw.longueur_m)
+  const branch = raw.branch_id ?? raw.pipe_group_id ?? null
   return {
     id: raw.id,
     from_id: raw.from_id ?? raw.source,
@@ -34,6 +37,11 @@ export function normalizeEdge(raw){
     commentaire: raw.commentaire || '',
     geometry: Array.isArray(raw.geometry) ? raw.geometry : null,
     pipe_group_id: raw.pipe_group_id || null,
+    branch_id: branch,
+    diameter_mm: diameter,
+    length_m: length,
+    material: raw.material ?? raw.materiau ?? raw['matériau'] ?? null,
+    sdr: raw.sdr ?? raw.sdr_ouvrage ?? null,
   }
 }
 
@@ -83,10 +91,22 @@ function sanitizeNodeForSave(node){
   for(const key of NUMERIC_NODE_FIELDS){
     next[key] = normalizeNumericValue(next[key])
   }
+  const type = String(next.type || '').toUpperCase()
+  if(type !== 'CANALISATION'){
+    next.diameter_mm = null
+    next.sdr_ouvrage = ''
+    next.material = ''
+  }else{
+    if(next.diameter_mm == null) next.diameter_mm = null
+    if(next.sdr_ouvrage == null) next.sdr_ouvrage = ''
+    if(next.material == null) next.material = ''
+  }
   return next
 }
 
 function sanitizeEdgeForSave(edge){
+  const diameter = normalizeNumericValue(edge.diameter_mm ?? edge.diametre_mm)
+  const length = normalizeNumericValue(edge.length_m ?? edge.longueur_m)
   return {
     id: edge.id,
     from_id: edge.from_id ?? edge.source,
@@ -95,6 +115,11 @@ function sanitizeEdgeForSave(edge){
     commentaire: edge.commentaire || '',
     geometry: sanitizeGeometry(edge.geometry),
     pipe_group_id: edge.pipe_group_id || null,
+    branch_id: edge.branch_id || edge.pipe_group_id || null,
+    diameter_mm: diameter ?? null,
+    length_m: length ?? null,
+    material: edge.material || null,
+    sdr: edge.sdr || null,
   }
 }
 

@@ -96,9 +96,24 @@
                   <option>POINT_MESURE</option>
                 </select>
               </label>
-              <div id="grpDiameter" style="display:none">
+              <div id="grpCanalProps" style="display:none">
                 <label>Diamètre extérieur (mm) <input name="diameter_mm" type="number" min="0"></label>
                 <label>SDR <input name="sdr_ouvrage" placeholder="ex. SDR11 ou 11"></label>
+                <label>Matériau <input name="material" placeholder="ex. PVC"></label>
+              </div>
+              <div id="grpPipeInfo" style="display:none">
+                <label>Canalisation
+                  <input id="pipeInfoName" readonly placeholder="— non raccordé —">
+                </label>
+                <label>Diamètre (mm)
+                  <input id="pipeInfoDiameter" readonly>
+                </label>
+                <label>SDR
+                  <input id="pipeInfoSDR" readonly>
+                </label>
+                <label>Matériau
+                  <input id="pipeInfoMaterial" readonly>
+                </label>
               </div>
               <label>Commentaire
                 <textarea name="commentaire" rows="2" placeholder="Notes libres"></textarea>
@@ -162,8 +177,6 @@
             </details>
             <details id="grpInline" open style="display:none">
               <summary>PM / Vanne — Affectation</summary>
-              <label>Canalisation</label>
-              <select id="inlCanalSelect"></select>
               <label>Canalisation (arête)</label>
               <select id="inlEdgeSelect"></select>
               <label>Position (info)
@@ -195,6 +208,16 @@
               <div><label>De (amont)<input name="from_name" readonly></label></div>
               <div><label>Vers (aval)<input name="to_name" readonly></label></div>
             </div>
+            <button type="button" id="flipEdgeBtn" class="btn" style="width:100%"><i class="uil uil-exchange"></i> Inverser le sens</button>
+            <label>Diamètre (mm)
+              <input name="diameter_mm" type="number" min="0" step="0.1" placeholder="ex. 160">
+            </label>
+            <label>SDR
+              <input name="sdr" placeholder="ex. SDR11">
+            </label>
+            <label>Matériau
+              <input name="material" placeholder="ex. PEHD">
+            </label>
             <label>Actif
               <select name="active">
                 <option value="true">true</option>

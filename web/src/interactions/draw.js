@@ -4,6 +4,7 @@ import { NODE_SIZE } from '../constants/nodes.js'
 import { getMap, isMapActive } from '../map.js'
 import { showMiniMenu } from '../ui/mini-menu.js'
 import { centerUIForNode, edgeGeometryToUIPoints, nearestPointOnPolyline, splitGeometryAt, ensureEdgeGeometry } from '../shared/geometry.js'
+import { isCanal } from '../utils.js'
 
 const SNAP_TOL = 15 // px for nodes (distance to node rectangle)
 const EDGE_TOL = 15 // px for snapping onto existing edges
@@ -19,6 +20,67 @@ const EDGE_TOL = 15 // px for snapping onto existing edges
 let drawing = null
 let overlayRef = null
 let antennaSeedNodeId = null
+let antennaSeedProps = null
+
+const finiteDiameter = (value) => {
+  const num = Number(value)
+  return Number.isFinite(num) && num > 0 ? num : null
+}
+
+function pickEdgeProps(edge){
+  if(!edge) return null
+  const diameter_mm = finiteDiameter(edge.diameter_mm)
+  const material = edge.material || ''
+  const sdr = edge.sdr || ''
+  if(diameter_mm == null && !material && !sdr) return null
+  return { diameter_mm, material, sdr }
+}
+
+function mergeEdgeProps(target, props){
+  if(!props) return target
+  if(props.diameter_mm != null) target.diameter_mm = props.diameter_mm
+  if(props.material) target.material = props.material
+  if(props.sdr) target.sdr = props.sdr
+  return target
+}
+
+function inferPropsFromNodeId(nodeId, visited = new Set()){
+  if(!nodeId || visited.has(nodeId)) return null
+  visited.add(nodeId)
+  const node = state.nodes.find(nn => nn.id === nodeId)
+  if(node){
+    if(isCanal(node)){
+      const diameter_mm = finiteDiameter(node.diameter_mm)
+      const material = node.material || ''
+      const sdr = node.sdr_ouvrage || ''
+      if(diameter_mm != null || material || sdr){
+        return { diameter_mm, material, sdr }
+      }
+    }
+    if(node.well_collector_id){
+      const props = inferPropsFromNodeId(node.well_collector_id, visited)
+      if(props) return props
+    }
+    if(Array.isArray(node.collector_well_ids)){
+      for(const cid of node.collector_well_ids){
+        const props = inferPropsFromNodeId(cid, visited)
+        if(props) return props
+      }
+    }
+    const edgeRefs = [node.attach_edge_id, node.pm_collector_edge_id].filter(Boolean)
+    for(const eid of edgeRefs){
+      const edge = state.edges.find(e => e.id === eid)
+      const props = pickEdgeProps(edge)
+      if(props) return props
+    }
+  }
+  const connectedEdges = state.edges.filter(e => (e.from_id ?? e.source) === nodeId || (e.to_id ?? e.target) === nodeId)
+  for(const edge of connectedEdges){
+    const props = pickEdgeProps(edge)
+    if(props) return props
+  }
+  return null
+}
 
 function getUIFromEvent(evt){
   try{
@@ -104,9 +166,12 @@ function startDrawing(gOverlay){
 }
 
 function stopDrawing(){
-  if(!drawing) return
-  try{ drawing.previewPath?.remove() }catch{}
-  drawing = null
+  if(drawing){
+    try{ drawing.previewPath?.remove() }catch{}
+    drawing = null
+  }
+  antennaSeedNodeId = null
+  antennaSeedProps = null
 }
 
 function discardPhantomPoint(){
@@ -163,6 +228,24 @@ function finishDrawing(){
   snappedIds[0] = aId
   snappedIds[pointCount-1] = bId
   const nodeAtIndex = snappedIds.map(id => id || null)
+  const nodeIdsOnPath = new Set(nodeAtIndex.filter(Boolean))
+
+  const baseProps = (() => {
+    if(antennaSeedProps) return antennaSeedProps
+    if(antennaSeedNodeId){
+      const props = inferPropsFromNodeId(antennaSeedNodeId)
+      if(props) return props
+    }
+    const startProps = inferPropsFromNodeId(aId)
+    if(startProps) return startProps
+    const endProps = inferPropsFromNodeId(bId)
+    if(endProps) return endProps
+    for(const nid of nodeIdsOnPath){
+      const props = inferPropsFromNodeId(nid)
+      if(props) return props
+    }
+    return null
+  })()
 
   const segments = []
   let segStartIdx = 0
@@ -200,14 +283,19 @@ function finishDrawing(){
     registerEdgeForNode(seg.from, edge.id)
     registerEdgeForNode(seg.to, edge.id)
   }
-  if(!edgesCreated.length){ stopDrawing(); antennaSeedNodeId = null; return }
+  if(!edgesCreated.length){ stopDrawing(); return }
 
   const pgid = edgesCreated[0]?.id
-  if(pgid){
-    for(const edge of edgesCreated){ updateEdge(edge.id, { pipe_group_id: pgid }) }
+  const applyEdgeProps = (edgeId) => {
+    const patch = {}
+    if(pgid){
+      patch.pipe_group_id = pgid
+      patch.branch_id = pgid
+    }
+    mergeEdgeProps(patch, baseProps)
+    if(Object.keys(patch).length){ updateEdge(edgeId, patch) }
   }
-
-  const nodeIdsOnPath = new Set(nodeAtIndex.filter(Boolean))
+  edgesCreated.forEach(edge => applyEdgeProps(edge.id))
   const assignNodeToBranch = (id) => {
     const n = state.nodes.find(nn=>nn.id===id)
     if(!n) return
@@ -238,7 +326,6 @@ function finishDrawing(){
   }
 
   stopDrawing()
-  antennaSeedNodeId = null
 }
 
 function findNearestEdgeHit(x, y){
@@ -263,19 +350,28 @@ function splitEdgeAt(edge, hit){
   const keepActive = edge.active!==false
   const commentaire = edge.commentaire || ''
   const pgid = edge.pipe_group_id || ''
+  const baseProps = pickEdgeProps(edge)
+  const branchId = edge.branch_id || pgid || ''
   // Create the new node at hit point, lock to GPS
   const ll = unprojectUIToLatLon(hit.px, hit.py)
   const node = addNode({ type:'JONCTION', gps_lat: ll.lat, gps_lon: ll.lon, gps_locked: true, name:'', x: hit.px, y: hit.py })
   let e1 = null
   let e2 = null
+  const buildEdgeOpts = () => {
+    const opts = { active: keepActive, commentaire, pipe_group_id: pgid }
+    if(branchId) opts.branch_id = branchId
+    mergeEdgeProps(opts, baseProps)
+    return opts
+  }
   suspendOrphanPrune(()=>{
     removeEdge(edge.id)
-    e1 = addEdge(fromId, node.id, { active: keepActive, commentaire, pipe_group_id: pgid })
+    e1 = addEdge(fromId, node.id, buildEdgeOpts())
     if(e1?.id) updateEdge(e1.id, { geometry: parts.g1 })
-    e2 = addEdge(node.id, toId, { active: keepActive, commentaire, pipe_group_id: pgid })
+    e2 = addEdge(node.id, toId, buildEdgeOpts())
     if(e2?.id) updateEdge(e2.id, { geometry: parts.g2 })
   })
-  return { nodeId: node.id, ui: [hit.px, hit.py] }
+  if(branchId) updateNode(node.id, { branch_id: branchId })
+  return { nodeId: node.id, ui: [hit.px, hit.py], edgeProps: baseProps }
 }
 
 export function attachDraw(svgSel, gOverlay){
@@ -305,6 +401,7 @@ export function attachDraw(svgSel, gOverlay){
         const res = splitEdgeAt(best.edge, best.hit)
         if(res){
           usePt = res.ui; snappedId = res.nodeId
+          if(res.edgeProps){ antennaSeedProps = res.edgeProps }
           // Mini menu (type du nœud inséré) — pas d'antenne ici car on est déjà en dessin
           try{
             showMiniMenu(evt.clientX, evt.clientY, [
@@ -334,6 +431,9 @@ export function attachDraw(svgSel, gOverlay){
     // UI cache will be recomputed from GPS in updatePreview
     drawing.pointsUI.push(usePt)
     drawing.snappedIds.push(snappedId)
+    if(snappedId && !antennaSeedProps){
+      antennaSeedProps = inferPropsFromNodeId(snappedId)
+    }
     updatePreview()
   }
 
@@ -396,6 +496,7 @@ export function startDrawingFromNodeId(nodeId){
     drawing.pointsLL = [[ll.lon, ll.lat]]
     drawing.snappedIds = [nodeId]
     antennaSeedNodeId = nodeId
+    antennaSeedProps = inferPropsFromNodeId(nodeId) || antennaSeedProps
     updatePreview()
   }catch{}
 }

@@ -17,6 +17,29 @@ export const state = {
   edgeVarWidth: false,
 }
 
+function getViewportCenter(){
+  try{
+    const svg = document.getElementById('svg')
+    const canvas = document.getElementById('canvas')
+    if(!svg || !canvas) return null
+    const rectSvg = svg.getBoundingClientRect()
+    const rectCanvas = canvas.getBoundingClientRect()
+    const px = (rectCanvas.left + rectCanvas.width / 2) - rectSvg.left
+    const py = (rectCanvas.top + rectCanvas.height / 2) - rectSvg.top
+    const d3 = window.d3
+    if(d3 && typeof d3.zoomTransform === 'function'){
+      const transform = d3.zoomTransform(svg)
+      if(transform && typeof transform.invert === 'function'){
+        const [cx, cy] = transform.invert([px, py])
+        return { x: snapToGrid(cx, state.gridStep), y: snapToGrid(cy, state.gridStep) }
+      }
+    }
+    return { x: snapToGrid(px, state.gridStep), y: snapToGrid(py, state.gridStep) }
+  }catch{
+    return null
+  }
+}
+
 const listeners = new Set()
 export function subscribe(fn){ listeners.add(fn); return () => listeners.delete(fn) }
 function notify(event, payload){ for(const fn of listeners) fn(event, payload, state) }
@@ -260,6 +283,8 @@ export function addNode(partial = {}){
   const type = enforceEdgeOnlyNodeType(partial.type || 'OUVRAGE')
   function nextSpawn(){
     const idx = state._spawnIndex++
+    const center = getViewportCenter()
+    if(center) return center
     const baseX = 120 + (idx % 8) * 60
     const baseY = 120 + Math.floor(idx / 8) * 80
     const tooClose = (x, y) => state.nodes.some(n => Math.abs((+n.x || 0) - x) < 40 && Math.abs((+n.y || 0) - y) < 40)
@@ -357,4 +382,20 @@ export function removeEdge(id){
   state.edges.splice(index, 1)
   notify('edge:remove', { id })
   scheduleOrphanPrune()
+}
+
+export function flipEdgeDirection(id){
+  const edge = state.edges.find(e => e.id === id)
+  if(!edge) return
+  const from = edge.from_id ?? edge.source
+  const to = edge.to_id ?? edge.target
+  if(!from || !to) return
+  edge.from_id = to
+  edge.to_id = from
+  if('source' in edge) edge.source = edge.from_id
+  if('target' in edge) edge.target = edge.to_id
+  if(Array.isArray(edge.geometry)){
+    edge.geometry = edge.geometry.slice().reverse()
+  }
+  notify('edge:flip', { id, from_id: edge.from_id, to_id: edge.to_id })
 }

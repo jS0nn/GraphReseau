@@ -17,6 +17,11 @@ function normalizeNode(raw){
   if(node.x == null && node.x_ui != null) node.x = node.x_ui
   if(node.y == null && node.y_ui != null) node.y = node.y_ui
   if(typeof node.gps_locked !== 'boolean') node.gps_locked = true
+  if(node.type !== 'CANALISATION'){
+    node.diameter_mm = null
+    node.sdr_ouvrage = ''
+    node.material = ''
+  }
   return node
 }
 
