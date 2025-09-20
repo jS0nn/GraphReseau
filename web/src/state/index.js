@@ -14,7 +14,7 @@ export const state = {
   viewMode: 'geo',
   gridStep: 8,
   _spawnIndex: 0,
-  edgeVarWidth: false,
+  edgeVarWidth: true,
 }
 
 function getViewportCenter(){

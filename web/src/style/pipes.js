@@ -13,10 +13,19 @@
 //   classes: number of classes when mode==='classed' (default 5)
 //   classStrategy: 'quantile' | 'fixed' (default 'quantile')
 //   fixedBounds: number[] (only when classStrategy==='fixed')
-//   widthPx: { min: 1.6, max: 6 }
+//   widthPx: { min: 1.0, max: 8.0 }
 //   defaultDiameterMm: 50
 
 import { clamp, isCanal, vn } from '../utils.js'
+
+const MIN_DIAMETER_MM = 80
+const MAX_DIAMETER_MM = 315
+
+function parseDiameter(raw){
+  if(raw == null) return null
+  const num = Number(raw)
+  return (Number.isFinite(num) && num > 0) ? num : null
+}
 
 // --- Color helpers ---
 function cssVar(name, fallback=''){
@@ -236,13 +245,24 @@ function computeClasses(values, count, strategy='quantile', fixedBounds){
 let _cache = { key: '', style: null }
 
 export function ensurePipeStyle({ nodes, edges, theme, options } = {}){
-  const opts = Object.assign({ mode:'continuous', classes:5, classStrategy:'quantile', fixedBounds:[], widthPx:{min:1.6, max:6}, defaultDiameterMm:50, trunkToleranceRatio:0.10 }, options||{})
-  const diaVals = nodes.filter(isCanal).map(n => {
-    const d = +n.diameter_mm
-    return (Number.isFinite(d) && d > 0) ? d : opts.defaultDiameterMm
-  })
-  const diaMin = Math.min(...diaVals, opts.defaultDiameterMm)
-  const diaMax = Math.max(...diaVals, opts.defaultDiameterMm)
+  const opts = Object.assign({ mode:'continuous', classes:5, classStrategy:'quantile', fixedBounds:[], widthPx:{min:1.0, max:8.0}, defaultDiameterMm:50, trunkToleranceRatio:0.10 }, options||{})
+  const normalizeDiameter = (raw)=>{
+    const parsed = parseDiameter(raw)
+    const base = parsed ?? opts.defaultDiameterMm
+    return clamp(base, MIN_DIAMETER_MM, MAX_DIAMETER_MM)
+  }
+  const nodeDiaVals = nodes.filter(isCanal)
+    .map(n => parseDiameter(n?.diameter_mm))
+    .filter(v => v != null)
+    .map(v => clamp(v, MIN_DIAMETER_MM, MAX_DIAMETER_MM))
+  const edgeDiaVals = (edges || [])
+    .map(e => parseDiameter(e?.diameter_mm ?? e?.diametre_mm))
+    .filter(v => v != null)
+    .map(v => clamp(v, MIN_DIAMETER_MM, MAX_DIAMETER_MM))
+  const diaVals = [...nodeDiaVals, ...edgeDiaVals]
+  const defaultDia = clamp(opts.defaultDiameterMm, MIN_DIAMETER_MM, MAX_DIAMETER_MM)
+  const diaMin = diaVals.length ? Math.min(...diaVals) : defaultDia
+  const diaMax = diaVals.length ? Math.max(...diaVals) : defaultDia
   const themeKey = theme || (document.body?.dataset?.theme || 'dark')
   const topoHash = (()=>{
     // simple stable signature of canal parent links
@@ -253,14 +273,29 @@ export function ensurePipeStyle({ nodes, edges, theme, options } = {}){
     }).map(e=>`${e.from_id??e.source}->${e.to_id??e.target}`).sort().join('|')
     return hash32(rel).toString(36)
   })()
-  const key = [nodes.length, edges.length, diaMin, diaMax, themeKey, opts.mode, opts.classes, opts.classStrategy, JSON.stringify(opts.fixedBounds||[]), topoHash, opts.trunkToleranceRatio].join('|')
+  const key = [
+    nodes.length,
+    edges.length,
+    diaMin,
+    diaMax,
+    themeKey,
+    opts.mode,
+    opts.classes,
+    opts.classStrategy,
+    JSON.stringify(opts.fixedBounds||[]),
+    topoHash,
+    opts.trunkToleranceRatio,
+    opts.widthPx?.min,
+    opts.widthPx?.max,
+    opts.defaultDiameterMm,
+  ].join('|')
   if(_cache.key === key && _cache.style){ return _cache.style }
 
   // Node index used across helpers in this scope
   const idToNode = new Map(nodes.map(n=>[n.id, n]))
 
   // Build scales
-  const scale = sqrtScale(diaMin, diaMax, opts.widthPx.min, opts.widthPx.max)
+  const scale = sqrtScale(MIN_DIAMETER_MM, MAX_DIAMETER_MM, opts.widthPx.min, opts.widthPx.max)
   const classInfo = (opts.mode==='classed') ? computeClasses(diaVals, opts.classes, opts.classStrategy, opts.fixedBounds) : null
   const widthLevels = []
   if(classInfo){
@@ -351,12 +386,16 @@ export function ensurePipeStyle({ nodes, edges, theme, options } = {}){
     if(bIsCan) return b
     return null
   }
-  const widthForDiameter = (d)=> (classInfo ? widthLevels[classInfo.indexOf(d)] : scale(d))
+  const widthForDiameter = (d)=>{
+    const clamped = normalizeDiameter(d)
+    return classInfo ? widthLevels[classInfo.indexOf(clamped)] : scale(clamped)
+  }
 
   const edgeWidth = (e)=>{
+    const direct = parseDiameter(e?.diameter_mm ?? e?.diametre_mm)
+    if(direct != null) return widthForDiameter(direct)
     const n = diameterNodeForEdge(e)
-    const d = Number.isFinite(+n?.diameter_mm) ? +n.diameter_mm : opts.defaultDiameterMm
-    return widthForDiameter(d)
+    return widthForDiameter(n?.diameter_mm)
   }
   const edgeColor = (e)=>{
     // Colors still follow the canal branch logic
@@ -370,8 +409,7 @@ export function ensurePipeStyle({ nodes, edges, theme, options } = {}){
   }
   const inlineWidth = (d)=>{
     const c = d?.from && isCanal(d.from) ? d.from : null
-    const dia = Number.isFinite(+c?.diameter_mm) ? +c.diameter_mm : opts.defaultDiameterMm
-    return widthForDiameter(dia)
+    return widthForDiameter(c?.diameter_mm)
   }
   const inlineColor = (d)=>{
     const c = d?.from && isCanal(d.from) ? d.from : null

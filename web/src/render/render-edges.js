@@ -101,7 +101,17 @@ function graphPoints(aNode, bNode){
 
 export function renderEdges(gEdges, edges){
   const index = new Map(state.nodes.map(n => [n.id, n]))
-  const norm = (e)=> ({ id: e.id, source: e.source ?? e.from_id, target: e.target ?? e.to_id, active: e.active!==false, geometry: e.geometry })
+  const norm = (e)=> ({
+    ...e,
+    id: e.id,
+    source: e.source ?? e.from_id,
+    target: e.target ?? e.to_id,
+    from_id: e.from_id ?? e.source,
+    to_id: e.to_id ?? e.target,
+    active: e.active!==false,
+    geometry: e.geometry,
+    diameter_mm: e.diameter_mm ?? e.diametre_mm ?? null,
+  })
   // Deduplicate edges by id
   const seen = new Set()
   const data = []
@@ -132,7 +142,7 @@ export function renderEdges(gEdges, edges){
       const safePts = (pts && pts.length >= 2) ? pts : graphPoints(a, b)
       const dStr = buildPath(safePts)
       const varWidth = !!state.edgeVarWidth
-      const baseW = varWidth ? (style.widthForEdge({ from_id:d.source, to_id:d.target }) || DEFAULT_EDGE_WIDTH) : DEFAULT_EDGE_WIDTH
+      const baseW = varWidth ? (style.widthForEdge(d) || DEFAULT_EDGE_WIDTH) : DEFAULT_EDGE_WIDTH
       const sel = state.selection.edgeId===d.id
       const baseColor = d.active ? style.colorForEdge({ from_id:d.source, to_id:d.target }) : 'var(--muted)'
       const hiColor = d.active ? 'var(--edge-color-sel)' : 'var(--muted)'
@@ -171,7 +181,8 @@ export function renderEdges(gEdges, edges){
     const aIs = a && (a.type==='CANALISATION'||a.type==='COLLECTEUR')
     const bIs = b && (b.type==='CANALISATION'||b.type==='COLLECTEUR')
     const canal = (aIs && bIs) ? b : (aIs ? a : (bIs ? b : null))
-    const raw = canal ? +canal.diameter_mm : NaN
+    const edgeDia = Number.isFinite(+edge?.diameter_mm) && +edge.diameter_mm > 0 ? +edge.diameter_mm : null
+    const raw = edgeDia ?? (canal ? +canal.diameter_mm : NaN)
     const dia = (Number.isFinite(raw) && raw > 0) ? raw : null
     const nameA = a?.name||a?.id||'A', nameB = b?.name||b?.id||'B'
     const diaTxt = dia==null ? 'Ø inconnu (valeur par défaut)' : `Ø ${fmtNum(dia)} mm`
