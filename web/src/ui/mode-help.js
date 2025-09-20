@@ -32,7 +32,7 @@ function contentFor(mode){
       return '<b>Éditer (E)</b>'+li(
         'Clic sur une canalisation = afficher les poignées',
         'Glisser un sommet pour déplacer',
-        'Alt+clic sur un segment = insérer un sommet',
+        'Alt+clic ou clic droit sur un segment = insérer un sommet',
         'Suppr = supprimer le sommet')
     case 'junction':
       return '<b>Insérer (I)</b>'+li(
@@ -51,6 +51,7 @@ function contentFor(mode){
     default:
       return '<b>Sélection (V)</b>'+li(
         'Clic = sélectionner, Shift = multi‑sélection',
+        'Clic droit sur une canalisation = insérer une jonction rapide',
         'Suppr = supprimer la sélection',
         'Molette = zoom, Espace = pan')
   }

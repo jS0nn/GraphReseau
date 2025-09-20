@@ -445,7 +445,7 @@ export async function boot(){
     if(evt==='mode:set'){
       if(payload==='delete') setStatus('Veuillez sélectionner l’élément à supprimer')
       else if(payload==='draw') setStatus('Clic = sommet · Double‑clic = terminer · Échap = annuler')
-      else if(payload==='edit') setStatus('Clic = poignées · Alt+clic = insérer · Suppr = supprimer')
+      else if(payload==='edit') setStatus('Clic = poignées · Alt+clic ou clic droit = insérer · Suppr = supprimer')
       else if(payload==='junction') setStatus('Clic segment = insérer une jonction et découper')
       else setStatus('')
       try{ showModeHelp(payload) }catch{}

@@ -1,8 +1,15 @@
-import { state, selectNodeById, selectEdgeById, getMode, removeNode, removeEdge, toggleMultiSelection } from '../state/index.js'
-import { edgeGeometryToUIPoints, nearestPointOnPolyline } from '../shared/geometry.js'
+import { state, selectNodeById, selectEdgeById, getMode, removeNode, removeEdge, toggleMultiSelection, addEdge, subscribe, updateEdge } from '../state/index.js'
+import { ensureEdgeGeometry, edgeGeometryToUIPoints, nearestPointOnPolyline } from '../shared/geometry.js'
 
 const EDGE_FALLBACK_TOLERANCE = 28
 let edgeFallbackWired = false
+let pendingConnect = null
+
+subscribe((evt, payload)=>{
+  if(evt === 'mode:set' && payload !== 'connect'){
+    pendingConnect = null
+  }
+})
 
 function handleEdgeSelection(event, datum){
   if(!datum || !datum.id) return false
@@ -104,13 +111,40 @@ export function attachSelection(gNodes, gEdges){
       e.stopPropagation()
       const mode = getMode()
       if(String(d?.type||'').toUpperCase()==='JONCTION') return // ignore pure junctions
+      if(mode === 'connect'){
+        if(!d?.id) return
+        if(pendingConnect === d.id){
+          pendingConnect = null
+          selectNodeById(null)
+          return
+        }
+        if(pendingConnect == null){
+          pendingConnect = d.id
+          selectNodeById(d.id)
+          return
+        }
+        const avalId = pendingConnect
+        const amontId = d.id
+        pendingConnect = null
+        selectNodeById(null)
+        if(avalId === amontId) return
+        const edge = addEdge(amontId, avalId, { active: true })
+        if(edge?.id){
+          const created = state.edges.find(e => e.id === edge.id)
+          if(created){
+            const geom = ensureEdgeGeometry(created, state.nodes)
+            if(geom){ updateEdge(edge.id, { geometry: geom }) }
+          }
+          selectEdgeById(edge.id)
+        }
+        return
+      }
       if(mode==='delete'){
         if(confirm(`Supprimer le nœud ${(d.name||d.id)} et ses liens ?`)){
           removeNode(d.id); selectNodeById(null); selectEdgeById(null)
         }
         return
       }
-      if(mode==='connect'){ return }
       if(e.shiftKey){ toggleMultiSelection(d.id); return }
       selectNodeById(d.id)
     })

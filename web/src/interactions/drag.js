@@ -12,6 +12,7 @@ export function attachNodeDrag(gNodes, onEnd){
   let overrideLock = false
   let overrideIds = []
   const drag = d3.drag()
+    .clickDistance(8)
     .on('start', function(e){
       try{ e.sourceEvent?.preventDefault(); e.sourceEvent?.stopPropagation() }catch{}
       d3.select(this).classed('dragging', true)

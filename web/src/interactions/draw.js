@@ -1,4 +1,4 @@
-import { state, addNode, addEdge, updateEdge, removeEdge, updateNode, getMode, subscribe, suspendOrphanPrune } from '../state/index.js'
+import { state, addNode, addEdge, updateEdge, removeEdge, updateNode, getMode, setMode, subscribe, suspendOrphanPrune } from '../state/index.js'
 import { displayXYForNode, unprojectUIToLatLon, projectLatLonToUI } from '../geo.js'
 import { NODE_SIZE } from '../constants/nodes.js'
 import { getMap, isMapActive } from '../map.js'
@@ -183,6 +183,7 @@ function discardPhantomPoint(){
 
 function finishDrawing(){
   if(!drawing) return
+  const shouldReturnToSelect = !!antennaSeedNodeId
   // Drop phantom if present so we only keep confirmed vertices
   discardPhantomPoint()
   const ptsLL = Array.isArray(drawing.pointsLL) ? drawing.pointsLL.slice() : []
@@ -277,8 +278,9 @@ function finishDrawing(){
     nodeSegments.set(nodeId, arr)
   }
   for(const seg of segments){
-    const edge = addEdge(seg.from, seg.to, { active: true })
-    updateEdge(edge.id, { geometry: seg.geometry })
+    const edge = addEdge(seg.to, seg.from, { active: true })
+    const geom = Array.isArray(seg.geometry) ? seg.geometry.slice().reverse() : seg.geometry
+    updateEdge(edge.id, { geometry: geom })
     edgesCreated.push(edge)
     registerEdgeForNode(seg.from, edge.id)
     registerEdgeForNode(seg.to, edge.id)
@@ -326,6 +328,9 @@ function finishDrawing(){
   }
 
   stopDrawing()
+  if(shouldReturnToSelect){
+    try{ setMode('select') }catch{}
+  }
 }
 
 function findNearestEdgeHit(x, y){

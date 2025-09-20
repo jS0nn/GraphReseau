@@ -6,6 +6,8 @@ let currentEdgeId = null
 let selVertex = { edgeId: null, index: -1 }
 let isDraggingVertex = false
 let wired = false
+const INSERT_TOLERANCE = 32
+let suppressNextContextMenu = false
 
 function nearestVertex(pts, x, y, tol=12){
   let best = { idx:-1, d2: Infinity }
@@ -39,6 +41,93 @@ function findNearestEdgeHit(x, y, tol=28){
 function getOverlay(){ return document.getElementById('svg')?.querySelector('g.overlay') }
 
 function clearHandles(){ try{ getOverlay()?.querySelectorAll('g.geom-handles, path.geom-preview')?.forEach(n=>n.remove()) }catch{} }
+
+function getUIPositionFromEvent(ev, svg){
+  let x, y
+  try{
+    if(window.__leaflet_map){
+      const pt = window.__leaflet_map.mouseEventToContainerPoint(ev)
+      x = pt.x
+      y = pt.y
+    }
+  }catch{}
+  if(x==null || y==null){
+    const rect = svg.getBoundingClientRect()
+    const px = ev.clientX - rect.left
+    const py = ev.clientY - rect.top
+    try{
+      const t = window.d3?.zoomTransform?.(svg)
+      if(t && typeof t.invert === 'function'){
+        const p = t.invert([px, py])
+        x = p[0]
+        y = p[1]
+      }else{
+        x = px
+        y = py
+      }
+    }catch{
+      x = px
+      y = py
+    }
+  }
+  return { x, y }
+}
+
+function insertVertexAtPosition(x, y, preferEdgeId){
+  let edge = null
+  let seg = null
+  const preferIds = []
+  if(preferEdgeId) preferIds.push(preferEdgeId)
+  if(currentEdgeId && !preferIds.includes(currentEdgeId)) preferIds.push(currentEdgeId)
+  for(const edgeId of preferIds){
+    const candidate = edgeId ? state.edges.find(xx=>xx.id===edgeId) : null
+    if(!candidate) continue
+    const pts = edgeGeometryToUIPoints(candidate, state.nodes)
+    if(pts.length < 2) continue
+    const hit = nearestSegment(pts, x, y)
+    if(!hit || !Number.isFinite(hit.d2) || hit.d2 > (INSERT_TOLERANCE*INSERT_TOLERANCE)) continue
+    edge = candidate
+    seg = hit
+    break
+  }
+  if(!edge){
+    const found = findNearestEdgeHit(x, y, INSERT_TOLERANCE)
+    if(found){ edge = found.edge; seg = found.hit }
+  }
+  if(!edge || !seg) return false
+  currentEdgeId = edge.id
+  selectEdgeById(edge.id)
+  let edgeRef = state.edges.find(x=>x.id===edge.id)
+  if(!Array.isArray(edgeRef?.geometry) || edgeRef.geometry.length<2){
+    const fallbackGeom = ensureEdgeGeometry(edgeRef, state.nodes)
+    if(fallbackGeom) updateEdge(edge.id, { geometry: fallbackGeom })
+    edgeRef = state.edges.find(x=>x.id===edge.id)
+  }
+  const pts = edgeGeometryToUIPoints(edgeRef, state.nodes)
+  if(pts.length < 2) return false
+  if(!seg || !Number.isFinite(seg?.i)){ seg = nearestSegment(pts, x, y) }
+  const insertPoint = [ Number.isFinite(seg?.px) ? seg.px : x, Number.isFinite(seg?.py) ? seg.py : y ]
+  const ll = unprojectUIToLatLon(insertPoint[0], insertPoint[1])
+  const geo = (edgeRef?.geometry || []).slice()
+  if(geo.length < 2) return false
+  const insertIndex = Number.isFinite(seg?.i) ? seg.i : (Number.isFinite(seg?.seg) ? seg.seg : 1)
+  geo.splice(insertIndex, 0, [ll.lon, ll.lat])
+  updateEdge(edge.id, { geometry: geo })
+  renderHandles(state.edges.find(x=>x.id===edge.id))
+  return true
+}
+
+function attemptInsertFromEvent(ev, svg, preferEdgeId){
+  if(getMode()!=='edit' || !svg) return false
+  const { x, y } = getUIPositionFromEvent(ev, svg)
+  const targetEdgeId = preferEdgeId ?? (ev.target?.closest && ev.target.closest('g.edge')?.getAttribute('data-id'))
+  const inserted = insertVertexAtPosition(x, y, targetEdgeId)
+  if(inserted){
+    ev.preventDefault?.()
+    ev.stopPropagation?.()
+  }
+  return inserted
+}
 
 function renderHandles(edge){
   clearHandles()
@@ -141,48 +230,27 @@ export function attachEditGeometry(_gEdges){
   const svg = document.getElementById('svg')
   svg?.addEventListener('click', (ev)=>{
     if(getMode()!=='edit' || !ev.altKey) return
-    ev.preventDefault(); ev.stopPropagation()
-    let x, y
-    try{ if(window.__leaflet_map){ const pt=window.__leaflet_map.mouseEventToContainerPoint(ev); x=pt.x; y=pt.y } }catch{}
-    if(x==null||y==null){
-      const r = svg.getBoundingClientRect(); const px=ev.clientX-r.left; const py=ev.clientY-r.top
-      try{ const t = window.d3?.zoomTransform?.(svg); if(t && typeof t.invert==='function'){ const p=t.invert([px,py]); x=p[0]; y=p[1] } else { x=px; y=py } }
-      catch{ x=px; y=py }
+    attemptInsertFromEvent(ev, svg)
+  }, true)
+  svg?.addEventListener('mousedown', (ev)=>{
+    if(getMode()!=='edit') return
+    const isRightClick = ev.button === 2 || (ev.button === 0 && ev.ctrlKey)
+    if(!isRightClick) return
+    const inserted = attemptInsertFromEvent(ev, svg)
+    if(inserted) suppressNextContextMenu = true
+  }, true)
+  svg?.addEventListener('contextmenu', (ev)=>{
+    if(getMode()!=='edit') return
+    if(suppressNextContextMenu){
+      suppressNextContextMenu = false
+      ev.preventDefault(); ev.stopPropagation()
+      return
     }
-    // Préférence: arête sélectionnée si présente
-    let e = currentEdgeId ? state.edges.find(xx=>xx.id===currentEdgeId) : null
-    let seg = null
-    if(e){
-    const ptsSel = edgeGeometryToUIPoints(e, state.nodes)
-      if(ptsSel.length>=2){ seg = nearestSegment(ptsSel, x, y) }
-      // Si le point est trop loin de l'arête sélectionnée, bascule sur la plus proche globale
-      if(!seg || !Number.isFinite(seg.d2) || seg.d2 > (32*32)) e = null
+    const inserted = attemptInsertFromEvent(ev, svg)
+    if(inserted){
+      suppressNextContextMenu = false
+      return
     }
-  if(!e){
-    const found = findNearestEdgeHit(x, y, 32)
-    if(!found) return
-    e = found.edge
-    seg = nearestSegment(edgeGeometryToUIPoints(e, state.nodes), x, y)
-  }
-    currentEdgeId = e.id
-    selectEdgeById(e.id)
-    // Initialiser la géométrie si manquante
-    if(!Array.isArray(e.geometry) || e.geometry.length<2){
-      const fallbackGeom = ensureEdgeGeometry(e, state.nodes)
-      if(fallbackGeom) updateEdge(e.id, { geometry: fallbackGeom })
-    }
-    // Recalcule et insère au plus proche
-    const pts = edgeGeometryToUIPoints(state.edges.find(x=>x.id===e.id), state.nodes)
-    if(!seg){ seg = nearestSegment(pts, x, y) }
-    const uiIns = [seg.px, seg.py]
-    const ll = unprojectUIToLatLon(uiIns[0], uiIns[1])
-    const geo = (state.edges.find(x=>x.id===e.id)?.geometry || []).slice()
-    if(geo.length>=2){
-      const insertIndex = Number.isFinite(seg?.i) ? seg.i : (Number.isFinite(seg?.seg) ? seg.seg : 1)
-      geo.splice(insertIndex, 0, [ll.lon, ll.lat])
-      updateEdge(e.id, { geometry: geo })
-    }
-    renderHandles(state.edges.find(x=>x.id===e.id))
   }, true)
   // delete current vertex on Delete
   window.addEventListener('keydown', (ev)=>{
