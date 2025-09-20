@@ -91,6 +91,9 @@ export function normalizeEdge(raw){
     const txt = String(val).trim()
     return txt || null
   })()
+  const geometry = Array.isArray(raw.geometry) ? raw.geometry : null
+  const computedLength = (length == null) ? geometryLength(geometry) : null
+  const finalLength = length != null ? Math.round(length * 100) / 100 : (computedLength != null ? Math.round(computedLength * 100) / 100 : null)
   const extras = (typeof raw.extras === 'object' && raw.extras) ? { ...raw.extras } : {}
   Object.keys(extras).forEach((key) => {
     if(key.startsWith('ui_') || key.startsWith('site_effective')) delete extras[key]
@@ -101,10 +104,10 @@ export function normalizeEdge(raw){
     to_id: raw.to_id ?? raw.target,
     active: raw.active !== false,
     commentaire: raw.commentaire || '',
-    geometry: Array.isArray(raw.geometry) ? raw.geometry : null,
+    geometry,
     branch_id: branch,
     diameter_mm: diameter,
-    length_m: length,
+    length_m: finalLength,
     material,
     sdr,
     site_id: siteId,

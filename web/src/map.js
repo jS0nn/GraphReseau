@@ -15,6 +15,55 @@ function consumeAutoFitSuppression(){
 let map = null
 let tilesLayer = null
 
+function computeCanvasOverlayPadding(){
+  const container = typeof document !== 'undefined' ? document.getElementById('canvas') : null
+  const width = container?.clientWidth || 0
+  const height = container?.clientHeight || 0
+  if(!container || width <= 0 || height <= 0){
+    return { left: 0, right: 0, top: 0, bottom: 0 }
+  }
+  const result = { left: 0, right: 0, top: 0, bottom: 0 }
+  try{
+    const propEl = document.getElementById('prop')
+    if(propEl && !document.body.classList.contains('prop-collapsed')){
+      const style = window.getComputedStyle(propEl)
+      const opacity = parseFloat(style?.opacity || '1')
+      if(style && style.display !== 'none' && style.visibility !== 'hidden' && opacity > 0){
+        const canvasRect = container.getBoundingClientRect()
+        const propRect = propEl.getBoundingClientRect()
+        const overlapLeft = Math.max(canvasRect.left, propRect.left)
+        const overlapRight = Math.min(canvasRect.right, propRect.right)
+        const overlapWidth = Math.max(0, overlapRight - overlapLeft)
+        if(overlapWidth > 1){
+          const propCenterX = propRect.left + propRect.width / 2
+          const canvasCenterX = canvasRect.left + canvasRect.width / 2
+          if(propCenterX >= canvasCenterX){
+            result.right = overlapWidth
+          }else{
+            result.left = overlapWidth
+          }
+        }
+      }
+    }
+    const logDrawer = document.getElementById('logDrawer')
+    if(logDrawer){
+      const style = window.getComputedStyle(logDrawer)
+      const opacity = parseFloat(style?.opacity || '1')
+      if(style && style.display !== 'none' && opacity > 0){
+        const rect = logDrawer.getBoundingClientRect()
+        const canvasRect = container.getBoundingClientRect()
+        if(rect.top < canvasRect.bottom && rect.bottom > canvasRect.top){
+          const overlap = Math.max(0, Math.min(canvasRect.bottom, rect.bottom) - Math.max(canvasRect.top, rect.top))
+          if(overlap > 1){
+            result.bottom = overlap
+          }
+        }
+      }
+    }
+  }catch{}
+  return result
+}
+
 export function initMap(){
   const body = (typeof document!=='undefined' ? document.body : null)
   const cfg = window.__MAP || {
@@ -103,7 +152,15 @@ export function fitMapToNodes(){
   let minLat=+Infinity, maxLat=-Infinity, minLon=+Infinity, maxLon=-Infinity
   pts.forEach(([lat,lon])=>{ if(lat<minLat)minLat=lat; if(lat>maxLat)maxLat=lat; if(lon<minLon)minLon=lon; if(lon>maxLon)maxLon=lon })
   const b = L.latLngBounds(L.latLng(minLat, minLon), L.latLng(maxLat, maxLon))
-  try{ map.fitBounds(b.pad(0.1)) }catch{}
+  try{
+    const padding = computeCanvasOverlayPadding()
+    const base = 60
+    const options = {
+      paddingTopLeft: L.point(base + padding.left, base),
+      paddingBottomRight: L.point(base + padding.right, base + padding.bottom),
+    }
+    map.fitBounds(b.pad(0.05), options)
+  }catch{}
 }
 
 export function syncGeoProjection(){

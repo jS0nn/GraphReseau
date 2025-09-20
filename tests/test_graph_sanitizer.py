@@ -201,6 +201,8 @@ class GraphSanitizerTests(unittest.TestCase):
             material="pehd",
             sdr="17",
             extras={},
+            geometry=[[2.0, 48.0], [2.001, 48.001]],
+            length_m=None,
         )
         graph = Graph(nodes=[Node(id="A"), Node(id="B")], edges=[edge])
         cleaned = sanitize_graph_for_write(graph, strict=True)
@@ -210,6 +212,8 @@ class GraphSanitizerTests(unittest.TestCase):
         self.assertNotIn("extras", edge_payload)
         self.assertNotIn("site_id", edge_payload)
         self.assertEqual(edge_payload["material"], "PEHD")
+        self.assertIsNotNone(edge_payload["length_m"])
+        self.assertGreater(edge_payload["length_m"], 0)
 
 
 if __name__ == "__main__":

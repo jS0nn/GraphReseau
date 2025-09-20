@@ -1,7 +1,7 @@
 """Backward-compatible wrapper around shared graph sanitisation helpers."""
 from __future__ import annotations
 
-from ..models import Graph
+from ..models import Graph, _compute_length_from_geometry
 from typing import Any
 
 from ..shared import sanitize_graph
@@ -37,6 +37,8 @@ def graph_to_persistable_payload(graph: Graph) -> dict[str, Any]:
                 length = round(float(length), 2)
             except (TypeError, ValueError):
                 length = None
+        if length is None and geometry is not None:
+            length = _compute_length_from_geometry(geometry)
         diameter = edge.diameter_mm if edge.diameter_mm not in ("", None) else None
         if diameter is not None:
             try:

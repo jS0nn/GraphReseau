@@ -48,27 +48,61 @@ function updateHUD(){
 
 function setStatus(msg){ const el=document.getElementById('status'); if(el) el.textContent = msg||'' }
 
-function computeSidebarInset(containerWidth){
-  let inset = 0
+function computeCanvasSafeArea(containerEl){
+  const width = containerEl?.clientWidth || 0
+  const fallback = { left: 0, right: width }
+  if(!containerEl || width <= 0) return fallback
   try{
     const propEl = document.getElementById('prop')
-    if(!propEl) return 0
-    if(document.body.classList.contains('prop-collapsed')) return 0
+    if(!propEl) return fallback
+    if(document.body.classList.contains('prop-collapsed')) return fallback
     const style = window.getComputedStyle(propEl)
-    if(!style || style.display === 'none') return 0
-    const raw = propEl.getBoundingClientRect()?.width || propEl.offsetWidth || 0
-    const margin = (parseFloat(style.marginLeft)||0) + (parseFloat(style.marginRight)||0)
-    const total = raw + margin
-    if(total > 0) inset = Math.min(total * 0.55, containerWidth * 0.4)
+    const opacity = parseFloat(style?.opacity || '1')
+    if(!style || style.display === 'none' || style.visibility === 'hidden' || opacity <= 0){
+      return fallback
+    }
+    const canvasRect = containerEl.getBoundingClientRect()
+    const propRect = propEl.getBoundingClientRect()
+    if(!canvasRect || !propRect) return fallback
+    const overlapLeft = Math.max(canvasRect.left, propRect.left)
+    const overlapRight = Math.min(canvasRect.right, propRect.right)
+    const overlapWidth = Math.max(0, overlapRight - overlapLeft)
+    if(overlapWidth < 1) return fallback
+    const overlayStart = overlapLeft - canvasRect.left
+    const overlayEnd = overlayStart + overlapWidth
+    const canvasCenter = canvasRect.left + width / 2
+    const propCenter = propRect.left + propRect.width / 2
+    const propOnRight = propCenter >= canvasCenter
+    let safeLeft = 0
+    let safeRight = width
+
+    if(propOnRight){
+      safeRight = Math.max(0, overlayStart)
+    }else{
+      safeLeft = Math.min(width, overlayEnd)
+    }
+
+    safeLeft = Math.max(0, Math.min(safeLeft, width))
+    safeRight = Math.max(0, Math.min(safeRight, width))
+
+    if(safeRight - safeLeft < Math.max(80, width * 0.05)){
+      return fallback
+    }
+
+    return { left: safeLeft, right: safeRight }
   }catch{}
-  return inset
+  return fallback
 }
 
 function computeZoomFitTransform(containerEl, nodes){
   const w = containerEl.clientWidth || 1200
   const h = containerEl.clientHeight || 800
   const M = 60 // margin around content
-  const sidebarOffset = computeSidebarInset(w)
+  const area = computeCanvasSafeArea(containerEl)
+  const safeLeft = area.left
+  const safeRight = Math.max(area.left, area.right)
+  const safeWidth = Math.max(0, safeRight - safeLeft)
+  const usableWidth = safeWidth > 0 ? safeWidth : w
 
   // Try to use actual rendered content bbox (nodes+edges), independent of current zoom
   try{
@@ -83,10 +117,10 @@ function computeZoomFitTransform(containerEl, nodes){
         const minY = bbox.y - M
         const bw = Math.max(1, bbox.width + 2*M)
         const bh = Math.max(1, bbox.height + 2*M)
-        const scale = Math.min(w / bw, h / bh)
-        const tx = (w - scale * bw)/2 - scale * minX
+        const scale = Math.min(usableWidth / bw, h / bh)
+        const tx = safeLeft + (usableWidth - scale * bw)/2 - scale * minX
         const ty = (h - scale * bh)/2 - scale * minY
-        return { k: scale, x: tx + sidebarOffset, y: ty }
+        return { k: scale, x: tx, y: ty }
       }
     }
   }catch{/* fallback to nodes extents below */}
@@ -104,10 +138,10 @@ function computeZoomFitTransform(containerEl, nodes){
   const maxY = Math.max(...ys2) + M
   const bw = Math.max(1, (maxX - minX))
   const bh = Math.max(1, (maxY - minY))
-  const scale = Math.min(w / bw, h / bh)
-  const tx = (w - scale * bw)/2 - scale * minX
+  const scale = Math.min(usableWidth / bw, h / bh)
+  const tx = safeLeft + (usableWidth - scale * bw)/2 - scale * minX
   const ty = (h - scale * bh)/2 - scale * minY
-  return { k: scale, x: tx + sidebarOffset, y: ty }
+  return { k: scale, x: tx, y: ty }
 }
 
 function bindToolbar(canvas){
@@ -428,6 +462,8 @@ export async function boot(){
   // Load graph
   const graph = await getGraph().catch(err=>{ log('Chargement échoué: '+err, 'error'); return { nodes:[], edges:[] } })
   setGraph(graph)
+  // Open properties panel before first auto-fit so available width is accurate
+  document.body.classList.remove('prop-collapsed')
   // Initialize orthophoto map and sync projection (if configured)
   try{ initMap(); fitMapToNodes(); syncGeoProjection() }catch{}
   applyViewMode(getViewMode())
@@ -438,8 +474,6 @@ export async function boot(){
   )
   history.push('load')
   pushAfterDrag = ()=> history.push('drag')
-  // Open properties panel by default
-  document.body.classList.remove('prop-collapsed')
   // Status for modes (bottom-left info)
   subscribe((evt, payload)=>{
     if(evt==='mode:set'){
