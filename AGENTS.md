@@ -217,6 +217,7 @@ Vérifications utiles
 - Plan de tests manuels: `TEST_PLAN.md`
 - Feuille de route: `TASKS.md`
 - Configuration « agent »: `agent.config.yaml` (attention: certaines sections reflètent un layout antérieur; se référer à la structure `app/` actuelle)
+- Note de contexte exhaustive (architecture + flux): [`docs/contexte-global-editeur-reseau.md`](docs/contexte-global-editeur-reseau.md)
 
 
 ---

@@ -101,6 +101,7 @@ gcloud run deploy editeur-reseau-api \
   - Sheets: `SHEET_ID_DEFAULT`, `SHEET_NODES_TAB`, `SHEET_EDGES_TAB`
   - GCS JSON: `GCS_JSON_URI`
   - BigQuery: `BQ_PROJECT_ID` (optionnel si `GOOGLE_CLOUD_PROJECT`), `BQ_DATASET`, `BQ_NODES_TABLE`, `BQ_EDGES_TABLE`
+- Contexte global détaillé: [`docs/contexte-global-editeur-reseau.md`](docs/contexte-global-editeur-reseau.md)
 
 ## API vs Frontend (rôles et périmètre)
 - API (backend FastAPI):
