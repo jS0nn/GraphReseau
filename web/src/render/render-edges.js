@@ -11,81 +11,92 @@ function anchorFor(node /*, isSource*/){
   return { x: c.x || 0, y: c.y || 0 }
 }
 
-function pathFor(a, b){
-  if(!a || !b) return ''
-  const A = anchorFor(a, true)
-  const B = anchorFor(b, false)
-  const ax = A.x, ay = A.y
-  const bx = B.x, by = B.y
-  const dx = Math.max(40, (bx - ax) / 2)
-  const c1x = ax + dx, c1y = ay
-  const c2x = bx - dx, c2y = by
-  return `M${ax},${ay} C${c1x},${c1y} ${c2x},${c2y} ${bx},${by}`
+function dedupePoints(points){
+  const out = []
+  for(const p of points){
+    if(!Array.isArray(p) || p.length < 2) continue
+    const x = +p[0], y = +p[1]
+    if(!Number.isFinite(x) || !Number.isFinite(y)) continue
+    const prev = out[out.length - 1]
+    if(prev && Math.abs(prev[0] - x) < 0.5 && Math.abs(prev[1] - y) < 0.5) continue
+    out.push([x, y])
+  }
+  return out
 }
 
-function pathForGeometry(geom, aNode, bNode){
-  if(!Array.isArray(geom) || geom.length < 2) return ''
-  const pts = []
-  for(let i=0;i<geom.length;i++){
-    const g = geom[i]
-    if(!Array.isArray(g) || g.length<2) continue
-    const lon = +g[0], lat = +g[1]
-    if(!Number.isFinite(lat) || !Number.isFinite(lon)) continue
-    const p = projectLatLonToUI(lat, lon)
-    pts.push([p.x, p.y])
+function arrowSegmentFromPoints(points){
+  if(!Array.isArray(points) || points.length < 2) return ''
+  let total = 0
+  const segments = []
+  for(let i = 1; i < points.length; i++){
+    const a = points[i - 1]
+    const b = points[i]
+    const dx = b[0] - a[0]
+    const dy = b[1] - a[1]
+    const len = Math.hypot(dx, dy)
+    if(len <= 0) continue
+    segments.push({ a, b, len })
+    total += len
   }
-  // Anchor endpoints to current node positions to keep attachment live during moves
-  if(aNode){ const A = anchorFor(aNode, true); pts[0] = [A.x, A.y] }
-  if(bNode){ const B = anchorFor(bNode, false); pts[pts.length-1] = [B.x, B.y] }
-  let d = ''
-  for(let i=0;i<pts.length;i++){
-    const p = pts[i]
-    if(!p) continue
-    if(i===0) d += `M${p[0]},${p[1]}`; else d += ` L${p[0]},${p[1]}`
-  }
-  return d
-}
-
-function midArrowForGeometry(geom, aNode, bNode){
-  if(!Array.isArray(geom) || geom.length < 2) return ''
-  const pts = []
-  for(const g of geom){
-    if(!Array.isArray(g) || g.length<2) continue
-    const lon = +g[0], lat = +g[1]
-    if(!Number.isFinite(lat) || !Number.isFinite(lon)) continue
-    const p = projectLatLonToUI(lat, lon)
-    pts.push([p.x, p.y])
-  }
-  if(aNode){ const A = anchorFor(aNode, true); pts[0] = [A.x, A.y] }
-  if(bNode){ const B = anchorFor(bNode, false); pts[pts.length-1] = [B.x, B.y] }
-  if(pts.length < 2) return ''
-  // Compute total length and midpoint
-  let L = 0
-  const segs = []
-  for(let i=1;i<pts.length;i++){
-    const a = pts[i-1], b = pts[i]
-    const dx = b[0]-a[0], dy=b[1]-a[1]
-    const l = Math.hypot(dx,dy)
-    segs.push({a,b,l})
-    L += l
-  }
-  if(L<=0) return ''
-  let target = L/2
-  for(const s of segs){
-    if(target > s.l){ target -= s.l; continue }
-    // Place arrow along segment s at fraction t
-    const t = s.l ? (target / s.l) : 0
-    const x0 = s.a[0] + (s.b[0]-s.a[0]) * t
-    const y0 = s.a[1] + (s.b[1]-s.a[1]) * t
-    const dirx = (s.b[0]-s.a[0]), diry = (s.b[1]-s.a[1])
-    const len = Math.hypot(dirx, diry) || 1
-    const ux = dirx / len, uy = diry / len
-    const span = 18 // px
+  if(total <= 0) return ''
+  let target = total / 2
+  for(const seg of segments){
+    if(target > seg.len){ target -= seg.len; continue }
+    const t = seg.len ? (target / seg.len) : 0
+    const x0 = seg.a[0] + (seg.b[0] - seg.a[0]) * t
+    const y0 = seg.a[1] + (seg.b[1] - seg.a[1]) * t
+    const dirx = seg.b[0] - seg.a[0]
+    const diry = seg.b[1] - seg.a[1]
+    const norm = Math.hypot(dirx, diry) || 1
+    const ux = dirx / norm
+    const uy = diry / norm
+    const span = 18
     const x1 = x0 + ux * span
     const y1 = y0 + uy * span
     return `M${x0},${y0} L${x1},${y1}`
   }
   return ''
+}
+
+function buildPath(points){
+  if(!Array.isArray(points) || !points.length) return ''
+  let d = ''
+  for(let i = 0; i < points.length; i++){
+    const pt = points[i]
+    d += (i === 0 ? 'M' : ' L') + pt[0] + ',' + pt[1]
+  }
+  return d
+}
+
+function geometryPoints(geom, aNode, bNode){
+  if(!Array.isArray(geom) || geom.length < 2) return null
+  const pts = []
+  for(const g of geom){
+    if(!Array.isArray(g) || g.length < 2) continue
+    const lon = +g[0]
+    const lat = +g[1]
+    if(!Number.isFinite(lat) || !Number.isFinite(lon)) continue
+    const projected = projectLatLonToUI(lat, lon)
+    pts.push([projected.x, projected.y])
+  }
+  if(!pts.length) return null
+  if(aNode){ const A = anchorFor(aNode, true); pts[0] = [A.x, A.y] }
+  if(bNode){ const B = anchorFor(bNode, false); pts[pts.length - 1] = [B.x, B.y] }
+  return dedupePoints(pts)
+}
+
+function graphPoints(aNode, bNode){
+  if(!aNode || !bNode) return []
+  const A = anchorFor(aNode, true)
+  const B = anchorFor(bNode, false)
+  const start = [A.x, A.y]
+  const end = [B.x, B.y]
+  if(!isGraphView()) return dedupePoints([start, end])
+  const deltaY = Math.abs(B.y - A.y)
+  if(deltaY < 1) return dedupePoints([start, end])
+  const midY = Math.round((A.y + B.y) / 2)
+  const path = [start, [A.x, midY], [B.x, midY], end]
+  return dedupePoints(path)
 }
 
 export function renderEdges(gEdges, edges){
@@ -117,7 +128,9 @@ export function renderEdges(gEdges, edges){
     .each(function(d){
       const a = index.get(d.source), b = index.get(d.target)
       const useGeometry = !isGraphView() && Array.isArray(d.geometry) && d.geometry.length>=2
-      const dStr = useGeometry ? pathForGeometry(d.geometry, a, b) : pathFor(a, b)
+      const pts = useGeometry ? geometryPoints(d.geometry, a, b) : graphPoints(a, b)
+      const safePts = (pts && pts.length >= 2) ? pts : graphPoints(a, b)
+      const dStr = buildPath(safePts)
       const varWidth = !!state.edgeVarWidth
       const baseW = varWidth ? (style.widthForEdge({ from_id:d.source, to_id:d.target }) || DEFAULT_EDGE_WIDTH) : DEFAULT_EDGE_WIDTH
       const sel = state.selection.edgeId===d.id
@@ -134,16 +147,20 @@ export function renderEdges(gEdges, edges){
         .attr('d', dStr)
         .attr('stroke', strokeColor)
         .attr('stroke-width', w)
+        .attr('fill', 'none')
+        .attr('marker-end', null)
       // Mid arrow oriented along polyline (or center between nodes)
-      const midD = useGeometry ? midArrowForGeometry(d.geometry, a, b) : ''
+      const midD = arrowSegmentFromPoints(safePts)
       d3.select(this).select('path.midArrow')
         .attr('d', midD || null)
         .attr('stroke', strokeColor)
         .attr('stroke-width', Math.max(1, w*0.9))
         .attr('marker-end', sel ? 'url(#arrowSel)' : 'url(#arrow)')
+        .style('display', midD ? null : 'none')
       d3.select(this).select('path.hit')
         .attr('d', dStr)
         .attr('stroke-width', Math.max(24, w*12))
+        .attr('fill', 'none')
     })
 
   // Tooltips (hover and keyboard focus)

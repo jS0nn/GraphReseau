@@ -10,6 +10,7 @@ const DEFAULT_LEVEL_GAP = 180
 const DEFAULT_GRID_GAP = 140
 const MIN_COLUMN_GAP = 130
 const MAX_COLUMN_GAP = 210
+const HORIZONTAL_SPACING_FACTOR = 1.1
 const MIN_LEVEL_GAP = 100
 const MAX_LEVEL_GAP = 200
 const MIN_GRID_GAP = 110
@@ -67,9 +68,58 @@ function computeGraphLayout(nodes, edges){
     if(!indegree.has(from)) indegree.set(from, 0)
   }
 
+  const generalNodes = nodes.filter(n => String(n?.type || '').toUpperCase() === 'GENERAL')
+  const generalIds = generalNodes.map(n => n.id).filter(Boolean)
+  const generalSet = new Set(generalIds)
+
+  let generalOutgoing = 0
+  let generalIncoming = 0
+  for(const edge of edges || []){
+    if(!edge) continue
+    const from = edge.source ?? edge.from_id
+    const to = edge.target ?? edge.to_id
+    if(!lookup.has(from) || !lookup.has(to)) continue
+    if(generalSet.has(from)) generalOutgoing += 1
+    if(generalSet.has(to)) generalIncoming += 1
+  }
+
+  const countReachable = (graphMap, seeds) => {
+    const visited = new Set()
+    const queue = []
+    for(const id of seeds){
+      if(!lookup.has(id) || visited.has(id)) continue
+      visited.add(id)
+      queue.push(id)
+    }
+    while(queue.length){
+      const current = queue.shift()
+      const neighbors = graphMap.get(current)
+      if(!neighbors) continue
+      neighbors.forEach(nb => {
+        if(!lookup.has(nb) || visited.has(nb)) return
+        visited.add(nb)
+        queue.push(nb)
+      })
+    }
+    return visited.size
+  }
+
+  let traverseForward = true
+  if(generalSet.size){
+    if(generalIncoming > generalOutgoing){
+      traverseForward = false
+    }else if(generalIncoming === generalOutgoing){
+      const forwardCoverage = countReachable(adjacency, generalIds)
+      const reverseCoverage = countReachable(reverseAdj, generalIds)
+      if(reverseCoverage > forwardCoverage) traverseForward = false
+    }
+  }
+
+  const childMap = traverseForward ? adjacency : reverseAdj
+  const parentMap = traverseForward ? reverseAdj : adjacency
+
   const stageDist = new Map()
   const queue = []
-  const generalNodes = nodes.filter(n => String(n?.type || '').toUpperCase() === 'GENERAL')
   for(const node of generalNodes){
     if(!node?.id) continue
     if(!stageDist.has(node.id)){
@@ -82,7 +132,7 @@ function computeGraphLayout(nodes, edges){
     const id = queue.shift()
     const depth = stageDist.get(id) ?? 0
     const nextDepth = depth + 1
-    const children = adjacency.get(id) || new Set()
+    const children = childMap.get(id) || new Set()
     for(const child of children){
       if(!lookup.has(child)) continue
       const prev = stageDist.get(child)
@@ -129,7 +179,7 @@ function computeGraphLayout(nodes, edges){
       if(!localLevels.has(depth)) localLevels.set(depth, [])
       const levelArr = localLevels.get(depth)
       if(!levelArr.includes(id)) levelArr.push(id)
-      const neighbors = sortIds(Array.from(adjacency.get(id) || []), lookup)
+      const neighbors = sortIds(Array.from(childMap.get(id) || []), lookup)
       for(const nb of neighbors){
         if(!lookup.has(nb)) continue
         const nextDepth = depth + 1
@@ -252,8 +302,8 @@ function computeGraphLayout(nodes, edges){
   const primaryParent = new Map()
   lookup.forEach((node, id)=>{
     if(String(node?.type || '').toUpperCase() === 'GENERAL') return
-    const parents = Array.from(reverseAdj.get(id) || [])
-      .filter(pid => lookup.has(pid))
+    const parents = Array.from(parentMap.get(id) || [])
+      .filter(pid => pid !== id && lookup.has(pid))
     if(!parents.length) return
     const childStage = stageDist.get(id)
     let candidates = parents
@@ -358,6 +408,7 @@ function computeGraphLayout(nodes, edges){
   const spanUnits = Math.max(0.0001, maxUnit - minUnit)
   let unitGap = spanUnits > 0 ? clamp(availableWidth / spanUnits, MIN_COLUMN_GAP, MAX_COLUMN_GAP) : DEFAULT_COLUMN_GAP
   if(!isFinite(unitGap) || unitGap <= 0) unitGap = DEFAULT_COLUMN_GAP
+  unitGap = clamp(unitGap * HORIZONTAL_SPACING_FACTOR, MIN_COLUMN_GAP, MAX_COLUMN_GAP * HORIZONTAL_SPACING_FACTOR)
   const totalSpan = (maxUnit - minUnit) * unitGap
   const offset = areaLeft + Math.max(0, (availableWidth - totalSpan) / 2) - (minUnit * unitGap)
 
