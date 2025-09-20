@@ -1,10 +1,10 @@
-import { state, addNode, addEdge, removeEdge, updateEdge, updateNode, getMode, subscribe, renameNodeId, setMode, selectNodeById, suspendOrphanPrune } from '../state/index.js'
+import { state, addNode, addEdge, removeEdge, updateEdge, updateNode, getMode, subscribe, renameNodeId, setMode, selectNodeById, suspendOrphanPrune, getManualEdgeProps } from '../state/index.js'
 import { genIdWithTime as genId, isCanal } from '../utils.js'
 import { unprojectUIToLatLon } from '../geo.js'
 import { showMiniMenu } from '../ui/mini-menu.js'
 import { startDrawingFromNodeId } from './draw.js'
 import { devlog } from '../ui/logs.js'
-import { centerUIForNode, edgeGeometryToUIPoints, nearestPointOnPolyline, splitGeometryAt, ensureEdgeGeometry } from '../shared/geometry.js'
+import { centerUIForNode, edgeGeometryToUIPoints, nearestPointOnPolyline, splitGeometryAt, ensureEdgeGeometry, geometryLengthMeters, offsetAlongGeometry } from '../shared/geometry.js'
 
 const JUNCTION_TOLERANCE = 24
 
@@ -13,13 +13,28 @@ const finiteDiameter = (value) => {
   return Number.isFinite(num) && num > 0 ? num : null
 }
 
+const roundMeters = (value) => (Number.isFinite(value) ? Math.round(value * 100) / 100 : null)
+
+const canonicalMaterial = (value) => {
+  if(value == null || value === undefined) return null
+  const txt = String(value).trim()
+  return txt ? txt.toUpperCase() : null
+}
+
+const canonicalSdr = (value) => {
+  if(value == null || value === undefined) return null
+  const txt = String(value).trim()
+  return txt ? txt.toUpperCase() : null
+}
+
 function pickEdgeProps(edge){
   if(!edge) return null
   const diameter_mm = finiteDiameter(edge.diameter_mm)
   const material = edge.material || ''
   const sdr = edge.sdr || ''
-  if(diameter_mm == null && !material && !sdr) return null
-  return { diameter_mm, material, sdr }
+  const branch_id = edge.branch_id || ''
+  if(diameter_mm == null && !material && !sdr && !branch_id) return null
+  return { diameter_mm, material, sdr, branch_id: branch_id || null }
 }
 
 function mergeEdgeProps(target, props){
@@ -27,6 +42,7 @@ function mergeEdgeProps(target, props){
   if(props.diameter_mm != null) target.diameter_mm = props.diameter_mm
   if(props.material) target.material = props.material
   if(props.sdr) target.sdr = props.sdr
+  if(props.branch_id && !target.branch_id) target.branch_id = props.branch_id
   return target
 }
 
@@ -62,15 +78,33 @@ function insertJunctionAt(edge, hit, ev){
   const toId   = edge.to_id   ?? edge.target
   const keepActive = edge.active !== false
   const commentaire = edge.commentaire || ''
-  const pgid = edge.pipe_group_id || ''
   const baseProps = pickEdgeProps(edge)
-  const branchId = edge.branch_id || pgid || edge.id
+  const branchId = (() => {
+    const candidates = [edge.branch_id, baseProps?.branch_id, edge.id]
+    for(const cand of candidates){
+      if(cand && String(cand).trim()) return String(cand).trim()
+    }
+    return ''
+  })()
   let e1 = null
   let e2 = null
   const buildEdgeOpts = () => {
-    const opts = { active: keepActive, commentaire, pipe_group_id: pgid }
+    const opts = { active: keepActive, commentaire }
     if(branchId) opts.branch_id = branchId
     mergeEdgeProps(opts, baseProps)
+    const manual = getManualEdgeProps(branchId) || {}
+    if(manual.diameter_mm != null){
+      opts.diameter_mm = manual.diameter_mm
+    }else if(opts.diameter_mm != null){
+      const num = finiteDiameter(opts.diameter_mm)
+      opts.diameter_mm = num != null ? num : null
+    }
+    const materialSource = manual.material ?? opts.material
+    const sdrSource = manual.sdr ?? opts.sdr
+    opts.material = canonicalMaterial(materialSource)
+    opts.sdr = canonicalSdr(sdrSource)
+    if(opts.material === undefined) opts.material = null
+    if(opts.sdr === undefined) opts.sdr = null
     return opts
   }
   suspendOrphanPrune(()=>{
@@ -83,12 +117,15 @@ function insertJunctionAt(edge, hit, ev){
   if(branchId) updateNode(node.id, { branch_id: branchId })
   devlog('junction:split', edge.id, '->', e1?.id, e2?.id, 'new node', node.id)
 
+  const upstreamEdgeId = e1?.id || null
+  const upstreamOffset = roundMeters(geometryLengthMeters(parts.g1))
+
   const { clientX: x, clientY: y } = ev
 
   function inheritBranchAttrs(targetId){
     try{
       const n = state.nodes.find(nn=>nn.id===targetId); if(!n) return
-      const nextBranchId = edge.pipe_group_id || e1?.id || e2?.id || edge.id
+      const nextBranchId = branchId || e1?.branch_id || e2?.branch_id || e1?.id || e2?.id || edge.id
       n.branch_id = nextBranchId
       const fromNode = state.nodes.find(nn=>nn.id===fromId)
       const toNode = state.nodes.find(nn=>nn.id===toId)
@@ -109,27 +146,51 @@ function insertJunctionAt(edge, hit, ev){
     }catch{}
   }
 
-  function attachInlineToEdge(inlineId){
+  function attachInlineToEdge(inlineId, options = {}){
     try{
+      const nodeRef = state.nodes.find(nn=>nn.id===inlineId)
+      if(!nodeRef) return
       const fromNode = state.nodes.find(nn=>nn.id===fromId)
       const toNode = state.nodes.find(nn=>nn.id===toId)
-      const anchorEdgeId = e1?.id || e2?.id || edge.id
+      const preferredId = options.anchorEdgeId || null
+      const preferred = preferredId ? state.edges.find(e => e.id === preferredId) : null
+      const resolvedEdge = preferred
+        || (e1 && (e1.to_id ?? e1.target) === inlineId ? e1 : null)
+        || (e2 && (e2.to_id ?? e2.target) === inlineId ? e2 : null)
+        || e1
+        || e2
+      if(!resolvedEdge) return
       const candidates = [fromNode?.diameter_mm, toNode?.diameter_mm]
         .map(v => {
           const num = Number(v)
           return Number.isFinite(num) && num > 0 ? num : null
         })
         .filter(v => v != null)
-      const patch = { pm_collector_edge_id: anchorEdgeId }
+      const patch = {
+        pm_collector_edge_id: resolvedEdge.id,
+        attach_edge_id: resolvedEdge.id,
+        pm_collector_id: '',
+      }
       if(candidates.length){ Object.assign(patch, { diameter_mm: candidates[0] }) }
+      const offsetSource = (options.offsetMeters != null) ? options.offsetMeters : offsetAlongGeometry(resolvedEdge, nodeRef)
+      let clamped = Number(offsetSource)
+      if(Number.isFinite(clamped)){
+        const lengthHint = Number.isFinite(resolvedEdge?.length_m) ? resolvedEdge.length_m : geometryLengthMeters(resolvedEdge?.geometry)
+        if(Number.isFinite(lengthHint)){
+          clamped = Math.min(clamped, lengthHint)
+        }
+        patch.pm_offset_m = roundMeters(clamped)
+      }else{
+        patch.pm_offset_m = null
+      }
       updateNode(inlineId, patch)
     }catch(err){ try{ console.debug('[dev] attachInlineToEdge error', err) }catch{} }
   }
 
   showMiniMenu(x, y, [
     { label: 'Jonction', onClick: ()=> { updateNode(node.id, { type:'JONCTION' }); try{ setMode('select') }catch{} } },
-    { label: 'Point de mesure', onClick: ()=> { const nid = genId('POINT_MESURE'); renameNodeId(node.id, nid); updateNode(nid, { type:'POINT_MESURE', gps_lat: centerLL.lat, gps_lon: centerLL.lon, gps_locked: true }); inheritBranchAttrs(nid); attachInlineToEdge(nid); try{ setMode('select'); selectNodeById(nid) }catch{} } },
-    { label: 'Vanne', onClick: ()=> { const nid = genId('VANNE'); renameNodeId(node.id, nid); updateNode(nid, { type:'VANNE', gps_lat: centerLL.lat, gps_lon: centerLL.lon, gps_locked: true }); inheritBranchAttrs(nid); attachInlineToEdge(nid); try{ setMode('select'); selectNodeById(nid) }catch{} } },
+    { label: 'Point de mesure', onClick: ()=> { const nid = genId('POINT_MESURE'); renameNodeId(node.id, nid); updateNode(nid, { type:'POINT_MESURE', gps_lat: centerLL.lat, gps_lon: centerLL.lon, gps_locked: true }); inheritBranchAttrs(nid); attachInlineToEdge(nid, { anchorEdgeId: upstreamEdgeId, offsetMeters: upstreamOffset }); try{ setMode('select'); selectNodeById(nid) }catch{} } },
+    { label: 'Vanne', onClick: ()=> { const nid = genId('VANNE'); renameNodeId(node.id, nid); updateNode(nid, { type:'VANNE', gps_lat: centerLL.lat, gps_lon: centerLL.lon, gps_locked: true }); inheritBranchAttrs(nid); attachInlineToEdge(nid, { anchorEdgeId: upstreamEdgeId, offsetMeters: upstreamOffset }); try{ setMode('select'); selectNodeById(nid) }catch{} } },
     { label: 'Démarrer une antenne', onClick: ()=> { try{ setMode('draw') }catch{} startDrawingFromNodeId(node.id) } },
   ])
 

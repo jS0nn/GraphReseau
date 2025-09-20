@@ -4,9 +4,9 @@ from unittest.mock import patch
 from app.models import Graph, Node, Edge
 from app.sheets import (
     write_nodes_edges,
-    NODE_HEADERS_FR_V9,
+    NODE_HEADERS_FR_V10,
     EXTRA_SHEET_HEADERS,
-    EDGE_HEADERS_FR_V4,
+    EDGE_HEADERS_FR_V5,
 )
 
 
@@ -23,6 +23,7 @@ class _FakeValuesService:
         self._existing_nodes_values = existing_nodes_values
         self.clear_calls = []
         self.batch_kwargs = None
+        self.update_calls = []
 
     def get(self, *, spreadsheetId, range):  # noqa: A003 - match API signature
         if "Nodes" in range:
@@ -35,6 +36,14 @@ class _FakeValuesService:
 
     def batchUpdate(self, *, spreadsheetId, body):  # noqa: A003
         self.batch_kwargs = body
+        return _FakeResponse({})
+
+    def update(self, *, spreadsheetId, range, valueInputOption, body):  # noqa: A003
+        self.update_calls.append({
+            "range": range,
+            "valueInputOption": valueInputOption,
+            "body": body,
+        })
         return _FakeResponse({})
 
 
@@ -57,20 +66,21 @@ class _FakeSheetsClient:
 class SheetsWriteTests(unittest.TestCase):
     def test_write_preserves_existing_xy_and_formats_edges(self):
         base_row = [
-            "N1", "Node 1", "OUVRAGE", "", "", "", "",
-            "", "", "", "", "", 10, 20, "", "",
+            "N1", "Node 1", "OUVRAGE", "", "", "", "", "", "", "",
+            "", "", "", "", 10, 20, "", "",
         ]
         existing_nodes = [
-            NODE_HEADERS_FR_V9,
+            NODE_HEADERS_FR_V10,
             base_row + ["" for _ in EXTRA_SHEET_HEADERS],
         ]
         values_service = _FakeValuesService(existing_nodes)
         fake_client = _FakeSheetsClient(values_service)
 
         graph = Graph(
+            style_meta={"mode": "continuous", "width_px": {"min": 2, "max": 8}},
             nodes=[
-                Node(id="N1", name="Node 1", type="OUVRAGE", x=100, y=200, x_ui=100, y_ui=200),
-                Node(id="N2", name="Node 2", type="OUVRAGE", x=300, y=400, x_ui=300, y_ui=400),
+                Node(id="N1", name="Node 1", type="OUVRAGE", x=100, y=200, x_ui=100, y_ui=200, branch_id="B-1"),
+                Node(id="N2", name="Node 2", type="OUVRAGE", x=300, y=400, x_ui=300, y_ui=400, branch_id="B-1"),
             ],
             edges=[
                 Edge(
@@ -80,7 +90,11 @@ class SheetsWriteTests(unittest.TestCase):
                     active=True,
                     commentaire="Demo",
                     geometry=[[1.1, 2.2], [3.3, 4.4]],
-                    pipe_group_id="PG-99",
+                    branch_id="B-1",
+                    diameter_mm=110.0,
+                    length_m=42.0,
+                    material="PVC",
+                    sdr="17",
                 )
             ],
         )
@@ -100,30 +114,36 @@ class SheetsWriteTests(unittest.TestCase):
         edges_payload = body["data"][1]["values"]
 
         # Headers should match the latest layouts
-        self.assertEqual(nodes_payload[0], NODE_HEADERS_FR_V9 + EXTRA_SHEET_HEADERS)
-        self.assertEqual(edges_payload[0], EDGE_HEADERS_FR_V4)
+        self.assertEqual(nodes_payload[0], NODE_HEADERS_FR_V10 + EXTRA_SHEET_HEADERS)
+        self.assertEqual(edges_payload[0], EDGE_HEADERS_FR_V5)
 
         # First row is headers, second row is N1 data
         n1_row = nodes_payload[1]
-        x_index = NODE_HEADERS_FR_V9.index("x")
-        y_index = NODE_HEADERS_FR_V9.index("y")
+        x_index = NODE_HEADERS_FR_V10.index("x")
+        y_index = NODE_HEADERS_FR_V10.index("y")
         self.assertEqual(n1_row[x_index], 10)
         self.assertEqual(n1_row[y_index], 20)
 
-        # Edge row should include commentaire, formatted geometry and pipe group id
+        # Edge row should include commentaire, formatted geometry and branch/material data
         e1_row = edges_payload[1]
         self.assertEqual(e1_row[0], "E1")
         self.assertEqual(e1_row[1], "N1")
         self.assertEqual(e1_row[2], "N2")
-        self.assertEqual(e1_row[3], 0.0)
-        self.assertEqual(e1_row[4], "")
-        self.assertEqual(e1_row[5], "")
-        self.assertEqual(e1_row[6], "")
-        self.assertEqual(e1_row[7], True)
-        self.assertEqual(e1_row[8], "Demo")
-        self.assertEqual(e1_row[9], "1.1 2.2; 3.3 4.4")
-        self.assertEqual(e1_row[10], "PG-99")
-        self.assertEqual(e1_row[11], "PG-99")
+        self.assertEqual(e1_row[3], 110.0)
+        self.assertEqual(e1_row[4], 42.0)
+        self.assertEqual(e1_row[5], True)
+        self.assertEqual(e1_row[6], "Demo")
+        self.assertEqual(e1_row[7], "1.1 2.2; 3.3 4.4")
+        self.assertEqual(e1_row[8], "B-1")
+        self.assertEqual(e1_row[9], "PVC")
+        self.assertEqual(e1_row[10], "17")
+
+        # STYLE_META sheet should be updated with the serialized style meta
+        style_calls = [call for call in values_service.update_calls if call["range"] == "STYLE_META!A1:B1"]
+        self.assertTrue(style_calls)
+        meta_row = style_calls[-1]["body"]["values"][0]
+        self.assertEqual(meta_row[0], "style_meta")
+        self.assertIn("width_px", meta_row[1])
 
 
 if __name__ == "__main__":

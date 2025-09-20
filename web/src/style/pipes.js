@@ -246,24 +246,59 @@ let _cache = { key: '', style: null }
 
 export function ensurePipeStyle({ nodes, edges, theme, options } = {}){
   const opts = Object.assign({ mode:'continuous', classes:5, classStrategy:'quantile', fixedBounds:[], widthPx:{min:1.0, max:8.0}, defaultDiameterMm:50, trunkToleranceRatio:0.10 }, options||{})
+  const metaOverrides = options?.styleMeta || {}
+
+  const widthOverride = metaOverrides?.width_px || {}
+  const widthMin = Number.isFinite(+widthOverride.min) && +widthOverride.min > 0 ? +widthOverride.min : opts.widthPx.min
+  const widthMax = Number.isFinite(+widthOverride.max) && +widthOverride.max > 0 ? +widthOverride.max : opts.widthPx.max
+  const resolvedWidthMin = Math.min(widthMin, widthMax)
+  const resolvedWidthMax = Math.max(widthMin, widthMax)
+  opts.widthPx = { min: resolvedWidthMin, max: resolvedWidthMax }
+
+  const metaMode = typeof metaOverrides.mode === 'string' ? metaOverrides.mode.toLowerCase() : ''
+  if(metaMode === 'quantized'){ opts.mode = 'classed' }
+  else if(metaMode === 'continuous'){ opts.mode = 'continuous' }
+
+  if(metaOverrides.classes){
+    const cls = metaOverrides.classes
+    if(Number.isFinite(+cls.count)) opts.classes = Math.max(1, +cls.count)
+    if(typeof cls.strategy === 'string') opts.classStrategy = cls.strategy
+    if(Array.isArray(cls.bounds)) opts.fixedBounds = cls.bounds.slice()
+  }
+
+  if(metaOverrides.trunk_tolerance != null){
+    const tt = Number(metaOverrides.trunk_tolerance)
+    if(Number.isFinite(tt) && tt > 0) opts.trunkToleranceRatio = tt
+  }
+
+  let clampMin = MIN_DIAMETER_MM
+  let clampMax = MAX_DIAMETER_MM
+  if(metaOverrides.diameter_range_mm){
+    const range = metaOverrides.diameter_range_mm
+    if(Number.isFinite(+range.min) && +range.min > 0) clampMin = +range.min
+    if(Number.isFinite(+range.max) && +range.max > 0) clampMax = +range.max
+  }
+  if(clampMax <= clampMin){ clampMax = clampMin + 1 }
+
   const normalizeDiameter = (raw)=>{
     const parsed = parseDiameter(raw)
     const base = parsed ?? opts.defaultDiameterMm
-    return clamp(base, MIN_DIAMETER_MM, MAX_DIAMETER_MM)
+    return clamp(base, clampMin, clampMax)
   }
+  opts.defaultDiameterMm = clamp(opts.defaultDiameterMm, clampMin, clampMax)
   const nodeDiaVals = nodes.filter(isCanal)
     .map(n => parseDiameter(n?.diameter_mm))
     .filter(v => v != null)
-    .map(v => clamp(v, MIN_DIAMETER_MM, MAX_DIAMETER_MM))
+    .map(v => clamp(v, clampMin, clampMax))
   const edgeDiaVals = (edges || [])
     .map(e => parseDiameter(e?.diameter_mm ?? e?.diametre_mm))
     .filter(v => v != null)
-    .map(v => clamp(v, MIN_DIAMETER_MM, MAX_DIAMETER_MM))
+    .map(v => clamp(v, clampMin, clampMax))
   const diaVals = [...nodeDiaVals, ...edgeDiaVals]
-  const defaultDia = clamp(opts.defaultDiameterMm, MIN_DIAMETER_MM, MAX_DIAMETER_MM)
+  const defaultDia = clamp(opts.defaultDiameterMm, clampMin, clampMax)
   const diaMin = diaVals.length ? Math.min(...diaVals) : defaultDia
   const diaMax = diaVals.length ? Math.max(...diaVals) : defaultDia
-  const themeKey = theme || (document.body?.dataset?.theme || 'dark')
+  let themeKey = metaOverrides.theme || theme || (document.body?.dataset?.theme || 'dark')
   const topoHash = (()=>{
     // simple stable signature of canal parent links
     const idToNode = new Map(nodes.map(n=>[n.id, n]))
@@ -288,6 +323,9 @@ export function ensurePipeStyle({ nodes, edges, theme, options } = {}){
     opts.widthPx?.min,
     opts.widthPx?.max,
     opts.defaultDiameterMm,
+    clampMin,
+    clampMax,
+    JSON.stringify(metaOverrides || {}),
   ].join('|')
   if(_cache.key === key && _cache.style){ return _cache.style }
 
@@ -295,7 +333,7 @@ export function ensurePipeStyle({ nodes, edges, theme, options } = {}){
   const idToNode = new Map(nodes.map(n=>[n.id, n]))
 
   // Build scales
-  const scale = sqrtScale(MIN_DIAMETER_MM, MAX_DIAMETER_MM, opts.widthPx.min, opts.widthPx.max)
+  const scale = sqrtScale(clampMin, clampMax, opts.widthPx.min, opts.widthPx.max)
   const classInfo = (opts.mode==='classed') ? computeClasses(diaVals, opts.classes, opts.classStrategy, opts.fixedBounds) : null
   const widthLevels = []
   if(classInfo){
@@ -369,6 +407,14 @@ export function ensurePipeStyle({ nodes, edges, theme, options } = {}){
     recolorSiblings(anchorId, ordered)
   }
 
+  if(metaOverrides.branch_colors_by_path && typeof metaOverrides.branch_colors_by_path === 'object'){
+    for(const [path, color] of Object.entries(metaOverrides.branch_colors_by_path)){
+      if(typeof color === 'string' && color.trim()){
+        colorByPath.set(path, color.trim())
+      }
+    }
+  }
+
   // Edge → canal mapping and helpers
   // Determine which node dictates edge diameter/color
   const diameterNodeForEdge = (e)=>{
@@ -424,11 +470,12 @@ export function ensurePipeStyle({ nodes, edges, theme, options } = {}){
   }
 
   const meta = ()=>{
+    const modeOut = metaMode || (opts.mode === 'classed' ? 'quantized' : opts.mode)
     return {
-      mode: opts.mode,
+      mode: modeOut,
       theme: themeKey,
       width_px: opts.widthPx,
-      diameter_range_mm: { min: diaMin, max: diaMax },
+      diameter_range_mm: { min: clampMin, max: clampMax },
       classes: (classInfo && {
         count: opts.classes,
         strategy: opts.classStrategy,

@@ -111,6 +111,9 @@ export function renderEdges(gEdges, edges){
     active: e.active!==false,
     geometry: e.geometry,
     diameter_mm: e.diameter_mm ?? e.diametre_mm ?? null,
+    ui_diameter_mm: e.ui_diameter_mm ?? null,
+    site_effective: e.site_effective ?? null,
+    site_effective_is_fallback: !!e.site_effective_is_fallback,
   })
   // Deduplicate edges by id
   const seen = new Set()
@@ -122,7 +125,8 @@ export function renderEdges(gEdges, edges){
 
   // Style engine (memoized)
   const theme = document.body?.dataset?.theme || 'dark'
-  const style = ensurePipeStyle({ nodes: state.nodes, edges: state.edges, theme })
+  const styleMeta = state.graphMeta?.style_meta || {}
+  const style = ensurePipeStyle({ nodes: state.nodes, edges: state.edges, theme, options: { styleMeta } })
 
   const sel = gEdges.selectAll('g.edge').data(data, d => d.id)
   const enter = sel.enter().append('g').attr('class','edge').attr('tabindex', 0)
@@ -135,6 +139,8 @@ export function renderEdges(gEdges, edges){
   sel.merge(enter)
     .attr('class', d => `edge ${state.selection.edgeId===d.id?'selected':''}`)
     .attr('data-id', d=>d.id)
+    .attr('data-site-effective', d => d.site_effective || '')
+    .attr('data-site-fallback', d => d.site_effective_is_fallback ? '1' : '0')
     .each(function(d){
       const a = index.get(d.source), b = index.get(d.target)
       const useGeometry = !isGraphView() && Array.isArray(d.geometry) && d.geometry.length>=2
@@ -142,7 +148,14 @@ export function renderEdges(gEdges, edges){
       const safePts = (pts && pts.length >= 2) ? pts : graphPoints(a, b)
       const dStr = buildPath(safePts)
       const varWidth = !!state.edgeVarWidth
-      const baseW = varWidth ? (style.widthForEdge(d) || DEFAULT_EDGE_WIDTH) : DEFAULT_EDGE_WIDTH
+      const visualDiameter = (()=>{
+        const direct = Number.isFinite(+d.diameter_mm) && +d.diameter_mm > 0 ? +d.diameter_mm : null
+        if(direct != null) return direct
+        const inherited = Number.isFinite(+d.ui_diameter_mm) && +d.ui_diameter_mm > 0 ? +d.ui_diameter_mm : null
+        return inherited
+      })()
+      const widthEdge = (visualDiameter != null) ? { ...d, diameter_mm: visualDiameter } : d
+      const baseW = varWidth ? (style.widthForEdge(widthEdge) || DEFAULT_EDGE_WIDTH) : DEFAULT_EDGE_WIDTH
       const sel = state.selection.edgeId===d.id
       const baseColor = d.active ? style.colorForEdge({ from_id:d.source, to_id:d.target }) : 'var(--muted)'
       const hiColor = d.active ? 'var(--edge-color-sel)' : 'var(--muted)'
@@ -181,14 +194,20 @@ export function renderEdges(gEdges, edges){
     const aIs = a && (a.type==='CANALISATION'||a.type==='COLLECTEUR')
     const bIs = b && (b.type==='CANALISATION'||b.type==='COLLECTEUR')
     const canal = (aIs && bIs) ? b : (aIs ? a : (bIs ? b : null))
-    const edgeDia = Number.isFinite(+edge?.diameter_mm) && +edge.diameter_mm > 0 ? +edge.diameter_mm : null
-    const raw = edgeDia ?? (canal ? +canal.diameter_mm : NaN)
-    const dia = (Number.isFinite(raw) && raw > 0) ? raw : null
+    const direct = Number.isFinite(+edge?.diameter_mm) && +edge.diameter_mm > 0 ? +edge.diameter_mm : null
+    const fallback = Number.isFinite(+edge?.ui_diameter_mm) && +edge.ui_diameter_mm > 0 ? +edge.ui_diameter_mm : null
+    const canalDia = Number.isFinite(+canal?.diameter_mm) && +canal.diameter_mm > 0 ? +canal.diameter_mm : null
+    const dia = direct ?? fallback ?? canalDia
     const nameA = a?.name||a?.id||'A', nameB = b?.name||b?.id||'B'
-    const diaTxt = dia==null ? 'Ø inconnu (valeur par défaut)' : `Ø ${fmtNum(dia)} mm`
+    const inheritedTxt = (direct == null && fallback != null)
+      ? `Ø ${fmtNum(fallback)} mm (hérité)`
+      : (dia == null ? 'Ø inconnu (valeur par défaut)' : `Ø ${fmtNum(dia)} mm`)
+    const siteEff = edge.site_effective || '—'
+    const siteNote = edge.site_effective_is_fallback ? `${siteEff} · donnée manquante` : siteEff
     return `
       <div><strong>${nameA}</strong> → <strong>${nameB}</strong></div>
-      <div>${canal?(canal.name||canal.id)+' · ':''}${diaTxt}</div>
+      <div>${canal?(canal.name||canal.id)+' · ':''}${inheritedTxt}</div>
+      <div>Site: ${siteNote}</div>
     `
   }
   sel.merge(enter)

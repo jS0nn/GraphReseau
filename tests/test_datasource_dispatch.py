@@ -22,7 +22,17 @@ class DatasourceDispatchTests(unittest.TestCase):
             uri = f"file://{path}"
             graph = Graph(
                 nodes=[Node(id="A"), Node(id="B")],
-                edges=[Edge(id="E1", from_id="A", to_id="B")],
+                edges=[
+                    Edge(
+                        id="E1",
+                        from_id="A",
+                        to_id="B",
+                        branch_id="BR-1",
+                        diameter_mm=63.0,
+                        material="PVC",
+                        sdr="17",
+                    )
+                ],
             )
 
             save_graph(source="json", graph=graph, gcs_uri=uri)
@@ -34,10 +44,11 @@ class DatasourceDispatchTests(unittest.TestCase):
                 self.assertIn("edges", data)
 
             loaded = load_graph(source="json", gcs_uri=uri)
-            self.assertEqual({node.id for node in loaded.nodes}, {"A", "B"})
+            expected_nodes = {"OUVRAGE-A", "OUVRAGE-B"}
+            self.assertEqual({node.id for node in loaded.nodes}, expected_nodes)
             self.assertEqual(len(loaded.edges), 1)
-            self.assertEqual(loaded.edges[0].from_id, "A")
-            self.assertEqual(loaded.edges[0].to_id, "B")
+            self.assertEqual(loaded.edges[0].from_id, "OUVRAGE-A")
+            self.assertEqual(loaded.edges[0].to_id, "OUVRAGE-B")
 
 
 if __name__ == "__main__":

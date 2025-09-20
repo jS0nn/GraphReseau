@@ -53,6 +53,8 @@ def load_bigquery(
                     diameter_mm=data.get("diameter_mm") or data.get("diametre_mm"),
                     sdr_ouvrage=data.get("sdr_ouvrage") or data.get("sdr") or "",
                     material=data.get("material") or data.get("materiau") or data.get("matériau") or "",
+                    gps_locked=data.get("gps_locked"),
+                    pm_offset_m=data.get("pm_offset_m") or data.get("pm_offset"),
                     collector_well_ids=_split_ids(data.get("collector_well_ids") or data.get("puits_amont")),
                     well_collector_id=data.get("well_collector_id") or "",
                     well_pos_index=data.get("well_pos_index"),
@@ -97,6 +99,17 @@ def load_bigquery(
                             geometry = coords
                 except Exception:
                     pass
+                branch_val = data.get("branch_id")
+                if not branch_val:
+                    raise HTTPException(status_code=422, detail="bigquery edge missing branch_id")
+                diameter_val = data.get("diameter_mm") or data.get("diametre_mm")
+                diameter = None
+                if diameter_val not in (None, ""):
+                    try:
+                        diameter = float(diameter_val)
+                    except (TypeError, ValueError):
+                        diameter = None
+
                 yield Edge(
                     id=data.get("id"),
                     from_id=str(from_id),
@@ -104,9 +117,8 @@ def load_bigquery(
                     active=bool(active) if active is not None else True,
                     commentaire=data.get("commentaire") or data.get("comment"),
                     geometry=geometry,
-                    branch_id=data.get("branch_id") or data.get("pipe_group_id") or "",
-                    pipe_group_id=data.get("pipe_group_id"),
-                    diameter_mm=float(data.get("diameter_mm") or data.get("diametre_mm") or 0.0),
+                    branch_id=str(branch_val),
+                    diameter_mm=diameter,
                     length_m=data.get("length_m") or data.get("longueur_m"),
                     site_id=data.get("site_id"),
                     material=data.get("material"),
@@ -123,6 +135,8 @@ def load_bigquery(
             if len(site_ids) == 1:
                 site_id = list(site_ids)[0]
         return Graph(site_id=site_id, nodes=nodes, edges=edges)
+    except HTTPException:
+        raise
     except Exception as exc:  # pragma: no cover - requires BigQuery
         raise HTTPException(status_code=501, detail=f"bigquery_unavailable: {exc}")
 

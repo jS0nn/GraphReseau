@@ -8,6 +8,12 @@ export { setGeoScale, setGeoCenter } from '../geo.js'
 export const state = {
   nodes: [],
   edges: [],
+  graphMeta: {
+    version: '1.5',
+    site_id: null,
+    generated_at: null,
+    style_meta: {},
+  },
   selection: { nodeId: null, edgeId: null, multi: new Set() },
   clipboard: null,
   mode: 'select',
@@ -15,6 +21,69 @@ export const state = {
   gridStep: 8,
   _spawnIndex: 0,
   edgeVarWidth: true,
+}
+
+const GLOBAL_BRANCH_KEY = '__global__'
+const manualEdgeDefaults = new Map()
+
+const canonBranchId = (value) => {
+  const txt = (value == null) ? '' : String(value).trim()
+  return txt || null
+}
+
+const manualKey = (branchId) => canonBranchId(branchId) || GLOBAL_BRANCH_KEY
+
+const normaliseMaterial = (value) => {
+  if(value == null || value === '') return null
+  const txt = String(value).trim()
+  return txt ? txt.toUpperCase() : null
+}
+
+const normaliseSdr = (value) => {
+  if(value == null || value === '') return null
+  const txt = String(value).trim()
+  return txt ? txt.toUpperCase() : null
+}
+
+function insertManualDefaults(branchId, patch){
+  const key = manualKey(branchId)
+  const current = manualEdgeDefaults.get(key) || {}
+  const next = { ...current }
+
+  if(Object.prototype.hasOwnProperty.call(patch, 'diameter_mm')){
+    const val = patch.diameter_mm
+    if(val == null || val === ''){
+      delete next.diameter_mm
+    }else{
+      const num = Number(val)
+      if(Number.isFinite(num) && num > 0){
+        next.diameter_mm = num
+      }
+    }
+  }
+
+  if(Object.prototype.hasOwnProperty.call(patch, 'material')){
+    const mat = normaliseMaterial(patch.material)
+    if(mat){ next.material = mat } else { delete next.material }
+  }
+
+  if(Object.prototype.hasOwnProperty.call(patch, 'sdr')){
+    const sdr = normaliseSdr(patch.sdr)
+    if(sdr){ next.sdr = sdr } else { delete next.sdr }
+  }
+
+  if(Object.keys(next).length){
+    manualEdgeDefaults.set(key, next)
+  }else{
+    manualEdgeDefaults.delete(key)
+  }
+}
+
+function fetchManualDefaults(branchId){
+  const key = manualKey(branchId)
+  const direct = manualEdgeDefaults.get(key)
+  if(direct) return direct
+  return manualEdgeDefaults.get(GLOBAL_BRANCH_KEY) || null
 }
 
 function getViewportCenter(){
@@ -38,6 +107,29 @@ function getViewportCenter(){
   }catch{
     return null
   }
+}
+
+export function clearManualDiameter(){
+  manualEdgeDefaults.clear()
+}
+
+export function recordManualDiameter(branchId, diameter){
+  insertManualDefaults(branchId, { diameter_mm: diameter })
+}
+
+export function getManualDiameter(branchId){
+  const defaults = fetchManualDefaults(branchId)
+  return defaults?.diameter_mm ?? null
+}
+
+export function recordManualEdgeProps(branchId, patch){
+  if(!patch || typeof patch !== 'object') return
+  insertManualDefaults(branchId, patch)
+}
+
+export function getManualEdgeProps(branchId){
+  const defaults = fetchManualDefaults(branchId)
+  return defaults ? { ...defaults } : null
 }
 
 const listeners = new Set()
@@ -132,16 +224,32 @@ function scheduleOrphanPrune(){
 }
 
 export function setGraph(graph){
-  const { nodes, edges, geoCenter } = normalizeGraph(graph, { gridStep: state.gridStep })
+  const { nodes, edges, geoCenter, meta } = normalizeGraph(graph, { gridStep: state.gridStep })
   state.nodes = nodes
   state.edges = edges
+  state.graphMeta = Object.assign({
+    version: '1.5',
+    site_id: null,
+    generated_at: null,
+    style_meta: {},
+  }, meta || {})
   clearSelection()
   if(geoCenter) applyGeoCenter(geoCenter.centerLat, geoCenter.centerLon)
   pruneOrphanNodes()
+  clearManualDiameter()
   notify('graph:set')
 }
 
-export function getGraph(){ return { nodes: state.nodes, edges: state.edges } }
+export function getGraph(){
+  return {
+    version: state.graphMeta?.version ?? '1.5',
+    site_id: state.graphMeta?.site_id ?? null,
+    generated_at: state.graphMeta?.generated_at ?? null,
+    style_meta: state.graphMeta?.style_meta ?? {},
+    nodes: state.nodes,
+    edges: state.edges,
+  }
+}
 
 export function setEdgeThicknessEnabled(enabled){ state.edgeVarWidth = !!enabled }
 export function isEdgeThicknessEnabled(){ return !!state.edgeVarWidth }

@@ -35,7 +35,7 @@ def get_graph(
         bq_edges=bq_edges,
         site_id=site_id,
     )
-    return sanitize_graph_for_write(g) if normalize else g
+    return sanitize_graph_for_write(g, strict=False) if normalize else g
 
 
 @router.post("/graph")

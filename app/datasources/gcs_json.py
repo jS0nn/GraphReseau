@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from ..config import settings
 from ..models import Graph
 from ..gcp_auth import get_credentials
+from ..services.graph_sanitizer import graph_to_persistable_payload
 
 
 def _parse_gs_uri(uri: str) -> Tuple[str, str]:
@@ -84,7 +85,7 @@ def save_json(graph: Graph, gcs_uri: Optional[str] = None) -> None:
     except Exception:  # pragma: no cover - merge failures are non fatal
         pass
 
-    payload = json.dumps(graph.model_dump(), ensure_ascii=False)
+    payload = json.dumps(graph_to_persistable_payload(graph), ensure_ascii=False)
 
     if uri.startswith("file://") or os.path.isabs(uri):
         path = uri.replace("file://", "")

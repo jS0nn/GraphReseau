@@ -1,8 +1,20 @@
-import { state, subscribe, updateNode, updateEdge, removeNode, removeEdge, clearSelection, addNode, addEdge, selectEdgeById, selectNodeById, flipEdgeDirection } from '../state/index.js'
+import { state, subscribe, updateNode, updateEdge, removeNode, removeEdge, clearSelection, addNode, addEdge, selectEdgeById, selectNodeById, flipEdgeDirection, recordManualDiameter, recordManualEdgeProps } from '../state/index.js'
 import { displayXYForNode, unprojectUIToLatLon } from '../geo.js'
 import { NODE_SIZE } from '../constants/nodes.js'
 import { genIdWithTime as genId, defaultName, vn, snap, isCanal } from '../utils.js'
 import { log } from './logs.js'
+
+const toCanonicalMaterial = (value) => {
+  if(value == null || value === '') return null
+  const txt = String(value).trim()
+  return txt ? txt.toUpperCase() : null
+}
+
+const toCanonicalSdr = (value) => {
+  if(value == null || value === '') return null
+  const txt = String(value).trim()
+  return txt ? txt.toUpperCase() : null
+}
 function setStatus(msg){ const el=document.getElementById('status'); if(el) el.textContent = msg||'' }
 
 function el(id){ return document.getElementById(id) }
@@ -221,7 +233,7 @@ export function initForms(){
 
   // Edge form inputs
   if(edgeForm){
-    edgeForm.addEventListener('input', ()=>{
+    edgeForm.addEventListener('input', (event)=>{
       const id = state.selection.edgeId
       if(!id) return
       const e = state.edges.find(edge=>edge.id === id)
@@ -238,10 +250,26 @@ export function initForms(){
           const num = Number(raw)
           patch.diameter_mm = Number.isFinite(num) ? num : null
         }
+        if(event?.target === edgeForm.diameter_mm){
+          const manualBranch = (patch.branch_id ?? e.branch_id ?? '').trim() || null
+          recordManualDiameter(manualBranch, patch.diameter_mm)
+        }
       }
-      if(edgeForm.sdr){ patch.sdr = edgeForm.sdr.value || '' }
-      if(edgeForm.material){ patch.material = edgeForm.material.value || '' }
+      if(edgeForm.sdr){
+        patch.sdr = toCanonicalSdr(edgeForm.sdr.value)
+      }
+      if(edgeForm.material){
+        patch.material = toCanonicalMaterial(edgeForm.material.value)
+      }
       updateEdge(id, patch)
+      const manualBranch = (patch.branch_id ?? e.branch_id ?? '').trim() || null
+      const manualPatch = {}
+      if(event?.target === edgeForm.diameter_mm) manualPatch.diameter_mm = patch.diameter_mm
+      if(event?.target === edgeForm.material) manualPatch.material = patch.material
+      if(event?.target === edgeForm.sdr) manualPatch.sdr = patch.sdr
+      if(Object.keys(manualPatch).length){
+        recordManualEdgeProps(manualBranch, manualPatch)
+      }
     })
   }
 
@@ -304,13 +332,13 @@ function renderInlineSection(dev){
 
     const grouped = new Map()
     state.edges.forEach(e => {
-      const key = e.pipe_group_id || e.id
+      const key = e.branch_id || e.id
       ;(grouped.get(key) || grouped.set(key, []) && grouped.get(key)).push(e)
     })
 
     Array.from(grouped.entries())
       .sort(([a], [b]) => String(a).localeCompare(String(b)))
-      .forEach(([groupId, edges]) => {
+      .forEach(([branchId, edges]) => {
         edges.forEach((edge, idx) => {
           const a = state.nodes.find(n => n.id === (edge.from_id ?? edge.source))
           const b = state.nodes.find(n => n.id === (edge.to_id ?? edge.target))
@@ -318,7 +346,7 @@ function renderInlineSection(dev){
           const name = `${a.name || a.id} → ${b.name || b.id}${edges.length>1?` (#${idx+1})`:''}`
           const opt = document.createElement('option')
           opt.value = edge.id
-          opt.textContent = `${groupId} · ${name}`
+          opt.textContent = `${branchId} · ${name}`
           if(dev.pm_collector_edge_id === edge.id) opt.selected = true
           selEdge.appendChild(opt)
         })

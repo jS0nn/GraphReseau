@@ -65,12 +65,19 @@ export function renderNodes(gNodes, nodes){
     .attr('x', (NODE_WIDTH/2) + NODE_MARKER_RADIUS + BUBBLE_GAP + 8)
     .attr('y', 46)
     .text(d => formatSublabel(d))
+  enter.append('text').attr('class','badge missing-site')
+    .attr('x', (NODE_WIDTH/2) + NODE_MARKER_RADIUS + BUBBLE_GAP + 8)
+    .attr('y', 64)
+    .text('donnée manquante')
+    .style('display', 'none')
 
   sel.merge(enter)
     .attr('class', d => {
       const isSel = state.selection.nodeId===d.id || (state.selection.multi && state.selection.multi.has(d.id))
       return `node ${cls(d.type)} ${isSel?'selected':''}`
     })
+    .attr('data-site-effective', d => d.site_effective || '')
+    .attr('data-site-fallback', d => d.site_effective_is_fallback ? '1' : '0')
     .attr('transform', d => {
       const p = getNodeCanvasPosition(d)
       const isJ = String(d.type||'').toUpperCase()==='JONCTION'
@@ -101,7 +108,8 @@ export function renderNodes(gNodes, nodes){
   sel.merge(enter)
     .each(function(d){
       if(!isCanal(d)) return
-      const style = ensurePipeStyle({ nodes: state.nodes, edges: state.edges, theme: document.body?.dataset?.theme || 'dark' })
+      const styleMeta = state.graphMeta?.style_meta || {}
+      const style = ensurePipeStyle({ nodes: state.nodes, edges: state.edges, theme: document.body?.dataset?.theme || 'dark', options: { styleMeta } })
       const stroke = style.borderColorForCanal(d)
       if(stroke) this.querySelector('rect.box')?.setAttribute('stroke', stroke)
     })
@@ -109,6 +117,9 @@ export function renderNodes(gNodes, nodes){
     .select('text.sublabel.pos')
       .attr('x', (NODE_WIDTH/2) + NODE_MARKER_RADIUS + BUBBLE_GAP + 8)
       .text(d => formatSublabel(d))
+  sel.merge(enter)
+    .select('text.badge.missing-site')
+      .style('display', d => d.site_effective_is_fallback ? null : 'none')
   sel.exit().remove()
 }
 
@@ -124,10 +135,10 @@ function formatSublabel(nd){
     // Edges-only fallback: consider the pipeline edge/group instead of canal nodes
     const inc = state.edges.filter(e => (e.from_id??e.source)===nd.id || (e.to_id??e.target)===nd.id)
     if(inc.length){
-      const withGroup = inc.find(e => e.pipe_group_id)
-      const pgid = nd.branch_id || withGroup?.pipe_group_id || inc[0].id
-      const short = (s)=>{ try{ s=String(s||''); return s.length>14 ? s.slice(0,8)+'…'+s.slice(-4) : s }catch{ return String(pgid||'') } }
-      return `branche ${short(pgid)}`
+      const branchCandidates = [nd.branch_id, ...inc.map(e => e.branch_id)].map(v => (v && String(v).trim()) ? String(v).trim() : '').filter(Boolean)
+      const branchId = branchCandidates.length ? branchCandidates[0] : inc[0].id
+      const short = (s)=>{ try{ s=String(s||''); return s.length>14 ? s.slice(0,8)+'…'+s.slice(-4) : s }catch{ return String(branchId||'') } }
+      return `branche ${short(branchId)}`
     }
     return '— non assigné —'
   }

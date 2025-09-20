@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
+import json
 import re
 import unicodedata
 
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from .models import Edge, Graph, Node
 from .gcp_auth import get_credentials
+from googleapiclient.errors import HttpError
 
 
 def _client():
@@ -23,6 +26,99 @@ def _client():
         raise HTTPException(status_code=501, detail=f"sheets_unavailable: {exc}")
 
 
+def _parse_style_meta_values(values: List[List[Any]]) -> Dict[str, Any]:
+    if not values:
+        return {}
+    first = values[0]
+    if len(first) >= 2 and isinstance(first[0], str) and first[0].strip().lower() == "style_meta":
+        raw = first[1] if len(first) > 1 else "{}"
+        if isinstance(raw, str):
+            try:
+                return json.loads(raw)
+            except Exception:
+                return {}
+        return {}
+
+    meta: Dict[str, Any] = {}
+    for row in values:
+        if len(row) < 2:
+            continue
+        key = str(row[0]).strip()
+        if not key:
+            continue
+        val = row[1]
+        if isinstance(val, str):
+            txt = val.strip()
+            if txt:
+                try:
+                    meta[key] = json.loads(txt)
+                    continue
+                except Exception:
+                    pass
+        meta[key] = val
+    return meta
+
+
+def _read_style_meta_sheet(svc, sheet_id: str) -> Dict[str, Any]:
+    try:
+        resp = (
+            svc.spreadsheets()
+            .values()
+            .get(spreadsheetId=sheet_id, range=f"{STYLE_META_SHEET}!A:ZZZ")
+            .execute()
+        )
+        values = resp.get("values", [])
+        return _parse_style_meta_values(values)
+    except HttpError as exc:
+        if exc.resp.status == 400 and "Unable to parse range" in str(exc):
+            return {}
+        raise
+    except Exception:
+        return {}
+
+
+def _write_style_meta_sheet(svc, sheet_id: str, style_meta: Dict[str, Any]) -> None:
+    payload = json.dumps(style_meta or {}, ensure_ascii=False, separators=(",", ":"))
+    values = [["style_meta", payload]]
+    body = {"values": values}
+    target_range = f"{STYLE_META_SHEET}!A1:B1"
+    try:
+        svc.spreadsheets().values().update(
+            spreadsheetId=sheet_id,
+            range=target_range,
+            valueInputOption="RAW",
+            body=body,
+        ).execute()
+    except HttpError as exc:
+        if exc.resp.status == 400 and "Unable to parse range" in str(exc):
+            try:
+                svc.spreadsheets().batchUpdate(
+                    spreadsheetId=sheet_id,
+                    body={
+                        "requests": [
+                            {
+                                "addSheet": {
+                                    "properties": {
+                                        "title": STYLE_META_SHEET,
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                ).execute()
+            except HttpError as inner_exc:
+                if inner_exc.resp.status not in {400, 409}:
+                    raise
+            svc.spreadsheets().values().update(
+                spreadsheetId=sheet_id,
+                range=target_range,
+                valueInputOption="RAW",
+                body=body,
+            ).execute()
+        else:
+            raise
+
+
 # Header sets identical to Apps Script
 NODE_HEADERS_FR_V8 = [
     'id','nom','type','id_branche','diametre_exterieur_mm','sdr_ouvrage','commentaire',
@@ -32,6 +128,12 @@ NODE_HEADERS_FR_V8 = [
 NODE_HEADERS_FR_V9 = [
     'id','nom','type','id_branche','diametre_exterieur_mm','sdr_ouvrage','materiau','commentaire',
     'pm_collector_edge_id','pm_pos_index','gps_lat','gps_lon','x','y','x_UI','y_UI'
+]
+
+NODE_HEADERS_FR_V10 = [
+    'id','nom','type','id_branche','gps_locked','pm_offset_m','diametre_exterieur_mm',
+    'sdr_ouvrage','materiau','commentaire','pm_collector_edge_id','pm_pos_index','gps_lat','gps_lon',
+    'x','y','x_UI','y_UI'
 ]
 
 NODE_HEADERS_EN_V1 = [
@@ -45,6 +147,7 @@ NODE_HEADERS_EN_V2 = [
 ]
 
 
+EDGE_HEADERS_FR_V5 = ['id','source_id','cible_id','diametre_mm','longueur_m','actif','commentaire','Geometry','BranchId','material','sdr']
 EDGE_HEADERS_FR_V4 = ['id','source_id','cible_id','diametre_mm','sdr','materiau','longueur_m','actif','commentaire','Geometry','PipeGroupId','BranchId']
 EDGE_HEADERS_FR_V3 = ['id','source_id','cible_id','diametre_mm','longueur_m','actif','commentaire','Geometry','PipeGroupId','BranchId']
 EDGE_HEADERS_EN_V3 = ['id','from_id','to_id','diameter_mm','sdr','material','length_m','active','comment','geometry','pipe_group_id','branch_id']
@@ -55,6 +158,8 @@ EXTRA_SHEET_HEADERS = [
     'idSite1','site','Regroupement','Canalisation','Casier','emplacement',
     'typeDePointDeMesure','diametreInterieur','sdrOuvrage','actif','dateAjoutligne'
 ]
+
+STYLE_META_SHEET = "STYLE_META"
 
 
 def _detect_header(header: List[str], candidates: List[List[str]]) -> List[str]:
@@ -156,6 +261,9 @@ def _row_to_node(row: Dict[str, Any], header_set: List[str], full_row: Dict[str,
     sdr_ouvrage = row.get("sdr_ouvrage") or row.get("sdrOuvrage") or ""
     material = row.get("materiau") or row.get("material") or row.get("matériau") or ""
 
+    gps_locked = _bool(row.get("gps_locked"), True)
+    pm_offset_m = _num(row.get("pm_offset_m") or row.get("pm_offset"))
+
     if node_type != 'CANALISATION':
         diameter_mm = None
         sdr_ouvrage = ""
@@ -177,6 +285,8 @@ def _row_to_node(row: Dict[str, Any], header_set: List[str], full_row: Dict[str,
         diameter_mm=diameter_mm,
         sdr_ouvrage=sdr_ouvrage,
         material=material,
+        gps_locked=gps_locked,
+        pm_offset_m=pm_offset_m,
         commentaire=(row.get("commentaire") or ""),
         well_pos_index=_int(row.get("well_pos_index")),
         # attach canonical + legacy kept in sync by model validator
@@ -195,8 +305,10 @@ def _row_to_edge(row: Dict[str, Any], header_set: List[str]) -> Edge:
     from_id = row.get("source_id") or row.get("from_id")
     to_id = row.get("cible_id") or row.get("to_id")
     geometry_coords = _parse_geometry_field(row.get("Geometry") or row.get("geometry"))
-    pipe_group_id = row.get("PipeGroupId") or row.get("pipe_group_id") or None
-    branch_id = row.get("BranchId") or row.get("branch_id") or pipe_group_id or ""
+    branch_raw = row.get("BranchId") or row.get("branch_id")
+    branch_id = str(branch_raw).strip() if branch_raw is not None else ""
+    if not branch_id:
+        raise ValueError("branch_id required for edge")
     diameter_mm = _num(row.get("diametre_mm") or row.get("diameter_mm"))
     sdr = row.get("sdr") or row.get("sdr_canalisation") or row.get("sdr_pipe") or row.get("sdr_ouvrage")
     material = row.get("materiau") or row.get("matériau") or row.get("material")
@@ -209,9 +321,8 @@ def _row_to_edge(row: Dict[str, Any], header_set: List[str]) -> Edge:
         active=_bool(row.get("actif") if "actif" in header_set else row.get("active"), True),
         commentaire=(row.get("commentaire") or row.get("comment") or ""),
         geometry=(geometry_coords if geometry_coords else None),
-        pipe_group_id=(pipe_group_id or None),
-        branch_id=(branch_id or ""),
-        diameter_mm=(0.0 if diameter_mm is None else float(diameter_mm)),
+        branch_id=branch_id,
+        diameter_mm=diameter_mm,
         sdr=(sdr or None),
         material=(material or None),
         length_m=length_m,
@@ -333,6 +444,7 @@ def read_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, *, site_id: 
         node_header = _detect_header(
             node_header_raw,
             [
+                NODE_HEADERS_FR_V10,
                 NODE_HEADERS_FR_V9,
                 NODE_HEADERS_FR_V8,
                 NODE_HEADERS_EN_V2,
@@ -381,6 +493,7 @@ def read_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, *, site_id: 
         edge_header = _detect_header(
             edge_header_raw,
             [
+                EDGE_HEADERS_FR_V5,
                 EDGE_HEADERS_FR_V4,
                 EDGE_HEADERS_FR_V3,
                 EDGE_HEADERS_EN_V3,
@@ -392,24 +505,32 @@ def read_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, *, site_id: 
         edge_rows = _values_to_dicts(edges_values[1:], edge_header_raw)
         allowed_ids = {n.id for n in nodes}
         for row in edge_rows:
+            if not row:
+                continue
             try:
                 e = _row_to_edge(row, edge_header)
-                if e.from_id and e.to_id:
-                    if site_id and (e.from_id not in allowed_ids or e.to_id not in allowed_ids):
-                        continue
-                    edges.append(e)
-            except Exception:
-                continue
+            except ValidationError as exc:
+                raise HTTPException(status_code=422, detail=f"edge validation failed: {exc}") from exc
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            except Exception as exc:
+                raise HTTPException(status_code=422, detail=f"edge parse failed: {exc}") from exc
+            if e.from_id and e.to_id:
+                if site_id and (e.from_id not in allowed_ids or e.to_id not in allowed_ids):
+                    continue
+                edges.append(e)
 
-    return Graph(site_id=site_id, nodes=nodes, edges=edges)
+    style_meta = _read_style_meta_sheet(svc, sheet_id)
+
+    return Graph(site_id=site_id, nodes=nodes, edges=edges, style_meta=style_meta)
 
 
 def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Graph, *, site_id: str | None = None) -> None:
     svc = _client()
 
-    node_headers = NODE_HEADERS_FR_V9 + EXTRA_SHEET_HEADERS
-    # Nouvelle entête riche pour arêtes (v4)
-    edge_headers = EDGE_HEADERS_FR_V4
+    node_headers = NODE_HEADERS_FR_V10 + EXTRA_SHEET_HEADERS
+    # Nouvelle entête riche pour arêtes (v5)
+    edge_headers = EDGE_HEADERS_FR_V5
 
     # Preserve existing canonical positions (x, y) when saving from UI.
     # We fetch the current sheet to map node id -> (x, y) and re-inject
@@ -447,6 +568,8 @@ def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Grap
             n.name or "",
             (n.type or "OUVRAGE"),
             n.branch_id or "",  # recalculé par sanitizer avant l'écriture
+            True if getattr(n, 'gps_locked', None) is not False else False,
+            ("" if getattr(n, 'pm_offset_m', None) is None else n.pm_offset_m),
             ("" if not is_canal else ("" if n.diameter_mm is None else n.diameter_mm)),
             ("" if not is_canal else (n.sdr_ouvrage or "")),
             ("" if not is_canal else (n.material or "")),
@@ -481,20 +604,18 @@ def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Grap
     edge_values = [edge_headers]
     for e in graph.edges:
         geom_txt = _format_geometry_lonlat_semicolon(getattr(e, 'geometry', None))
-        pgid = getattr(e, 'pipe_group_id', None) or getattr(e, 'branch_id', "") or ''
         edge_values.append([
             e.id or "",
             e.from_id,
             e.to_id,
             (0.0 if getattr(e, 'diameter_mm', None) in (None, "") else float(e.diameter_mm)),
-            (getattr(e, 'sdr', None) or ""),
-            (getattr(e, 'material', None) or ""),
             ("" if getattr(e, 'length_m', None) in (None, "") else float(e.length_m)),
             True if e.active is None else bool(e.active),
             getattr(e, 'commentaire', "") or "",
             geom_txt,
-            pgid,
             getattr(e, 'branch_id', "") or "",
+            (getattr(e, 'material', None) or ""),
+            (getattr(e, 'sdr', None) or ""),
         ])
 
     data = [
@@ -520,3 +641,5 @@ def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Grap
         spreadsheetId=sheet_id,
         body={"valueInputOption": "RAW", "data": data},
     ).execute()
+
+    _write_style_meta_sheet(svc, sheet_id, graph.style_meta or {})

@@ -1,6 +1,7 @@
 """Data source dispatch layer."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import HTTPException
@@ -50,6 +51,7 @@ def save_graph(source: Optional[str] = None, graph: Graph | None = None, **kwarg
 
     kind = _normalise_source(source)
     graph = sanitize_graph_for_write(graph)
+    graph.generated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
     if kind in {"sheet", "sheets", "google_sheets"}:
         site = kwargs.get("site_id") or settings.site_id_filter_default or None

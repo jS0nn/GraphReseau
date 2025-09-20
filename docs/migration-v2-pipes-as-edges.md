@@ -2,6 +2,8 @@
 
 Ce document décrit la migration V2: passage des canalisations en arêtes géométriques (LineString) avec fond photo aérienne, tout en conservant une saisie fluide, une compatibilité V1 et un bundle 100% local (sans CDN). Il complète la feuille de route et sert de référence d’implémentation.
 
+> **Note** : depuis la version 1.5 du modèle, l'identifiant fonctionnel des segments est `branch_id` (anciennement `pipe_group_id`). Les occurrences historiques de `pipe_group_id` dans ce document sont conservées uniquement pour le contexte de migration.
+
 ## 0) Contexte & objectifs
 - Objectif: afficher un fond IGN (orthophoto), synchronisé avec le viewport et les positions GPS (WGS84) des entités; rendre les canalisations comme polylignes; dessiner des flèches au milieu des arêtes pour matérialiser le sens (source → target, contextuellement « puits → GENERAL »).
 - Invariants V2: PM ancré à `(edge_id, edge_pos_m[, edge_pos_t])`; `pipe_group_id` conservé aux splits.
@@ -180,4 +182,3 @@ Docs
 - Rendu: une flèche au milieu de chaque arête, orientée selon la tangente locale de la polyligne (source → target).
 - Calcul: trouver le point médian par longueur cumulée; orienter un marker SVG le long du segment local; style conforme au thème.
 - Cas particuliers: arêtes très courtes → masquer le marker; arêtes multi‑segments → choisir le segment contenant le milieu.
-

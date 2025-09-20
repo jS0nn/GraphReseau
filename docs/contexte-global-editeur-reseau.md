@@ -68,7 +68,7 @@ Flux type (lecture):
   - `Node` (attributs principaux): `id`, `name`, `type`, `branch_id`, `commentaire`, `collector_well_ids`, `well_collector_id`, `well_pos_index`, `pm_collector_id`, `pm_collector_edge_id`, `pm_pos_index`, `gps_lat`, `gps_lon`, `lat`, `lon`, `x`, `y`, `x_ui`, `y_ui`, `extras`.
     - Les champs `diameter_mm`, `sdr_ouvrage` et `material` ne sont renseignés que pour les nœuds de type `CANALISATION`. Pour les autres éléments (OUVRAGE, GENERAL, POINT_MESURE, VANNE, ...), ils sont laissés vides côté modèle et calculés à la volée dans l’UI à partir de la canalisation d’attache.
     - Validator `_sync_lon_lat` maintient la coherence `gps_lat/gps_lon` <-> `lat/lon`.
-  - `Edge`: `id`, `from_id`, `to_id`, `active`, `commentaire`, `geometry` (LineString `[lon,lat]`), `pipe_group_id`, `branch_id`, `diameter_mm`, `length_m`, `material`, `sdr`.
+  - `Edge`: `id`, `from_id`, `to_id`, `active`, `commentaire`, `geometry` (LineString `[lon,lat]`), `branch_id`, `diameter_mm`, `length_m`, `material`, `sdr`, `site_id`, `extras`.
 - **Type de graphe**: graphe oriente representant un reseau de collecte (souvent quasi-arborescent). Les aretes `from_id -> to_id` materialisent le flux physique (ex: captage -> collecteur -> rejet). Le layout ELK produit un arbre dirige hierarchique, mais la structure supporte un DAG avec confluences.
 - **Compatibilite colonnes**:
   - Sheets: detection entetes FR/EN versions V1 a V8 (ancien Apps Script). Colonnes metier additionnelles stockees dans `extras` (`idSite1`, `site`, `Regroupement`, etc.).

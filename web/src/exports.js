@@ -3,9 +3,17 @@ const toId   = (e) => e.to_id   ?? e.target
 
 export function toJSON(graph){
   // Include style meta if available (for reproducibility of classes/colors)
-  let style_meta = null
-  try{ style_meta = (window.__pipesStyle && typeof window.__pipesStyle.meta==='function') ? window.__pipesStyle.meta() : null }catch{}
-  return { nodes: graph.nodes || [], edges: graph.edges || [], style_meta }
+  let engineMeta = null
+  try{ engineMeta = (window.__pipesStyle && typeof window.__pipesStyle.meta==='function') ? window.__pipesStyle.meta() : null }catch{}
+  const style_meta = (graph && graph.style_meta && Object.keys(graph.style_meta).length) ? graph.style_meta : engineMeta
+  return {
+    version: graph?.version || '1.5',
+    site_id: graph?.site_id || null,
+    generated_at: graph?.generated_at || null,
+    style_meta,
+    nodes: graph?.nodes || [],
+    edges: graph?.edges || [],
+  }
 }
 
 export function toCompact(graph){
@@ -44,7 +52,9 @@ export function toNodeEdge(graph){
     to: toId(e),
     active: e.active !== false,
     commentaire: e.commentaire || '',
-    pipe_group_id: e.pipe_group_id || '',
+    branch_id: e.branch_id || '',
+    diameter_mm: e.diameter_mm ?? null,
+    length_m: e.length_m ?? null,
     geometry: Array.isArray(e.geometry) ? e.geometry : null,
   }))
   return { nodes, edges }

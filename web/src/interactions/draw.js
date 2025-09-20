@@ -1,9 +1,9 @@
-import { state, addNode, addEdge, updateEdge, removeEdge, updateNode, getMode, setMode, subscribe, suspendOrphanPrune } from '../state/index.js'
+import { state, addNode, addEdge, updateEdge, removeEdge, updateNode, getMode, setMode, subscribe, suspendOrphanPrune, getManualEdgeProps } from '../state/index.js'
 import { displayXYForNode, unprojectUIToLatLon, projectLatLonToUI } from '../geo.js'
 import { NODE_SIZE } from '../constants/nodes.js'
 import { getMap, isMapActive } from '../map.js'
 import { showMiniMenu } from '../ui/mini-menu.js'
-import { centerUIForNode, edgeGeometryToUIPoints, nearestPointOnPolyline, splitGeometryAt, ensureEdgeGeometry } from '../shared/geometry.js'
+import { centerUIForNode, edgeGeometryToUIPoints, nearestPointOnPolyline, splitGeometryAt, ensureEdgeGeometry, geometryLengthMeters, offsetAlongGeometry } from '../shared/geometry.js'
 import { isCanal } from '../utils.js'
 
 const SNAP_TOL = 15 // px for nodes (distance to node rectangle)
@@ -27,13 +27,16 @@ const finiteDiameter = (value) => {
   return Number.isFinite(num) && num > 0 ? num : null
 }
 
+const roundMeters = (value) => (Number.isFinite(value) ? Math.round(value * 100) / 100 : null)
+
 function pickEdgeProps(edge){
   if(!edge) return null
   const diameter_mm = finiteDiameter(edge.diameter_mm)
   const material = edge.material || ''
   const sdr = edge.sdr || ''
-  if(diameter_mm == null && !material && !sdr) return null
-  return { diameter_mm, material, sdr }
+  const branch_id = edge.branch_id || ''
+  if(diameter_mm == null && !material && !sdr && !branch_id) return null
+  return { diameter_mm, material, sdr, branch_id: branch_id || null }
 }
 
 function mergeEdgeProps(target, props){
@@ -41,6 +44,7 @@ function mergeEdgeProps(target, props){
   if(props.diameter_mm != null) target.diameter_mm = props.diameter_mm
   if(props.material) target.material = props.material
   if(props.sdr) target.sdr = props.sdr
+  if(props.branch_id && !target.branch_id) target.branch_id = props.branch_id
   return target
 }
 
@@ -53,8 +57,8 @@ function inferPropsFromNodeId(nodeId, visited = new Set()){
       const diameter_mm = finiteDiameter(node.diameter_mm)
       const material = node.material || ''
       const sdr = node.sdr_ouvrage || ''
-      if(diameter_mm != null || material || sdr){
-        return { diameter_mm, material, sdr }
+      if(diameter_mm != null || material || sdr || node.branch_id){
+        return { diameter_mm, material, sdr, branch_id: node.branch_id || null }
       }
     }
     if(node.well_collector_id){
@@ -162,7 +166,7 @@ function startDrawing(gOverlay){
   p.setAttribute('stroke','var(--accent)')
   p.setAttribute('stroke-width','2')
   gOverlay.node().appendChild(p)
-  drawing = { pointsUI: [], pointsLL: [], previewPath: p, snappedIds: [] }
+  drawing = { pointsUI: [], pointsLL: [], previewPath: p, snappedIds: [], anchorHints: new Map() }
 }
 
 function stopDrawing(){
@@ -287,22 +291,92 @@ function finishDrawing(){
   }
   if(!edgesCreated.length){ stopDrawing(); return }
 
-  const pgid = edgesCreated[0]?.id
-  const applyEdgeProps = (edgeId) => {
-    const patch = {}
-    if(pgid){
-      patch.pipe_group_id = pgid
-      patch.branch_id = pgid
-    }
-    mergeEdgeProps(patch, baseProps)
-    if(Object.keys(patch).length){ updateEdge(edgeId, patch) }
+  const cleanId = (value) => {
+    if(value == null) return ''
+    const txt = String(value).trim()
+    return txt
   }
-  edgesCreated.forEach(edge => applyEdgeProps(edge.id))
+  const seedCandidates = []
+  if(baseProps?.branch_id) seedCandidates.push(baseProps.branch_id)
+  if(antennaSeedProps?.branch_id) seedCandidates.push(antennaSeedProps.branch_id)
+  const startNodeObj = state.nodes.find(nn => nn.id === aId)
+  const endNodeObj = state.nodes.find(nn => nn.id === bId)
+  if(startNodeObj?.branch_id) seedCandidates.push(startNodeObj.branch_id)
+  if(endNodeObj?.branch_id) seedCandidates.push(endNodeObj.branch_id)
+  const branchSeed = seedCandidates.map(cleanId).find(Boolean) || ''
+
+  const branchIdForEdge = (edge) => {
+    if(!edge) return branchSeed || cleanId(edge?.id)
+    const target = state.nodes.find(nn => nn.id === (edge.to_id ?? edge.target))
+    const source = state.nodes.find(nn => nn.id === (edge.from_id ?? edge.source))
+    const candidates = [
+      edge.branch_id,
+      target?.branch_id,
+      source?.branch_id,
+      branchSeed,
+    ].map(cleanId).filter(Boolean)
+    return candidates.length ? candidates[0] : cleanId(edge.id)
+  }
+
+  const applyEdgeProps = (edge) => {
+    if(!edge) return
+    const branch = branchIdForEdge(edge)
+    const patch = { branch_id: branch }
+    mergeEdgeProps(patch, baseProps)
+    const manual = getManualEdgeProps(branch) || {}
+
+    if(manual.diameter_mm != null){
+      patch.diameter_mm = manual.diameter_mm
+    } else if(patch.diameter_mm == null){
+      const existing = finiteDiameter(edge.diameter_mm)
+      if(existing != null) patch.diameter_mm = existing
+    }
+
+    const normaliseMaterial = (value) => {
+      if(value == null || value === undefined) return null
+      const txt = String(value).trim()
+      return txt ? txt.toUpperCase() : null
+    }
+    const normaliseSdr = (value) => {
+      if(value == null || value === undefined) return null
+      const txt = String(value).trim()
+      return txt ? txt.toUpperCase() : null
+    }
+
+    const materialSource = manual.material ?? patch.material ?? edge.material
+    const sdrSource = manual.sdr ?? patch.sdr ?? edge.sdr
+    patch.material = normaliseMaterial(materialSource)
+    patch.sdr = normaliseSdr(sdrSource)
+
+    if(patch.material === undefined) patch.material = null
+    if(patch.sdr === undefined) patch.sdr = null
+
+    if(Object.keys(patch).length){
+      updateEdge(edge.id, patch)
+    }
+  }
+  edgesCreated.forEach(applyEdgeProps)
+
+  const branchIdForNode = (nodeId) => {
+    const node = state.nodes.find(n => n.id === nodeId)
+    if(!node) return ''
+    const edgesForNode = nodeSegments.get(nodeId) || []
+    for(const eid of edgesForNode){
+      const edge = state.edges.find(e => e.id === eid)
+      const branch = branchIdForEdge(edge)
+      if(cleanId(branch)) return branch
+    }
+    if(cleanId(node.branch_id)) return cleanId(node.branch_id)
+    return branchSeed || ''
+  }
+
   const assignNodeToBranch = (id) => {
     const n = state.nodes.find(nn=>nn.id===id)
     if(!n) return
-    if(pgid && n.branch_id !== pgid){ updateNode(id, { branch_id: pgid }) }
-    else if(!pgid && !n.branch_id){ updateNode(id, { branch_id: edgesCreated[0]?.id || '' }) }
+    const desired = branchIdForNode(id)
+    if(cleanId(desired) && cleanId(n.branch_id) !== cleanId(desired)){
+      updateNode(id, { branch_id: cleanId(desired) })
+    }
   }
   const assignInlineToEdge = (id) => {
     const n = state.nodes.find(nn=>nn.id===id)
@@ -310,11 +384,34 @@ function finishDrawing(){
     const T = String(n.type||'').toUpperCase()
     if(T==='POINT_MESURE' || T==='VANNE'){
       const usableEdges = nodeSegments.get(id) || []
-      const targetEdge = usableEdges[0] || edgesCreated[0]?.id || null
+      const hint = drawing?.anchorHints?.get(id) || null
+      const upstreamEdge = usableEdges
+        .map(eid => state.edges.find(e => e.id === eid))
+        .find(edge => edge && (edge.to_id ?? edge.target) === id)
+      const fallbackEdgeId = usableEdges[0] || edgesCreated[0]?.id || null
+      const targetEdge = hint?.edgeId || upstreamEdge?.id || fallbackEdgeId
       const patch = {}
-      if(targetEdge && n.pm_collector_edge_id !== targetEdge){ patch.pm_collector_edge_id = targetEdge }
+      if(targetEdge && n.pm_collector_edge_id !== targetEdge){
+        patch.pm_collector_edge_id = targetEdge
+        patch.attach_edge_id = targetEdge
+      }
       if(n.pm_collector_id){ patch.pm_collector_id = '' }
+      if(targetEdge){
+        const edge = state.edges.find(e => e.id === targetEdge)
+        const offsetVal = (hint && hint.offset != null) ? hint.offset : offsetAlongGeometry(edge, n)
+        let clamped = Number(offsetVal)
+        if(Number.isFinite(clamped)){
+          const lengthHint = Number.isFinite(edge?.length_m) ? edge.length_m : geometryLengthMeters(edge?.geometry)
+          if(Number.isFinite(lengthHint)){
+            clamped = Math.min(clamped, lengthHint)
+          }
+          patch.pm_offset_m = roundMeters(clamped)
+        }else{
+          patch.pm_offset_m = null
+        }
+      }
       if(Object.keys(patch).length){ updateNode(id, patch) }
+      if(hint){ try{ drawing?.anchorHints?.delete(id) }catch{} }
     }
   }
   assignNodeToBranch(aId)
@@ -354,16 +451,21 @@ function splitEdgeAt(edge, hit){
   const toId   = edge.to_id   ?? edge.target
   const keepActive = edge.active!==false
   const commentaire = edge.commentaire || ''
-  const pgid = edge.pipe_group_id || ''
   const baseProps = pickEdgeProps(edge)
-  const branchId = edge.branch_id || pgid || ''
+  const branchId = (() => {
+    const candidates = [edge.branch_id, baseProps?.branch_id, edge.id]
+    for(const cand of candidates){
+      if(cand && String(cand).trim()) return String(cand).trim()
+    }
+    return ''
+  })()
   // Create the new node at hit point, lock to GPS
   const ll = unprojectUIToLatLon(hit.px, hit.py)
   const node = addNode({ type:'JONCTION', gps_lat: ll.lat, gps_lon: ll.lon, gps_locked: true, name:'', x: hit.px, y: hit.py })
   let e1 = null
   let e2 = null
   const buildEdgeOpts = () => {
-    const opts = { active: keepActive, commentaire, pipe_group_id: pgid }
+    const opts = { active: keepActive, commentaire }
     if(branchId) opts.branch_id = branchId
     mergeEdgeProps(opts, baseProps)
     return opts
@@ -376,7 +478,15 @@ function splitEdgeAt(edge, hit){
     if(e2?.id) updateEdge(e2.id, { geometry: parts.g2 })
   })
   if(branchId) updateNode(node.id, { branch_id: branchId })
-  return { nodeId: node.id, ui: [hit.px, hit.py], edgeProps: baseProps }
+  const upstreamEdgeId = e1?.id || null
+  const offsetMeters = geometryLengthMeters(parts.g1)
+  return {
+    nodeId: node.id,
+    ui: [hit.px, hit.py],
+    edgeProps: baseProps,
+    anchorEdgeId: upstreamEdgeId,
+    anchorOffsetM: roundMeters(offsetMeters),
+  }
 }
 
 export function attachDraw(svgSel, gOverlay){
@@ -407,6 +517,9 @@ export function attachDraw(svgSel, gOverlay){
         if(res){
           usePt = res.ui; snappedId = res.nodeId
           if(res.edgeProps){ antennaSeedProps = res.edgeProps }
+          if(res.anchorEdgeId){
+            try{ drawing?.anchorHints?.set(res.nodeId, { edgeId: res.anchorEdgeId, offset: res.anchorOffsetM }) }catch{}
+          }
           // Mini menu (type du nœud inséré) — pas d'antenne ici car on est déjà en dessin
           try{
             showMiniMenu(evt.clientX, evt.clientY, [
@@ -414,13 +527,19 @@ export function attachDraw(svgSel, gOverlay){
               { label: 'Point de mesure', onClick: ()=> {
                   const cx = res.ui?.[0] ?? 0, cy = res.ui?.[1] ?? 0
                   const ll = unprojectUIToLatLon(cx, cy)
-                  updateNode(res.nodeId, { type:'POINT_MESURE', gps_lat: ll.lat, gps_lon: ll.lon, gps_locked: true })
+                  const pmPatch = { type:'POINT_MESURE', gps_lat: ll.lat, gps_lon: ll.lon, gps_locked: true }
+                  if(res.anchorEdgeId){ pmPatch.pm_collector_edge_id = res.anchorEdgeId; pmPatch.attach_edge_id = res.anchorEdgeId }
+                  if(res.anchorOffsetM != null){ pmPatch.pm_offset_m = res.anchorOffsetM }
+                  updateNode(res.nodeId, pmPatch)
                 }
               },
               { label: 'Vanne', onClick: ()=> {
                   const cx = res.ui?.[0] ?? 0, cy = res.ui?.[1] ?? 0
                   const ll = unprojectUIToLatLon(cx, cy)
-                  updateNode(res.nodeId, { type:'VANNE', gps_lat: ll.lat, gps_lon: ll.lon, gps_locked: true })
+                  const vPatch = { type:'VANNE', gps_lat: ll.lat, gps_lon: ll.lon, gps_locked: true }
+                  if(res.anchorEdgeId){ vPatch.pm_collector_edge_id = res.anchorEdgeId; vPatch.attach_edge_id = res.anchorEdgeId }
+                  if(res.anchorOffsetM != null){ vPatch.pm_offset_m = res.anchorOffsetM }
+                  updateNode(res.nodeId, vPatch)
                 }
               },
             ])

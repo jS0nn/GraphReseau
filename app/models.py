@@ -1,8 +1,9 @@
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_validator, ConfigDict
 
 
 class Node(BaseModel):
+    model_config = ConfigDict(extra="allow")
     id: str
     name: Optional[str] = ""
     type: Optional[str] = "OUVRAGE"
@@ -13,6 +14,9 @@ class Node(BaseModel):
     diameter_mm: Optional[float] = None
     sdr_ouvrage: Optional[str] = ""
     material: Optional[str] = ""
+
+    gps_locked: Optional[bool] = True
+    pm_offset_m: Optional[float] = None
 
     commentaire: Optional[str] = ""
 
@@ -83,6 +87,7 @@ class Node(BaseModel):
 
 
 class Edge(BaseModel):
+    model_config = ConfigDict(extra="allow")
     id: Optional[str] = None
     from_id: str
     to_id: str
@@ -92,12 +97,11 @@ class Edge(BaseModel):
     # V2 geometry: optional LineString coordinates [[lon,lat], ...]
     geometry: Optional[List[List[float]]] = None
 
-    # Branche canonique (ex-pipe_group_id) + alias legacy
-    branch_id: Optional[str] = ""
-    pipe_group_id: Optional[str] = None  # legacy alias (doit == branch_id)
+    # Branche canonique obligatoire
+    branch_id: str
 
     # Nouveaux champs v1.5
-    diameter_mm: float = 0.0           # OBLIGATOIRE (>=0), défaut 0 si inconnu
+    diameter_mm: Optional[float] = None  # OBLIGATOIRE (>=0)
     length_m: Optional[float] = None
     material: Optional[str] = None
     sdr: Optional[str] = None
@@ -111,23 +115,33 @@ class Edge(BaseModel):
         try:
             if not isinstance(data, dict):
                 return data
-            b = data.get("branch_id")
-            p = data.get("pipe_group_id")
-            if (not b) and p:
-                data["branch_id"] = p
+            b = data.get("branch_id") or data.get("branchId")
+            if not b:
+                legacy = data.get("pipe_group_id") or data.get("PipeGroupId")
+                if legacy:
+                    b = legacy
+            if not b:
+                raise ValueError("branch_id required")
+            data["branch_id"] = str(b).strip()
             # diameter: normaliser vide -> 0
-            if ("diameter_mm" not in data) or (data.get("diameter_mm") in (None, "")):
-                data["diameter_mm"] = 0.0
+            if "diameter_mm" in data:
+                raw = data.get("diameter_mm")
+                if raw in ("", None):
+                    data["diameter_mm"] = None
+                else:
+                    data["diameter_mm"] = raw
         except Exception:
             return data
         return data
 
 
 class Graph(BaseModel):
+    model_config = ConfigDict(extra="allow")
     # Métadonnées v1.5
     version: str = "1.5"
     site_id: Optional[str] = None
     generated_at: Optional[str] = None
+    style_meta: Dict[str, Any] = Field(default_factory=dict)
 
     nodes: List[Node] = Field(default_factory=list)
     edges: List[Edge] = Field(default_factory=list)

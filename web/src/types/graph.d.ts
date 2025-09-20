@@ -8,11 +8,13 @@ export interface Edge {
   active?: boolean | null;
   commentaire?: string | null;
   geometry?: number[][] | null;
-  pipe_group_id?: string | null;
+  branch_id: string;
   diameter_mm?: number | null;
   length_m?: number | null;
   material?: string | null;
   sdr?: string | null;
+  site_id?: string | null;
+  extras?: Record<string, unknown> | null;
   [key: string]: unknown;
 }
 
@@ -21,6 +23,7 @@ export interface Node {
   name?: string | null;
   type?: string | null;
   branch_id?: string | null;
+  site_id?: string | null;
   diameter_mm?: number | null;
   sdr_ouvrage?: string | null;
   material?: string | null;
@@ -32,6 +35,7 @@ export interface Node {
   pm_collector_edge_id?: string | null;
   pm_pos_index?: number | null;
   pm_offset_m?: number | null;
+  gps_locked?: boolean | null;
   gps_lat?: number | null;
   gps_lon?: number | null;
   lat?: number | null;
@@ -45,6 +49,10 @@ export interface Node {
 }
 
 export interface Graph {
+  version?: string | null;
+  site_id?: string | null;
+  generated_at?: string | null;
+  style_meta?: Record<string, unknown> | null;
   nodes: Node[];
   edges: Edge[];
 }
