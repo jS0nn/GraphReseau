@@ -1,4 +1,4 @@
-import { state, subscribe, updateNode, updateEdge, removeNode, removeEdge, clearSelection, addNode, addEdge, selectEdgeById, selectNodeById, flipEdgeDirection, recordManualDiameter, recordManualEdgeProps } from '../state/index.js'
+import { state, subscribe, updateNode, updateEdge, removeNode, removeEdge, clearSelection, addNode, addEdge, selectEdgeById, selectNodeById, flipEdgeDirection, recordManualDiameter, recordManualEdgeProps, getBranchName, setBranchName } from '../state/index.js'
 import { displayXYForNode, unprojectUIToLatLon } from '../geo.js'
 import { NODE_SIZE } from '../constants/nodes.js'
 import { genIdWithTime as genId, defaultName, vn, snap, isCanal } from '../utils.js'
@@ -96,18 +96,15 @@ export function initForms(){
       nodeForm.x_UI.value = Math.round(+(n.x ?? 0))
       nodeForm.y_UI.value = Math.round(+(n.y ?? 0))
       if(nodeForm.diameter_mm) nodeForm.diameter_mm.value = (isCan && n.diameter_mm!=null && n.diameter_mm!=='') ? n.diameter_mm : ''
-      if(nodeForm.sdr_ouvrage) nodeForm.sdr_ouvrage.value = (isCan && n.sdr_ouvrage) ? n.sdr_ouvrage : ''
       if(nodeForm.material) nodeForm.material.value = (isCan && n.material) ? n.material : ''
       const infoCtx = findCanalContext(n)
       setDisplay('grpPipeInfo', !isCan && !!infoCtx?.canal)
       try{
         const nameEl = document.getElementById('pipeInfoName')
         const diaEl = document.getElementById('pipeInfoDiameter')
-        const sdrEl = document.getElementById('pipeInfoSDR')
         const matEl = document.getElementById('pipeInfoMaterial')
         if(nameEl) nameEl.value = infoCtx?.canal ? (infoCtx.canal.name || infoCtx.canal.id || '') : ''
         if(diaEl) diaEl.value = infoCtx?.canal?.diameter_mm ?? ''
-        if(sdrEl) sdrEl.value = infoCtx?.canal?.sdr_ouvrage ?? ''
         if(matEl) matEl.value = infoCtx?.canal?.material ?? ''
       }catch{}
       if('gps_lat' in n && nodeForm.gps_lat) nodeForm.gps_lat.value = (n.gps_lat===''||n.gps_lat==null)?'':n.gps_lat
@@ -144,6 +141,7 @@ export function initForms(){
       }
       if(edgeForm.sdr){ edgeForm.sdr.value = e.sdr || '' }
       if(edgeForm.material){ edgeForm.material.value = e.material || '' }
+      if(edgeForm.branch_name){ edgeForm.branch_name.value = getBranchName(e.branch_id || '') }
       if(edgeForm.commentaire) edgeForm.commentaire.value = e.commentaire || ''
       if(flipEdgeBtn){
         flipEdgeBtn.disabled = false
@@ -157,7 +155,7 @@ export function initForms(){
   }
 
   subscribe((evt)=>{
-    if(evt.startsWith('selection:') || evt.startsWith('node:') || evt.startsWith('edge:') || evt==='graph:set') refresh()
+    if(evt.startsWith('selection:') || evt.startsWith('node:') || evt.startsWith('edge:') || evt==='graph:set' || evt==='branch:update') refresh()
   })
   refresh()
 
@@ -186,7 +184,6 @@ export function initForms(){
       }
       if(isCan){
         if(nodeForm.diameter_mm) patch.diameter_mm = (nodeForm.diameter_mm.value===''? '' : +nodeForm.diameter_mm.value)
-        if(nodeForm.sdr_ouvrage) patch.sdr_ouvrage = nodeForm.sdr_ouvrage.value
         if(nodeForm.material) patch.material = nodeForm.material.value
       }
       if(nodeForm.gps_lat) patch.gps_lat = (nodeForm.gps_lat.value===''? '' : +nodeForm.gps_lat.value)
@@ -262,6 +259,10 @@ export function initForms(){
         patch.material = toCanonicalMaterial(edgeForm.material.value)
       }
       updateEdge(id, patch)
+      if(event?.target === edgeForm.branch_name){
+        if(e.branch_id) setBranchName(e.branch_id, edgeForm.branch_name.value)
+        return
+      }
       const manualBranch = (patch.branch_id ?? e.branch_id ?? '').trim() || null
       const manualPatch = {}
       if(event?.target === edgeForm.diameter_mm) manualPatch.diameter_mm = patch.diameter_mm
@@ -346,7 +347,7 @@ function renderInlineSection(dev){
           const name = `${a.name || a.id} → ${b.name || b.id}${edges.length>1?` (#${idx+1})`:''}`
           const opt = document.createElement('option')
           opt.value = edge.id
-          opt.textContent = `${branchId} · ${name}`
+          opt.textContent = `${getBranchName(branchId) || branchId} · ${name}`
           if(dev.pm_collector_edge_id === edge.id) opt.selected = true
           selEdge.appendChild(opt)
         })

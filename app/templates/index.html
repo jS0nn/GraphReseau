@@ -46,8 +46,6 @@
       <button class="btn" id="mapToggleBtn" title="Fond orthophoto"><i class="uil uil-image"></i> Fond</button>
       <button class="btn" id="thicknessBtn" title="Épaisseur des arêtes (Ø)"><i class="uil uil-line-alt"></i> Épaisseur</button>
       <button class="btn" id="exportBtn"><i class="uil uil-export"></i> Export JSON</button>
-      <button class="btn" id="exportCompactBtn"><i class="uil uil-compress"></i> Export JSON (compact)</button>
-      <button class="btn" id="exportNodeEdgeBtn"><i class="uil uil-share"></i> Export nœud/arête</button>
       <div class="spacer"></div>
       <button class="btn" id="logBtn" title="Afficher/Masquer logs"><i class="uil uil-file-alt"></i> Logs</button>
       <button class="btn" id="themeBtn" title="Thème"><i class="uil uil-brightness-half"></i> Thème</button>
@@ -98,8 +96,7 @@
               </label>
               <div id="grpCanalProps" style="display:none">
                 <label>Diamètre extérieur (mm) <input name="diameter_mm" type="number" min="0"></label>
-                <label>SDR <input name="sdr_ouvrage" placeholder="ex. SDR11 ou 11"></label>
-                <label>Matériau <input name="material" placeholder="ex. PVC"></label>
+                  <label>Matériau <input name="material" placeholder="ex. PVC"></label>
               </div>
               <div id="grpPipeInfo" style="display:none">
                 <label>Canalisation
@@ -107,9 +104,6 @@
                 </label>
                 <label>Diamètre (mm)
                   <input id="pipeInfoDiameter" readonly>
-                </label>
-                <label>SDR
-                  <input id="pipeInfoSDR" readonly>
                 </label>
                 <label>Matériau
                   <input id="pipeInfoMaterial" readonly>
@@ -208,6 +202,9 @@
               <div><label>De (amont)<input name="from_name" readonly></label></div>
               <div><label>Vers (aval)<input name="to_name" readonly></label></div>
             </div>
+            <label>Branche (nom)
+              <input id="edgeBranchName" name="branch_name" placeholder="Nom de branche">
+            </label>
             <button type="button" id="flipEdgeBtn" class="btn" style="width:100%"><i class="uil uil-exchange"></i> Inverser le sens</button>
             <label>Diamètre (mm)
               <input name="diameter_mm" type="number" min="0" step="0.1" placeholder="ex. 160">
