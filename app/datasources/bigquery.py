@@ -6,8 +6,9 @@ from typing import Optional
 from fastapi import HTTPException
 
 from ..config import settings
-from ..models import Edge, Graph, Node
+from ..models import Edge, Graph, Node, BranchInfo, CRSInfo, _compute_length_from_geometry
 from ..gcp_auth import get_credentials
+from ..shared.graph_transform import ensure_created_at_string
 
 
 def load_bigquery(
@@ -51,7 +52,6 @@ def load_bigquery(
                     branch_id=data.get("branch_id") or data.get("id_branche") or "",
                     site_id=data.get("site_id"),
                     diameter_mm=data.get("diameter_mm") or data.get("diametre_mm"),
-                    sdr_ouvrage=data.get("sdr_ouvrage") or data.get("sdr") or "",
                     material=data.get("material") or data.get("materiau") or data.get("matériau") or "",
                     gps_locked=data.get("gps_locked"),
                     pm_offset_m=data.get("pm_offset_m") or data.get("pm_offset"),
@@ -110,20 +110,60 @@ def load_bigquery(
                     except (TypeError, ValueError):
                         diameter = None
 
+                edge_id_raw = data.get("id")
+                edge_id = str(edge_id_raw).strip() if edge_id_raw not in (None, "") else ""
+                created_source = None
+                for key in (
+                    "created_at",
+                    "createdAt",
+                    "date_creation",
+                    "dateCreation",
+                    "date_created",
+                    "dateCreated",
+                    "creation_date",
+                    "creationDate",
+                    "created",
+                ):
+                    value = data.get(key)
+                    if value not in (None, ""):
+                        created_source = value
+                        break
+                from_id_str = str(from_id) if from_id is not None else ""
+                to_id_str = str(to_id) if to_id is not None else ""
+                created_at = None
+                if created_source not in (None, ""):
+                    created_at = ensure_created_at_string(edge_id or f"{from_id_str}->{to_id_str}", created_source)
+
+                length_val = data.get("length_m") or data.get("longueur_m")
+                length_m = None
+                if isinstance(length_val, (int, float)):
+                    length_m = float(length_val)
+                elif length_val not in (None, ""):
+                    try:
+                        length_m = float(length_val)
+                    except (TypeError, ValueError):
+                        length_m = None
+
+                if (length_m is None or length_m <= 0) and geometry:
+                    computed_length = _compute_length_from_geometry(geometry)
+                    if computed_length is not None:
+                        length_m = computed_length
+
                 yield Edge(
-                    id=data.get("id"),
-                    from_id=str(from_id),
-                    to_id=str(to_id),
+                    id=edge_id or None,
+                    from_id=from_id_str,
+                    to_id=to_id_str,
                     active=bool(active) if active is not None else True,
                     commentaire=data.get("commentaire") or data.get("comment"),
                     geometry=geometry,
                     branch_id=str(branch_val),
                     diameter_mm=diameter,
-                    length_m=data.get("length_m") or data.get("longueur_m"),
+                    length_m=length_m,
                     site_id=data.get("site_id"),
                     material=data.get("material"),
-                    sdr=data.get("sdr") or data.get("sdr_pipe") or data.get("sdr_ouvrage"),
+                    sdr=data.get("sdr") or data.get("sdr_pipe"),
                     slope_pct=data.get("slope_pct"),
+                    created_at=created_at,
                 )
 
         nodes = [node for node in to_nodes() if getattr(node, "id", None)]
@@ -134,7 +174,18 @@ def load_bigquery(
             site_ids = {getattr(n, "site_id", None) for n in nodes if getattr(n, "site_id", None)}
             if len(site_ids) == 1:
                 site_id = list(site_ids)[0]
-        return Graph(site_id=site_id, nodes=nodes, edges=edges)
+        fallback: dict[str, BranchInfo] = {}
+        for edge in edges:
+            branch_id = (edge.branch_id or '').strip()
+            if not branch_id or branch_id in fallback:
+                continue
+            fallback[branch_id] = BranchInfo(
+                id=branch_id,
+                name=branch_id,
+                parent_id=None,
+                is_trunk=branch_id.startswith('GENERAL-'),
+            )
+        return Graph(site_id=site_id, nodes=nodes, edges=edges, crs=CRSInfo(), branches=list(fallback.values()))
     except HTTPException:
         raise
     except Exception as exc:  # pragma: no cover - requires BigQuery

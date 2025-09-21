@@ -13,7 +13,7 @@ Statut: à cocher au fur et à mesure. Cible: V1 fonctionnelle (embed RO), sourc
 - [x] Drag + snap grille, multi‑sélection (marquee)
 - [x] Panneau propriétés (PUITS / CANALISATION / PM / VANNE)
 - [x] Séquence canalisation (chips) + ordre enfants
-- [x] Aide (dialog) + Journal (drawer) + Export (JSON/compact/node‑edge)
+- [x] Aide (dialog) + Journal (drawer) + Export (JSON)
 - [x] Auto‑layout: ELK + fallback avec logs
 - [x] Suppression d’arête (bouton “Supprimer” edge) et raccourci (partiel – bouton)
 - [x] Indicateur “N nœuds / M arêtes” (overlay)
@@ -44,7 +44,7 @@ Statut: à cocher au fur et à mesure. Cible: V1 fonctionnelle (embed RO), sourc
 - [x] Rendu SVG: `render/canvas`, `render/edges`, `render/inline`, `render/colors`
 - [x] Interactions: drag, multi‑sélection, raccourcis, modes (`modes`, `interactions/*`)
 - [x] Propriétés: formulaires nœud/arête/canal (`ui/forms/*`) + callbacks → state+render
-- [x] Exports: JSON/compact/node‑edge (`exports.js`) + download helper
+- [x] Exports: JSON (`exports.js`)
 - [x] Layout: consolider `layout.js` (ELK + fallback) + journaux (`ui/logs`)
 - [x] Entrée unique propre: `editor.js` assemble les modules; déprécier puis supprimer `legacy-editor.js`
 - [x] CSS: renommer `web/styles/legacy.css` → `editor.css` (maj `build.mjs` + `app/templates/index.html`)

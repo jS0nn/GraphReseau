@@ -135,6 +135,7 @@ export function initForms(){
       edgeForm.from_name.value = from?.name||from?.id||''
       edgeForm.to_name.value = to?.name||to?.id||''
       edgeForm.active.value = String(e.active!==false)
+      if(edgeForm.branch_id){ edgeForm.branch_id.value = e.branch_id || '' }
       if(edgeForm.diameter_mm){
         const val = Number.isFinite(+e.diameter_mm) && +e.diameter_mm > 0 ? +e.diameter_mm : ''
         edgeForm.diameter_mm.value = val
@@ -239,6 +240,12 @@ export function initForms(){
         active: (edgeForm.active.value === 'true'),
         commentaire: edgeForm.commentaire ? edgeForm.commentaire.value : e.commentaire,
       }
+      if(event?.target === edgeForm.branch_id){
+        return
+      }
+      if(event?.target === edgeForm.branch_name){
+        return
+      }
       if(edgeForm.diameter_mm){
         const raw = edgeForm.diameter_mm.value
         if(raw === ''){
@@ -259,10 +266,6 @@ export function initForms(){
         patch.material = toCanonicalMaterial(edgeForm.material.value)
       }
       updateEdge(id, patch)
-      if(event?.target === edgeForm.branch_name){
-        if(e.branch_id) setBranchName(e.branch_id, edgeForm.branch_name.value)
-        return
-      }
       const manualBranch = (patch.branch_id ?? e.branch_id ?? '').trim() || null
       const manualPatch = {}
       if(event?.target === edgeForm.diameter_mm) manualPatch.diameter_mm = patch.diameter_mm
@@ -286,6 +289,18 @@ export function initForms(){
 
   if(delNodeBtn){ delNodeBtn.onclick = ()=>{ const id = state.selection.nodeId; if(!id) return; if(confirm('Supprimer ce nœud ?')){ removeNode(id); clearSelection() } } }
   if(delEdgeBtn){ delEdgeBtn.onclick = ()=>{ const id = state.selection.edgeId; if(!id){ alert('Aucune arête sélectionnée'); return } if(confirm('Supprimer cette arête ?')){ removeEdge(id); selectEdgeById(null); selectNodeById(null) } } }
+
+  if(edgeForm?.branch_name && !edgeForm.branch_name.__wired__){
+    edgeForm.branch_name.__wired__ = true
+    edgeForm.branch_name.addEventListener('change', ()=>{
+      const id = state.selection.edgeId
+      if(!id) return
+      const e = state.edges.find(edge=>edge.id === id)
+      if(!e || !e.branch_id) return
+      setBranchName(e.branch_id, edgeForm.branch_name.value)
+      setStatus('Nom de branche mis à jour')
+    })
+  }
 }
 
 function chip(label, cls=''){

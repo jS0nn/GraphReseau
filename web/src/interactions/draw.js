@@ -72,9 +72,8 @@ function inferPropsFromNodeId(nodeId, visited = new Set()){
     if(isCanal(node)){
       const diameter_mm = finiteDiameter(node.diameter_mm)
       const material = node.material || ''
-      const sdr = node.sdr_ouvrage || ''
-      if(diameter_mm != null || material || sdr || node.branch_id){
-        return { diameter_mm, material, sdr, branch_id: node.branch_id || null }
+      if(diameter_mm != null || material || node.branch_id){
+        return { diameter_mm, material, branch_id: node.branch_id || null }
       }
     }
     if(node.well_collector_id){

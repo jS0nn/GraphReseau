@@ -1,5 +1,5 @@
 import { d3 } from '../vendor.js'
-import { state } from '../state/index.js'
+import { state, getBranchName } from '../state/index.js'
 import { isCanal } from '../utils.js'
 import { ensurePipeStyle } from '../style/pipes.js'
 import { NODE_WIDTH, NODE_HEIGHT, NODE_MARKER_RADIUS, NODE_BUBBLE_GAP, NODE_SIZE } from '../constants/nodes.js'
@@ -151,6 +151,10 @@ function formatSublabel(nd){
     if(inc.length){
       const branchCandidates = [nd.branch_id, ...inc.map(e => e.branch_id)].map(v => (v && String(v).trim()) ? String(v).trim() : '').filter(Boolean)
       const branchId = branchCandidates.length ? branchCandidates[0] : inc[0].id
+      const branchLabel = getBranchName(branchId)
+      if(branchLabel){
+        return `branche ${branchLabel}`
+      }
       const short = (s)=>{ try{ s=String(s||''); return s.length>14 ? s.slice(0,8)+'…'+s.slice(-4) : s }catch{ return String(branchId||'') } }
       return `branche ${short(branchId)}`
     }

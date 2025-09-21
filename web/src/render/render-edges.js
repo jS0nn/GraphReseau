@@ -1,5 +1,5 @@
 import { d3 } from '../vendor.js'
-import { state } from '../state/index.js'
+import { state, getBranchName } from '../state/index.js'
 import { projectLatLonToUI } from '../geo.js'
 import { ensurePipeStyle } from '../style/pipes.js'
 import { colorForBranchId } from '../shared/branch-colors.js'
@@ -207,9 +207,12 @@ export function renderEdges(gEdges, edges){
       : (dia == null ? 'Ø inconnu (valeur par défaut)' : `Ø ${fmtNum(dia)} mm`)
     const siteEff = edge.site_effective || '—'
     const siteNote = edge.site_effective_is_fallback ? `${siteEff} · donnée manquante` : siteEff
+    const branchLabel = getBranchName(edge.branch_id || '')
+    const branchInfo = branchLabel ? `<div>Branche: ${branchLabel}</div>` : ''
     return `
       <div><strong>${nameA}</strong> → <strong>${nameB}</strong></div>
       <div>${canal?(canal.name||canal.id)+' · ':''}${inheritedTxt}</div>
+      ${branchInfo}
       <div>Site: ${siteNote}</div>
     `
   }

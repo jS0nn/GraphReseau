@@ -34,7 +34,7 @@
 - Inline (PM/Vanne): position/offset reflétés dans le graphe et la séquence.
 
 ## Exports
-- Export JSON, JSON compact, et nœud/arête téléchargent des fichiers valides.
+- Export JSON télécharge un fichier valide.
 
 ## Embed (sécurité)
 - `ALLOWED_REFERER_HOSTS` restreint les requêtes (403 sinon).

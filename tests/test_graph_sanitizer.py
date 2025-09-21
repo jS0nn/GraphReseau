@@ -3,7 +3,7 @@ from typing import Optional
 
 from fastapi import HTTPException
 
-from app.models import Edge, Graph, Node
+from app.models import Edge, Graph, Node, BranchInfo
 from app.services.graph_sanitizer import sanitize_graph_for_write, graph_to_persistable_payload
 
 
@@ -237,6 +237,205 @@ class GraphSanitizerTests(unittest.TestCase):
         self.assertIsNotNone(edge_payload["length_m"])
         self.assertGreater(edge_payload["length_m"], 0)
 
+        self.assertIn('crs', payload)
+        self.assertEqual(payload['crs']['code'], 'EPSG:4326')
+        self.assertIn('branches', payload)
+        self.assertGreaterEqual(len(payload['branches']), 1)
+        for node_payload in payload["nodes"]:
+            self.assertNotIn('sdr_ouvrage', node_payload)
+            self.assertNotIn('lat', node_payload)
+            self.assertNotIn('lon', node_payload)
+
+    def test_payload_restores_missing_created_at_and_length(self):
+        node_a = make_node("OUVRAGE-A")
+        node_b = make_node("OUVRAGE-B")
+        edge = make_edge(
+            "E1",
+            node_a.id,
+            node_b.id,
+            created_at=None,
+            length_m=None,
+            geometry=[[2.0, 48.0], [2.0008, 48.0008]],
+        )
+        graph = make_graph(nodes=[node_a, node_b], edges=[edge])
+
+        payload = graph_to_persistable_payload(graph)
+        edge_payload = payload["edges"][0]
+
+        self.assertIsInstance(edge_payload["created_at"], str)
+        self.assertTrue(edge_payload["created_at"].endswith("Z"))
+        self.assertGreater(edge_payload["length_m"], 0.0)
+
+    def test_branch_names_map_persisted_in_style_meta(self):
+        node_a = make_node("OUVRAGE-A")
+        node_b = make_node("OUVRAGE-B")
+        edge = make_edge(
+            "E1",
+            node_a.id,
+            node_b.id,
+        )
+        graph = make_graph(nodes=[node_a, node_b], edges=[edge])
+        graph.branches = [BranchInfo(id="BR-1", name="Branche Principale")]
+
+        cleaned = sanitize_graph_for_write(graph)
+        self.assertIn("branch_names_by_id", cleaned.style_meta)
+        self.assertEqual(cleaned.style_meta["branch_names_by_id"], {"BR-1": "Branche Principale"})
+
+        payload = graph_to_persistable_payload(cleaned)
+        self.assertIn("branch_names_by_id", payload.get("style_meta", {}))
+        self.assertEqual(payload["style_meta"]["branch_names_by_id"], {"BR-1": "Branche Principale"})
+
+    def test_branch_parent_relationships_are_recorded(self):
+        general = make_node("GENERAL-1", node_type="GENERAL", branch="ROOT")
+        junction_1 = make_node("JONCTION-1", node_type="JONCTION")
+        junction_2 = make_node("JONCTION-2", node_type="JONCTION")
+        leaf_a = make_node("OUVRAGE-A")
+        leaf_b = make_node("OUVRAGE-B")
+
+        edges = [
+            make_edge(
+                "E-root",
+                junction_1.id,
+                general.id,
+                branch="ROOT",
+                created_at="2025-01-01T00:00:00Z",
+                diameter=200.0,
+            ),
+            make_edge(
+                "E-j1-to-j2",
+                junction_2.id,
+                junction_1.id,
+                branch="BR-temp",
+                created_at="2025-01-03T00:00:00Z",
+                diameter=160.0,
+            ),
+            make_edge(
+                "E-j1-to-leaf",
+                leaf_a.id,
+                junction_1.id,
+                branch="BR-leaf",
+                created_at="2025-01-02T00:00:00Z",
+                diameter=160.0,
+            ),
+            make_edge(
+                "E-j2-to-a",
+                leaf_a.id,
+                junction_2.id,
+                branch="BR-A",
+                created_at="2025-01-04T00:00:00Z",
+                diameter=110.0,
+            ),
+            make_edge(
+                "E-j2-to-b",
+                leaf_b.id,
+                junction_2.id,
+                branch="BR-B",
+                created_at="2025-01-05T00:00:00Z",
+                diameter=110.0,
+            ),
+        ]
+
+        graph = make_graph(
+            nodes=[general, junction_1, junction_2, leaf_a, leaf_b],
+            edges=edges,
+        )
+
+        cleaned = sanitize_graph_for_write(graph, strict=True)
+        branch_map = {branch.id: branch for branch in cleaned.branches}
+
+        trunk_branch = next(
+            (edge.branch_id for edge in cleaned.edges if edge.id == "E-j1-to-j2"),
+            None,
+        )
+        self.assertIsNotNone(trunk_branch)
+        self.assertEqual(trunk_branch, "ROOT")
+
+        branch_from_leaf = next(
+            (edge.branch_id for edge in cleaned.edges if edge.id == "E-j1-to-leaf"),
+            None,
+        )
+        secondary_branch = next(
+            (edge.branch_id for edge in cleaned.edges if edge.id == "E-j2-to-b"),
+            None,
+        )
+        self.assertIsNotNone(branch_from_leaf)
+        self.assertIsNotNone(secondary_branch)
+        self.assertEqual(branch_map[branch_from_leaf].parent_id, trunk_branch)
+        self.assertEqual(branch_map[secondary_branch].parent_id, trunk_branch)
+
+    def test_branch_selection_uses_depth_when_created_at_missing(self):
+        general = make_node("GENERAL-1", node_type="GENERAL", branch="BR-ROOT")
+        junction = make_node("JONCTION-1", node_type="JONCTION")
+        downstream_main = make_node("OUVRAGE-main")
+        downstream_tail = make_node("OUVRAGE-tail")
+        downstream_leaf = make_node("OUVRAGE-leaf")
+
+        edges = [
+            make_edge(
+                "E-up",
+                junction.id,
+                general.id,
+                branch="BR-ROOT",
+                created_at=None,
+                diameter=200.0,
+            ),
+            make_edge(
+                "E-main",
+                downstream_main.id,
+                junction.id,
+                branch="TEMP",
+                created_at=None,
+                diameter=160.0,
+                geometry=[[2.0, 48.0], [2.0, 48.0008], [2.0, 48.0015]],
+            ),
+            make_edge(
+                "E-leaf",
+                downstream_leaf.id,
+                junction.id,
+                branch="TEMP2",
+                created_at=None,
+                diameter=160.0,
+            ),
+            make_edge(
+                "E-tail",
+                downstream_tail.id,
+                downstream_main.id,
+                branch="TEMP3",
+                created_at=None,
+                diameter=110.0,
+            ),
+        ]
+
+        graph = make_graph(nodes=[general, junction, downstream_main, downstream_leaf, downstream_tail], edges=edges)
+        cleaned = sanitize_graph_for_write(graph, strict=True)
+        edge_map = {edge.id: edge for edge in cleaned.edges}
+
+        self.assertTrue(edge_map["E-up"].created_at.endswith("Z"))
+        self.assertTrue(edge_map["E-main"].created_at.endswith("Z"))
+        self.assertTrue(edge_map["E-leaf"].created_at.endswith("Z"))
+
+        # The branch continuing to the deeper subtree keeps the parent branch id
+        self.assertEqual(edge_map["E-main"].branch_id, "BR-ROOT")
+        self.assertEqual(edge_map["E-leaf"].branch_id, "BR-ROOT:001")
+
+
+def test_persistable_payload_includes_branches_defaults(self):
+    node_a = make_node("OUVRAGE-A")
+    node_b = make_node("OUVRAGE-B")
+    edge = make_edge(
+        "E1",
+        node_a.id,
+        node_b.id,
+        diameter=110.0,
+        branch="BR-CUSTOM",
+        geometry=[[2.0, 48.0], [2.0, 48.001]],
+    )
+    graph = make_graph(nodes=[node_a, node_b], edges=[edge])
+    cleaned = sanitize_graph_for_write(graph, strict=False)
+    payload = graph_to_persistable_payload(cleaned)
+    branch_ids = {item['id'] for item in payload['branches']}
+    self.assertIn('BR-CUSTOM', branch_ids)
+
     def test_branch_assignment_split_by_diameter(self):
         general = make_node("GENERAL-1", node_type="GENERAL", branch="BR-ROOT")
         junction = make_node("JONCTION-1", node_type="JONCTION", branch="BR-ROOT")
@@ -276,7 +475,7 @@ class GraphSanitizerTests(unittest.TestCase):
         edge_map = {edge.id: edge for edge in cleaned.edges}
         self.assertEqual(edge_map["E-main"].branch_id, "BR-ROOT")
         self.assertNotEqual(edge_map["E-branch"].branch_id, "BR-ROOT")
-        self.assertTrue(edge_map["E-branch"].branch_id.startswith("E-"))
+        self.assertEqual(edge_map["E-branch"].branch_id, "BR-ROOT:001")
 
         branch_changes = getattr(cleaned, "branch_changes", [])
         self.assertTrue(any(change["edge_id"] == "E-main" for change in branch_changes))
@@ -319,7 +518,61 @@ class GraphSanitizerTests(unittest.TestCase):
         edge_map = {edge.id: edge for edge in cleaned.edges}
 
         self.assertEqual(edge_map["E-a"].branch_id, "BR-ROOT")
-        self.assertNotEqual(edge_map["E-b"].branch_id, "BR-ROOT")
+        self.assertEqual(edge_map["E-b"].branch_id, "BR-ROOT:001")
+
+    def test_branch_angle_tie_break_prefers_straight(self):
+        general = make_node(
+            "GENERAL-1",
+            node_type="GENERAL",
+            branch="BR-ROOT",
+            x=0.0,
+            y=0.0,
+        )
+        junction = make_node(
+            "JONCTION-1",
+            node_type="JONCTION",
+            branch="",
+            x=0.0,
+            y=10.0,
+        )
+        straight = make_node("OUVRAGE-A", branch="", x=0.0, y=20.0)
+        angled = make_node("OUVRAGE-B", branch="", x=10.0, y=20.0)
+
+        edges = [
+            make_edge(
+                "E-in",
+                junction.id,
+                general.id,
+                branch="BR-ROOT",
+                diameter=200.0,
+                geometry=[[0.0, 0.0], [0.0, 10.0]],
+            ),
+            make_edge(
+                "E-straight",
+                straight.id,
+                junction.id,
+                branch="TEMP",
+                diameter=160.0,
+                created_at="2025-01-01T00:00:00Z",
+                geometry=[[0.0, 10.0], [0.0, 20.0]],
+            ),
+            make_edge(
+                "E-angled",
+                angled.id,
+                junction.id,
+                branch="TEMP2",
+                diameter=160.0,
+                created_at="2025-01-01T00:00:00Z",
+                geometry=[[0.0, 10.0], [10.0, 20.0]],
+            ),
+        ]
+
+        graph = make_graph(nodes=[general, junction, straight, angled], edges=edges)
+        cleaned = sanitize_graph_for_write(graph, strict=True)
+        edge_map = {edge.id: edge for edge in cleaned.edges}
+
+        self.assertEqual(edge_map["E-straight"].branch_id, "BR-ROOT")
+        self.assertEqual(edge_map["E-angled"].branch_id, "BR-ROOT:001")
 
     def test_pass_through_vanne_keeps_branch(self):
         general = make_node("GENERAL-1", node_type="GENERAL", branch="BR-ROOT")
@@ -374,6 +627,14 @@ class GraphSanitizerTests(unittest.TestCase):
 
         self.assertEqual(ctx.exception.status_code, 422)
         self.assertIn("site_id", str(ctx.exception.detail))
+
+    def test_legacy_fields_are_rejected(self):
+        with self.assertRaises(ValueError):
+            make_node("OUVRAGE-LEGACY", lat=48.5)
+        with self.assertRaises(ValueError):
+            make_node("OUVRAGE-LEGACY", lon=2.1)
+        with self.assertRaises(ValueError):
+            make_node("OUVRAGE-LEGACY", sdr_ouvrage="SDR11")
 
     def test_node_requires_gps_coordinates(self):
         node_a = make_node("OUVRAGE-A", gps_lat=None)
@@ -434,7 +695,7 @@ class GraphSanitizerTests(unittest.TestCase):
         edge_map = {edge.id: edge for edge in cleaned.edges}
         self.assertEqual(edge_map["E-CHILD"].branch_id, "BR-ROOT")
         self.assertNotEqual(edge_map["E-MAIN"].branch_id, "BR-ROOT")
-        self.assertTrue(edge_map["E-MAIN"].branch_id.startswith("E-"))
+        self.assertEqual(edge_map["E-MAIN"].branch_id, "BR-ROOT:001")
 
     def test_vanne_edges_propagate_branch(self):
         upstream = make_node("OUVRAGE-UP", branch="BR-ROOT")

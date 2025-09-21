@@ -2,7 +2,7 @@ import { genIdWithTime as genId, snap as snapToGrid } from '../utils.js'
 import { computeCenterFromNodes, uiPosFromNodeGPS, unprojectUIToLatLon } from '../geo.js'
 import { canonicalizeNodeType, shouldFilterNode } from './graph-rules.js'
 import { NODE_SIZE } from '../constants/nodes.js'
-import { normalizeNumericValue, normalizeEdge, dedupeEdges } from '../shared/graph-transform.js'
+import { normalizeNumericValue, normalizeEdge, dedupeEdges, normalizeBranches, normalizeCrs } from '../shared/graph-transform.js'
 import assignBranchIds from '../shared/branch-assign.js'
 
 export const XY_ABS_MAX = 100000
@@ -15,13 +15,18 @@ function normalizeNode(raw){
   for(const key of NUMERIC_NODE_FIELDS){
     node[key] = normalizeNumericValue(node[key])
   }
+  delete node.lat
+  delete node.lon
   if(node.x == null && node.x_ui != null) node.x = node.x_ui
   if(node.y == null && node.y_ui != null) node.y = node.y_ui
   if(typeof node.gps_locked !== 'boolean') node.gps_locked = true
-  if(node.type !== 'CANALISATION'){
+  const type = String(node.type || '').toUpperCase()
+  if(type !== 'CANALISATION'){
     node.diameter_mm = null
-    node.sdr_ouvrage = ''
     node.material = ''
+  }else{
+    if(node.diameter_mm == null) node.diameter_mm = null
+    if(node.material == null) node.material = ''
   }
   return node
 }
@@ -112,7 +117,10 @@ export function normalizeGraph(graph, { gridStep=8 } = {}){
     generated_at: graph?.generated_at || null,
     style_meta: (graph && typeof graph.style_meta === 'object' && graph.style_meta) ? JSON.parse(JSON.stringify(graph.style_meta)) : {},
   }
-  return { nodes: filteredNodes, edges, geoCenter, meta }
+  const branchNames = graph?.style_meta?.branch_names_by_id
+  const branches = normalizeBranches(graph?.branches, edges, branchNames)
+  const crs = normalizeCrs(graph?.crs)
+  return { nodes: filteredNodes, edges, geoCenter, meta, branches, crs }
 }
 
 export function reprojectNodesFromGPS(nodes, { gridStep=8, force=false } = {}){

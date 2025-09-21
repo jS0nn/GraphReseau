@@ -1,6 +1,6 @@
 import { d3 } from './vendor.js'
 import { getGraph, saveGraph, getMode } from './api.js'
-import { toJSON, toCompact, toNodeEdge } from './exports.js'
+import { toJSON } from './exports.js'
 import { $$ } from './utils.js'
 import { initCanvas } from './render/canvas.js'
 import { renderNodes } from './render/render-nodes.js'
@@ -181,8 +181,6 @@ function bindToolbar(canvas){
     })
   }
   byId('exportBtn')?.addEventListener('click', ()=> downloadJSON(toJSON(getStateGraph()), 'graph.json'))
-  byId('exportCompactBtn')?.addEventListener('click', ()=> downloadJSON(toCompact(getStateGraph()), 'graph.compact.json'))
-  byId('exportNodeEdgeBtn')?.addEventListener('click', ()=> downloadJSON(toNodeEdge(getStateGraph()), 'graph.node-edge.json'))
   const saveBtn = byId('saveBtn')
   if(getMode()==='ro'){ saveBtn?.classList.add('hidden') }
   saveBtn?.addEventListener('click', async ()=>{
@@ -449,7 +447,7 @@ export async function boot(){
 
   // Render on state changes (no auto zoom-fit here)
   subscribe(function(evt, payload){
-    if(evt==='graph:set' || evt.startsWith('node:') || evt.startsWith('edge:') || evt.startsWith('selection:')){
+    if(evt==='graph:set' || evt.startsWith('node:') || evt.startsWith('edge:') || evt.startsWith('selection:') || evt==='branch:update'){
       renderAll(canvas)
     }
     if(evt === 'view:set'){

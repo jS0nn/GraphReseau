@@ -55,7 +55,7 @@ Flux type (lecture):
   - `interactions/`: drag & drop, selection, creation d aretes, edition de geometrique, junction.
   - `ui/`: barres d outils, formulaires propriete, logs (console dev), support theme clair/sombre.
 - **API client** (`web/src/api.js`): wrappers fetch pour GET/POST, injection des params `source`/`sheet_id` a partir de l URL de l iframe. Gestion mode lecture seule.
-- **Exports** (`web/src/exports.js`): generation de JSON complet, compact, ou node-edge pour diagnostic.
+- **Exports** (`web/src/exports.js`): génération du JSON complet pour diagnostic.
 - **Map** (`web/src/map.js`): active si `MAP_TILES_URL` non vide; s aligne sur le graphe, peut re-projeter les positions GPS.
 - **Build**: `npm run build` appelle `build.mjs` -> esbuild (browser target moderne), minification, copy assets (`app/static/vendor/*`). Aucun CDN n est charge, ressources hebergees localement.
 - **Compatibilite iframe**: l embed s adapte a la hauteur de la barre d outils et expose un bouton de bascule vue graphe/vues geographiques (dev).

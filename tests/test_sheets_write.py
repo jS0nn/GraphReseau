@@ -4,9 +4,9 @@ from unittest.mock import patch
 from app.models import Graph, Node, Edge
 from app.sheets import (
     write_nodes_edges,
-    NODE_HEADERS_FR_V10,
+    NODE_HEADERS_FR_V11,
     EXTRA_SHEET_HEADERS,
-    EDGE_HEADERS_FR_V5,
+    EDGE_HEADERS_FR_V6,
 )
 
 
@@ -67,10 +67,10 @@ class SheetsWriteTests(unittest.TestCase):
     def test_write_preserves_existing_xy_and_formats_edges(self):
         base_row = [
             "N1", "Node 1", "OUVRAGE", "", "", "", "", "", "", "",
-            "", "", "", "", 10, 20, "", "",
+            "", "", "", 10, 20, "", "",
         ]
         existing_nodes = [
-            NODE_HEADERS_FR_V10,
+            NODE_HEADERS_FR_V11,
             base_row + ["" for _ in EXTRA_SHEET_HEADERS],
         ]
         values_service = _FakeValuesService(existing_nodes)
@@ -102,25 +102,29 @@ class SheetsWriteTests(unittest.TestCase):
         with patch("app.sheets._client", return_value=fake_client):
             write_nodes_edges("sheet123", "Nodes", "Edges", graph)
 
-        # Ensure both tabs are cleared before writing
+        # Ensure tabs are cleared before writing
         self.assertEqual(
             set(values_service.clear_calls),
-            {"Nodes!A:ZZZ", "Edges!A:ZZZ"},
+            {"Nodes!A:ZZZ", "Edges!A:ZZZ", "BRANCHES!A:ZZZ", "CONFIG!A:ZZZ"},
         )
 
         body = values_service.batch_kwargs
         self.assertIsNotNone(body)
         nodes_payload = body["data"][0]["values"]
         edges_payload = body["data"][1]["values"]
+        branches_payload = body["data"][2]["values"]
+        config_payload = body["data"][3]["values"]
 
         # Headers should match the latest layouts
-        self.assertEqual(nodes_payload[0], NODE_HEADERS_FR_V10 + EXTRA_SHEET_HEADERS)
-        self.assertEqual(edges_payload[0], EDGE_HEADERS_FR_V5)
+        self.assertEqual(nodes_payload[0], NODE_HEADERS_FR_V11 + EXTRA_SHEET_HEADERS)
+        self.assertEqual(edges_payload[0], EDGE_HEADERS_FR_V6)
+        self.assertEqual(branches_payload[0], ['id', 'name', 'parent_id', 'is_trunk'])
+        self.assertEqual(config_payload, [["crs_code", "EPSG:4326"], ["projected_for_lengths", "EPSG:2154"]])
 
         # First row is headers, second row is N1 data
         n1_row = nodes_payload[1]
-        x_index = NODE_HEADERS_FR_V10.index("x")
-        y_index = NODE_HEADERS_FR_V10.index("y")
+        x_index = NODE_HEADERS_FR_V11.index("x")
+        y_index = NODE_HEADERS_FR_V11.index("y")
         self.assertEqual(n1_row[x_index], 10)
         self.assertEqual(n1_row[y_index], 20)
 
@@ -129,14 +133,21 @@ class SheetsWriteTests(unittest.TestCase):
         self.assertEqual(e1_row[0], "E1")
         self.assertEqual(e1_row[1], "N1")
         self.assertEqual(e1_row[2], "N2")
-        self.assertEqual(e1_row[3], 110.0)
-        self.assertEqual(e1_row[4], 42.0)
-        self.assertEqual(e1_row[5], True)
-        self.assertEqual(e1_row[6], "Demo")
-        self.assertEqual(e1_row[7], "1.1 2.2; 3.3 4.4")
-        self.assertEqual(e1_row[8], "B-1")
-        self.assertEqual(e1_row[9], "PVC")
-        self.assertEqual(e1_row[10], "17")
+        self.assertEqual(e1_row[3], "B-1")
+        self.assertTrue(e1_row[4].startswith('[[1.1,2.2],'))
+        self.assertEqual(e1_row[5], 110.0)
+        self.assertEqual(e1_row[6], "PVC")
+        self.assertEqual(e1_row[7], "17")
+        self.assertEqual(e1_row[8], 42.0)
+        self.assertEqual(e1_row[9], True)
+        self.assertEqual(e1_row[10], "Demo")
+        self.assertEqual(e1_row[11], "1.1 2.2; 3.3 4.4")
+
+        branch_row = branches_payload[1]
+        self.assertEqual(branch_row[0], 'B-1')
+        self.assertEqual(branch_row[1], 'B-1')
+        self.assertEqual(branch_row[2], '')
+        self.assertEqual(branch_row[3], 'FALSE')
 
         # STYLE_META sheet should be updated with the serialized style meta
         style_calls = [call for call in values_service.update_calls if call["range"] == "STYLE_META!A1:B1"]

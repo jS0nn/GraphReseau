@@ -47,18 +47,6 @@ export function incrementName(name, existingNames){
   return cand
 }
 
-// Download helper (JSON/text)
-export function download(data, name, mime='application/json'){
-  const payload = (typeof data === 'string') ? data : JSON.stringify(data)
-  const blob = new Blob([payload], { type: mime })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = name
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
 // Default name by type (legacy-like)
 export function defaultName(type, nodes){
   const T = (type==='COLLECTEUR') ? 'CANALISATION' : (type||'N')

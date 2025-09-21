@@ -25,7 +25,6 @@ export interface Node {
   branch_id?: string | null;
   site_id?: string | null;
   diameter_mm?: number | null;
-  sdr_ouvrage?: string | null;
   material?: string | null;
   commentaire?: string | null;
   collector_well_ids?: string[] | null;
@@ -38,8 +37,6 @@ export interface Node {
   gps_locked?: boolean | null;
   gps_lat?: number | null;
   gps_lon?: number | null;
-  lat?: number | null;
-  lon?: number | null;
   x?: number | null;
   y?: number | null;
   x_ui?: number | null;
@@ -53,6 +50,18 @@ export interface Graph {
   site_id?: string | null;
   generated_at?: string | null;
   style_meta?: Record<string, unknown> | null;
+  crs?: {
+    code?: string | null;
+    projected_for_lengths?: string | null;
+    [key: string]: unknown;
+  } | null;
+  branches?: Array<{
+    id: string;
+    name?: string | null;
+    parent_id?: string | null;
+    is_trunk?: boolean | null;
+    [key: string]: unknown;
+  }> | null;
   nodes: Node[];
   edges: Edge[];
 }

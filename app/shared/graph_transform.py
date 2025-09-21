@@ -7,13 +7,14 @@ import time
 import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
-from math import radians, sin, cos, sqrt, atan2, isfinite
-from collections import defaultdict, deque
+from math import radians, sin, cos, sqrt, atan2, isfinite, pi
+from collections import defaultdict
 from typing import Iterable, Dict, List, Tuple, Optional, Any
 
 from fastapi import HTTPException
+from pydantic import ValidationError
 
-from ..models import Edge, Graph, Node
+from ..models import Edge, Graph, Node, BranchInfo, CRSInfo
 
 
 INLINE_ANCHORED_TYPES = {"POINT_MESURE", "VANNE"}
@@ -37,9 +38,101 @@ NODE_TYPE_SYNONYMS = {
 UI_PREFIXES = ("ui_",)
 EPHEMERAL_KEYS = {"site_effective", "site_effective_is_fallback"}
 OFFSET_TOLERANCE_M = 0.05
-GRAPH_ALLOWED_TOP_LEVEL = {"version", "site_id", "generated_at", "style_meta", "nodes", "edges"}
+GRAPH_ALLOWED_TOP_LEVEL = {"version", "site_id", "generated_at", "style_meta", "nodes", "edges", "crs", "branches"}
 EDGE_FORBIDDEN_FIELDS = {"ui_diameter_mm"}
 ISO_8601_UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$")
+
+
+def _normalize_crs(value: Any) -> CRSInfo:
+    if isinstance(value, CRSInfo):
+        try:
+            return CRSInfo.model_validate(value)
+        except ValidationError:
+            pass
+    if isinstance(value, dict):
+        try:
+            return CRSInfo.model_validate(value)
+        except ValidationError:
+            pass
+    return CRSInfo()
+
+
+def _normalize_branches(value: Iterable[Any] | None) -> Dict[str, BranchInfo]:
+    branches: Dict[str, BranchInfo] = {}
+    if not value:
+        return branches
+    for entry in value:
+        if entry is None:
+            continue
+        try:
+            branch = BranchInfo.model_validate(entry)
+        except ValidationError:
+            if isinstance(entry, str) and entry.strip():
+                try:
+                    branch = BranchInfo.model_validate({"id": entry.strip(), "name": entry.strip()})
+                except ValidationError:
+                    continue
+            else:
+                continue
+        branch_id = (branch.id or "").strip()
+        if not branch_id:
+            continue
+        branch.id = branch_id
+        if not (branch.name or "").strip():
+            branch.name = branch_id
+        if branch.parent_id in (None, ""):
+            branch.parent_id = None
+        else:
+            parent = str(branch.parent_id).strip()
+            branch.parent_id = parent or None
+        branch.is_trunk = bool(branch.is_trunk)
+        existing = branches.get(branch_id)
+        if existing:
+            if not (existing.name or "").strip() and (branch.name or "").strip():
+                existing.name = branch.name
+            if existing.parent_id in (None, "") and branch.parent_id:
+                existing.parent_id = branch.parent_id
+            if not existing.is_trunk and branch.is_trunk:
+                existing.is_trunk = True
+            continue
+        branches[branch_id] = branch
+    return branches
+
+
+def _ensure_branch_entry(
+    store: Dict[str, BranchInfo],
+    branch_id: str,
+    *,
+    parent_id: str | None = None,
+    is_trunk: bool | None = None,
+) -> None:
+    if not branch_id:
+        return
+    key = str(branch_id).strip()
+    if not key:
+        return
+    parent_normalised = None
+    if parent_id not in (None, ""):
+        parent_normalised = str(parent_id).strip() or None
+        if parent_normalised == key:
+            parent_normalised = None
+
+    existing = store.get(key)
+    if existing:
+        if parent_normalised and not existing.parent_id:
+            existing.parent_id = parent_normalised
+        if is_trunk is not None and not existing.is_trunk:
+            existing.is_trunk = bool(is_trunk)
+        if not (existing.name or "").strip():
+            existing.name = key
+        return
+
+    store[key] = BranchInfo(
+        id=key,
+        name=key,
+        parent_id=parent_normalised,
+        is_trunk=is_trunk if is_trunk is not None else key.startswith("GENERAL-"),
+    )
 
 
 @dataclass
@@ -69,6 +162,7 @@ class BranchDiagnostics:
 class BranchAssignmentResult:
     changes: List[BranchChange]
     diagnostics: BranchDiagnostics
+    branch_parents: Dict[str, str] = field(default_factory=dict)
 
 
 def _parse_iso8601_z(value: str, *, context: str) -> datetime:
@@ -82,33 +176,91 @@ def _parse_iso8601_z(value: str, *, context: str) -> datetime:
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=f"{context} created_at invalid: {text}") from exc
 
-
-def _new_branch_id(parent_branch: str, node_id: str, edge_id: str) -> str:
-    payload = f"{parent_branch}|{node_id}|{edge_id}"
-    digest = hashlib.sha1(payload.encode("utf-8")).hexdigest().upper()
-    return f"E-{digest[:12]}"
-
-
-def _fallback_created_at(edge_id: str) -> str:
-    digest = hashlib.sha1(edge_id.encode("utf-8")).hexdigest()
+def _fallback_created_at(edge_id: str, *, seed: str | None = None) -> str:
+    base_seed = (edge_id or "").strip()
+    if not base_seed and seed:
+        base_seed = seed.strip()
+    if not base_seed:
+        base_seed = "edge"
+    digest = hashlib.sha1(base_seed.encode("utf-8")).hexdigest()
     seconds = int(digest[:8], 16) % (3600 * 24 * 365)
     base = datetime(2000, 1, 1, tzinfo=timezone.utc)
     fallback = base + timedelta(seconds=seconds)
     return fallback.isoformat().replace("+00:00", "Z")
 
 
+def _fallback_created_at_from_depth(
+    edge_key: str,
+    child_depth: int | None,
+    *,
+    max_depth: int,
+    seed: str | None = None,
+) -> str:
+    if child_depth is None:
+        return _fallback_created_at(edge_key, seed=seed)
+    depth_value = max(0, int(child_depth))
+    depth_span = max(0, int(max_depth))
+    offset_days = max(0, depth_span - depth_value)
+    base = datetime(2000, 1, 1, tzinfo=timezone.utc)
+    digest_source = edge_key or seed or "edge"
+    digest = hashlib.sha1(digest_source.encode("utf-8")).hexdigest()
+    jitter_ms = int(digest[:6], 16) % 86400000  # < 24h to keep order by depth
+    dt = base + timedelta(days=offset_days, milliseconds=jitter_ms)
+    return dt.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def ensure_created_at_string(edge_id: str, raw_value: Any, *, fallback_seed: str | None = None) -> str:
+    if raw_value in (None, ""):
+        return _fallback_created_at(edge_id, seed=fallback_seed)
+
+    if isinstance(raw_value, (int, float)):
+        try:
+            serial = float(raw_value)
+            base = datetime(1899, 12, 30, tzinfo=timezone.utc)
+            dt = base + timedelta(days=serial)
+            dt = dt.astimezone(timezone.utc)
+            return dt.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        except Exception:
+            return _fallback_created_at(edge_id, seed=fallback_seed)
+
+    text = str(raw_value).strip()
+    if not text:
+        return _fallback_created_at(edge_id, seed=fallback_seed)
+
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", text):
+        text = f"{text}T00:00:00Z"
+
+    try:
+        if text.endswith("Z"):
+            dt = datetime.fromisoformat(text[:-1] + "+00:00")
+        else:
+            dt = datetime.fromisoformat(text)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.astimezone(timezone.utc)
+        return dt.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    except ValueError:
+        return _fallback_created_at(edge_id, seed=fallback_seed)
+
+
 def _edge_sort_key(edge: Edge, diameter: float, created_at: datetime) -> Tuple[float, datetime, str]:
     return (-diameter, created_at, edge.id)
 
 
-def _determine_rule_reason(sorted_edges: List[Tuple[Edge, float, datetime]]) -> str:
+def _determine_rule_reason(sorted_edges: List[Tuple[Edge, float, int, datetime, float]]) -> str:
     if len(sorted_edges) <= 1:
         return "single_outlet"
     first, second = sorted_edges[0], sorted_edges[1]
-    if first[1] > second[1]:
+    if first[1] > second[1] + 1e-6:
         return "diameter"
-    if abs(first[1] - second[1]) < 1e-6 and first[2] < second[2]:
-        return "created_at"
+    if abs(first[1] - second[1]) <= 1e-6:
+        if first[2] > second[2]:
+            return "depth"
+        if first[2] == second[2]:
+            if first[3] < second[3]:
+                return "created_at"
+            if abs(first[4] - second[4]) > 1e-3:
+                return "angle"
     return "edge_id"
 
 
@@ -121,6 +273,36 @@ def _assign_branch_ids(
 
     diameter_cache: Dict[str, float] = {}
     created_cache: Dict[str, datetime] = {}
+    branch_parent_map: Dict[str, str] = {}
+
+    children_by_parent: Dict[str, List[str]] = defaultdict(list)
+    for edge in edges:
+        parent = getattr(edge, "to_id", None)
+        child = getattr(edge, "from_id", None)
+        if parent and child:
+            children_by_parent[parent].append(child)
+
+    depth_cache: Dict[str, int] = {}
+    visiting: set[str] = set()
+
+    def compute_depth(node_id: str) -> int:
+        if node_id in depth_cache:
+            return depth_cache[node_id]
+        if node_id in visiting:
+            return 0
+        visiting.add(node_id)
+        children = children_by_parent.get(node_id, [])
+        if not children:
+            depth = 0
+        else:
+            depth = 1 + max((compute_depth(child) for child in children), default=0)
+        visiting.discard(node_id)
+        depth_cache[node_id] = depth
+        return depth
+
+    for node_id in node_by_id.keys():
+        compute_depth(node_id)
+    max_depth = max(depth_cache.values()) if depth_cache else 0
 
     for edge in edges:
         if edge.id is None:
@@ -131,185 +313,296 @@ def _assign_branch_ids(
             raise HTTPException(status_code=422, detail=f"edge {edge.id} requires positive length_m")
         created_raw = getattr(edge, "created_at", None)
         if created_raw in (None, ""):
-            edge.created_at = _fallback_created_at(edge.id)
+            child_depth = depth_cache.get(edge.from_id)
+            seed_key = f"{edge.from_id}->{edge.to_id}"
+            edge.created_at = _fallback_created_at_from_depth(
+                edge.id or seed_key,
+                child_depth,
+                max_depth=max_depth,
+                seed=seed_key,
+            )
             created_raw = edge.created_at
         created_cache[edge.id] = _parse_iso8601_z(created_raw, context=f"edge {edge.id}")
         diameter_cache[edge.id] = float(edge.diameter_mm or 0.0)
 
-    out_edges: Dict[str, List[Edge]] = defaultdict(list)
-    in_edges: Dict[str, List[Edge]] = defaultdict(list)
-    edge_lookup: Dict[str, Edge] = {}
+    incoming_edges: Dict[str, List[Edge]] = defaultdict(list)
+    incident_edges: Dict[str, List[Edge]] = defaultdict(list)
     for edge in edges:
-        out_edges[edge.from_id].append(edge)
-        in_edges[edge.to_id].append(edge)
-        edge_lookup[edge.id] = edge
+        if edge.from_id:
+            incident_edges[edge.from_id].append(edge)
+        if edge.to_id:
+            incoming_edges[edge.to_id].append(edge)
+            incident_edges[edge.to_id].append(edge)
 
-    pending_incoming: Dict[str, int] = {}
-    for node_id in node_by_id:
-        pending_incoming[node_id] = len(out_edges.get(node_id, []))
+    def _node_coordinates(node: Optional[Node]) -> Optional[Tuple[float, float]]:
+        if node is None:
+            return None
+
+        def _to_float(value: Any) -> Optional[float]:
+            if value in (None, ""):
+                return None
+            if isinstance(value, (int, float)):
+                return float(value) if isfinite(value) else None
+            try:
+                parsed = float(value)
+            except (TypeError, ValueError):
+                return None
+            return parsed if isfinite(parsed) else None
+
+        for x_key, y_key in (("x", "y"), ("x_ui", "y_ui"), ("gps_lon", "gps_lat")):
+            x_val = _to_float(getattr(node, x_key, None))
+            y_val = _to_float(getattr(node, y_key, None))
+            if x_val is not None and y_val is not None:
+                return x_val, y_val
+        return None
+
+    node_coords: Dict[str, Tuple[float, float]] = {}
+    for node in nodes:
+        coord = _node_coordinates(node)
+        if coord is not None and node.id:
+            node_coords[node.id] = coord
 
     node_branch: Dict[str, str] = {}
     edge_branch: Dict[str, str] = {}
+    processed_edge_branch: set[Tuple[str, str]] = set()
+    processed_node_branch: set[Tuple[str, str]] = set()
+    branch_counters: Dict[str, int] = defaultdict(int)
     changes: List[BranchChange] = []
     diagnostics = BranchDiagnostics()
 
-    def set_edge_branch(edge: Edge, branch: str, reason: str) -> None:
+    def set_edge_branch(edge: Edge, branch: str, reason: str, *, parent_branch: Optional[str] = None) -> None:
         branch = branch or edge.id
         previous = edge_branch.get(edge.id, edge.branch_id or "")
         if previous != branch:
             changes.append(BranchChange(edge_id=edge.id, previous=previous, new=branch, reason=reason))
         edge_branch[edge.id] = branch
         edge.branch_id = branch
+        if parent_branch:
+            target_branch = (branch or "").strip()
+            parent_clean = (parent_branch or "").strip()
+            if target_branch and parent_clean and target_branch not in branch_parent_map:
+                branch_parent_map[target_branch] = parent_clean
 
     def set_node_branch(node_id: str, branch: str) -> None:
+        if not node_id:
+            return
         branch = branch or node_id
         node_branch[node_id] = branch
         node = node_by_id.get(node_id)
         if node is not None:
             node.branch_id = branch
 
-    def branch_for_edge(edge: Edge) -> str:
-        return edge_branch.get(edge.id, edge.branch_id or "")
+    def _vector_between(
+        origin_id: Optional[str],
+        target_id: Optional[str],
+        edge: Optional[Edge],
+    ) -> Optional[Tuple[float, float]]:
+        if not origin_id or not target_id or origin_id == target_id:
+            return None
+        origin_coords = node_coords.get(origin_id)
+        target_coords = node_coords.get(target_id)
+        if origin_coords and target_coords:
+            return target_coords[0] - origin_coords[0], target_coords[1] - origin_coords[1]
+        if edge is None or not edge.geometry:
+            return None
+        if not isinstance(edge.geometry, (list, tuple)) or len(edge.geometry) < 2:
+            return None
+        try:
+            points = edge.geometry
+            if origin_id == edge.from_id and target_id == edge.to_id:
+                x0, y0 = points[0]
+                x1, y1 = points[1]
+                return x1 - x0, y1 - y0
+            if origin_id == edge.to_id and target_id == edge.from_id:
+                x0, y0 = points[-1]
+                x1, y1 = points[-2]
+                return x1 - x0, y1 - y0
+        except (TypeError, ValueError):
+            return None
+        return None
 
-    def select_primary(candidates: List[Edge]) -> Tuple[Optional[Edge], str]:
+    def angle_delta(incoming_edge: Optional[Edge], candidate_edge: Edge, node_id: str) -> float:
+        if incoming_edge is None:
+            return 0.0
+        downstream_id = incoming_edge.to_id
+        upstream_id = candidate_edge.from_id
+        if not downstream_id or not upstream_id:
+            return 180.0
+        vec_in = _vector_between(node_id, downstream_id, incoming_edge)
+        vec_out = _vector_between(node_id, upstream_id, candidate_edge)
+        if vec_in is None or vec_out is None:
+            return 180.0
+        ax = atan2(vec_in[1], vec_in[0])
+        bx = atan2(vec_out[1], vec_out[0])
+        diff = abs(ax - bx)
+        while diff > pi:
+            diff = abs(diff - 2 * pi)
+        return abs(diff) * 180.0 / pi
+
+    def select_primary(
+        node_id: str,
+        candidates: List[Edge],
+        incoming_edge: Optional[Edge],
+    ) -> Tuple[Optional[Edge], str, List[Tuple[Edge, float, int, datetime, float]]]:
         if not candidates:
-            return None, "no_candidate"
-        decorated = [
-            (edge, diameter_cache[edge.id], created_cache[edge.id])
-            for edge in candidates
-        ]
-        decorated.sort(key=lambda item: _edge_sort_key(item[0], item[1], item[2]))
+            return None, "no_candidate", []
+        decorated: List[Tuple[Edge, float, int, datetime, float]] = []
+        for edge in candidates:
+            diameter = diameter_cache.get(edge.id, 0.0)
+            depth_value = depth_cache.get(edge.from_id, -1)
+            created = created_cache.get(edge.id)
+            angle = angle_delta(incoming_edge, edge, node_id)
+            decorated.append((edge, diameter, depth_value, created, angle))
+        decorated.sort(
+            key=lambda item: (
+                -item[1],
+                -item[2],
+                item[3],
+                item[4],
+                item[0].id,
+            )
+        )
         reason = _determine_rule_reason(decorated)
-        return decorated[0][0], reason
+        return decorated[0][0], reason, decorated
 
-    queue: deque[str] = deque()
-    scheduled: set[str] = set()
+    def create_child_branch(parent_branch: str) -> str:
+        parent = (parent_branch or "").strip() or "BRANCH"
+        branch_counters[parent] += 1
+        child_id = f"{parent}:{branch_counters[parent]:03d}"
+        branch_parent_map.setdefault(child_id, parent)
+        return child_id
 
-    def try_schedule(node_id: Optional[str]) -> None:
-        if not node_id or node_id not in node_by_id:
-            return
-        if pending_incoming.get(node_id, 0) <= 0 and node_id not in scheduled:
-            queue.append(node_id)
-            scheduled.add(node_id)
-
-    for node in nodes:
-        ntype = (node.type or "").upper()
-        if ntype == "GENERAL":
-            try_schedule(node.id)
-
-    for node_id, count in pending_incoming.items():
-        if count == 0:
-            try_schedule(node_id)
-
-    visited_nodes: set[str] = set()
-
-    def process_node(node_id: str) -> None:
+    def is_separator(node_id: str) -> bool:
         node = node_by_id.get(node_id)
-        parent_edges = out_edges.get(node_id, [])
-        child_edges = in_edges.get(node_id, [])
+        if node is None:
+            return False
+        node_type = (node.type or "").upper()
+        if node_type in ("VANNE", "POINT_MESURE"):
+            return False
+        if node_type == "JONCTION":
+            return True
+        return len(incident_edges.get(node_id, [])) >= 3
+
+    def assign_from_node(node_id: Optional[str], branch_id: str, incoming_edge: Optional[Edge]) -> None:
+        if not node_id:
+            return
+        key = (node_id, branch_id)
+        if key in processed_node_branch:
+            return
+        processed_node_branch.add(key)
+        set_node_branch(node_id, branch_id)
+
+        edges_out = list(incoming_edges.get(node_id, []))
+        if not edges_out:
+            return
+
+        node = node_by_id.get(node_id)
         node_type = (node.type or "").upper() if node else ""
 
-        parent_branches: List[str] = []
-        for edge in parent_edges:
-            branch = branch_for_edge(edge)
-            if branch:
-                parent_branches.append(branch)
-
-        branch_at_node = None
-        if parent_branches:
-            branch_at_node = parent_branches[0]
-            if len({*parent_branches}) > 1:
-                diagnostics.conflicts.append(
-                    f"node {node_id} received multiple parent branches"
-                )
-        elif node and node.branch_id:
-            branch_at_node = node.branch_id
-        else:
-            child_branch_candidates = [branch_for_edge(edge) for edge in child_edges if branch_for_edge(edge)]
-            if child_branch_candidates:
-                branch_at_node = child_branch_candidates[0]
-
-        branch_at_node = branch_at_node or node_id
-        set_node_branch(node_id, branch_at_node)
-
-        if node_type in PASS_THROUGH_TYPES or node_type == "GENERAL" or not child_edges:
-            for edge in child_edges:
-                set_edge_branch(edge, branch_at_node, "pass_through")
-                target = edge.to_id
-                pending_incoming[target] = pending_incoming.get(target, 0) - 1
-                if pending_incoming[target] <= 0:
-                    try_schedule(target)
+        if node_type in ("VANNE", "POINT_MESURE") or not is_separator(node_id):
+            for edge in sorted(edges_out, key=lambda e: e.id):
+                assign_edge(edge, branch_id, reason="pass_through", parent_branch=None)
             return
 
-        if node_type in SPLITTER_TYPES:
-            parent_branch_values = parent_branches or [branch_at_node]
-            available: Dict[str, Edge] = {edge.id: edge for edge in child_edges}
-            for incoming_branch in sorted(set(parent_branch_values)):
-                candidate_values = list(available.values()) if available else list(child_edges)
-                main_edge, rule = select_primary(candidate_values)
-                if main_edge is None:
-                    diagnostics.conflicts.append(
-                        f"junction {node_id}: no available outgoing edge for branch {incoming_branch}"
-                    )
-                    continue
-                available.pop(main_edge.id, None)
-                set_edge_branch(main_edge, incoming_branch or branch_at_node, rule)
-                diagnostics.junctions.append(
-                    JunctionDecision(
-                        node_id=node_id,
-                        incoming_branch=incoming_branch or branch_at_node,
-                        main_edge=main_edge.id,
-                        rule=rule,
-                        new_branches=[],
-                    )
-                )
-                target = main_edge.to_id
-                pending_incoming[target] = pending_incoming.get(target, 0) - 1
-                if pending_incoming[target] <= 0:
-                    try_schedule(target)
-
-            remaining = [edge_lookup[eid] for eid in available.keys()]
-            if remaining:
-                base_branch = branch_at_node
-                for edge in remaining:
-                    new_branch = _new_branch_id(base_branch, node_id, edge.id)
-                    set_edge_branch(edge, new_branch, "split_new_branch")
-                    diagnostics.junctions.append(
-                        JunctionDecision(
-                            node_id=node_id,
-                            incoming_branch=base_branch,
-                            main_edge=None,
-                            rule="split_new_branch",
-                            new_branches=[new_branch],
-                        )
-                    )
-                    target = edge.to_id
-                    pending_incoming[target] = pending_incoming.get(target, 0) - 1
-                    if pending_incoming[target] <= 0:
-                        try_schedule(target)
+        principal_edge, rule, decorated = select_primary(node_id, edges_out, incoming_edge)
+        if principal_edge is None:
+            diagnostics.conflicts.append(f"node {node_id} has no available upstream edge for branch {branch_id}")
             return
 
-        # Default behaviour for unknown types: propagate current branch
-        for edge in child_edges:
-            set_edge_branch(edge, branch_at_node, "default_propagation")
-            target = edge.to_id
-            pending_incoming[target] = pending_incoming.get(target, 0) - 1
-            if pending_incoming[target] <= 0:
-                try_schedule(target)
+        assign_edge(principal_edge, branch_id, reason=rule or "selected_main", parent_branch=None)
+        diagnostics.junctions.append(
+            JunctionDecision(
+                node_id=node_id,
+                incoming_branch=branch_id,
+                main_edge=principal_edge.id,
+                rule=rule,
+                new_branches=[],
+            )
+        )
 
-    while queue:
-        node_id = queue.popleft()
-        if node_id in visited_nodes:
+        for edge_item in decorated:
+            candidate = edge_item[0]
+            if candidate.id == principal_edge.id:
+                continue
+            new_branch = create_child_branch(branch_id)
+            assign_edge(candidate, new_branch, reason="split_new_branch", parent_branch=branch_id)
+            diagnostics.junctions.append(
+                JunctionDecision(
+                    node_id=node_id,
+                    incoming_branch=branch_id,
+                    main_edge=None,
+                    rule="split_new_branch",
+                    new_branches=[new_branch],
+                )
+            )
+
+    def assign_edge(
+        edge: Edge,
+        branch_id: str,
+        *,
+        reason: str,
+        parent_branch: Optional[str],
+    ) -> None:
+        key = (edge.id, branch_id)
+        if key in processed_edge_branch:
+            return
+        processed_edge_branch.add(key)
+        set_edge_branch(edge, branch_id, reason, parent_branch=parent_branch)
+        assign_from_node(edge.from_id, branch_id, edge)
+
+    general_nodes = [node for node in nodes if (node.type or "").upper() == "GENERAL"]
+    for general in sorted(general_nodes, key=lambda n: n.id or ""):
+        base_branch = (general.branch_id or "").strip()
+        if not base_branch:
+            base_branch = f"GENERAL-{general.id}"
+        set_node_branch(general.id, base_branch)
+        outgoing = list(incoming_edges.get(general.id, []))
+        if not outgoing:
             continue
-        scheduled.discard(node_id)
-        visited_nodes.add(node_id)
-        process_node(node_id)
+        principal_edge, rule, decorated = select_primary(general.id, outgoing, None)
+        if principal_edge is None:
+            continue
+        assign_edge(principal_edge, base_branch, reason="trunk", parent_branch=None)
+        diagnostics.junctions.append(
+            JunctionDecision(
+                node_id=general.id,
+                incoming_branch=base_branch,
+                main_edge=principal_edge.id,
+                rule=rule,
+                new_branches=[],
+            )
+        )
+        for edge_item in decorated:
+            candidate = edge_item[0]
+            if candidate.id == principal_edge.id:
+                continue
+            new_branch = create_child_branch(base_branch)
+            assign_edge(candidate, new_branch, reason="split_new_branch", parent_branch=base_branch)
+            diagnostics.junctions.append(
+                JunctionDecision(
+                    node_id=general.id,
+                    incoming_branch=base_branch,
+                    main_edge=None,
+                    rule="split_new_branch",
+                    new_branches=[new_branch],
+                )
+            )
 
-    remaining_nodes = [nid for nid in node_by_id if nid not in visited_nodes]
-    for node_id in sorted(remaining_nodes):
-        process_node(node_id)
+    # Fallback for components not reachable from a GENERAL
+    for edge in edges:
+        if edge.id not in edge_branch:
+            default_branch = (edge.branch_id or "").strip() or edge.id
+            set_edge_branch(edge, default_branch, "fallback", parent_branch=None)
+            if edge.to_id:
+                set_node_branch(edge.to_id, default_branch)
+            assign_from_node(edge.from_id, default_branch, edge)
 
-    return BranchAssignmentResult(changes=changes, diagnostics=diagnostics)
+    for node in nodes:
+        if node.id and node.id not in node_branch:
+            fallback_branch = (node.branch_id or "").strip() or node.id
+            set_node_branch(node.id, fallback_branch)
+
+    return BranchAssignmentResult(changes=changes, diagnostics=diagnostics, branch_parents=branch_parent_map)
 
 
 def apply_branch_change(graph: Graph | None, event: Optional[Dict[str, Any]] = None) -> BranchAssignmentResult:
@@ -712,6 +1005,9 @@ def sanitize_graph(graph: Graph | None, *, strict: bool = False) -> Graph:
         raise HTTPException(status_code=422, detail="style_meta must be an object when provided")
     style_meta = dict(style_meta_raw)
 
+    crs = _normalize_crs(getattr(graph, "crs", None))
+    branch_store = _normalize_branches(getattr(graph, "branches", None))
+
     # --- collect nodes
     try:
         nodes: List[Node] = list(graph.nodes or [])
@@ -732,8 +1028,6 @@ def sanitize_graph(graph: Graph | None, *, strict: bool = False) -> Graph:
         node.commentaire = "" if raw_comment is None else str(raw_comment)
         raw_material = getattr(node, "material", None)
         node.material = (str(raw_material).strip() or None) if raw_material not in (None, "") else None
-        raw_sdr = getattr(node, "sdr_ouvrage", None)
-        node.sdr_ouvrage = (str(raw_sdr).strip() or None) if raw_sdr not in (None, "") else None
         if getattr(node, "diameter_mm", None) not in (None, ""):
             diameter_value = _optional_float(getattr(node, "diameter_mm"), allow_negative=False)
             if diameter_value is None:
@@ -743,8 +1037,6 @@ def sanitize_graph(graph: Graph | None, *, strict: bool = False) -> Graph:
             node.diameter_mm = None
         node.gps_lat = _require_float(getattr(node, "gps_lat", None), field="gps_lat", context=f"node {node_id}")
         node.gps_lon = _require_float(getattr(node, "gps_lon", None), field="gps_lon", context=f"node {node_id}")
-        node.lat = _optional_float(getattr(node, "lat", None))
-        node.lon = _optional_float(getattr(node, "lon", None))
         node.x = _optional_float(getattr(node, "x", None))
         node.y = _optional_float(getattr(node, "y", None))
         node.x_ui = _optional_float(getattr(node, "x_ui", None))
@@ -835,7 +1127,7 @@ def sanitize_graph(graph: Graph | None, *, strict: bool = False) -> Graph:
             raise HTTPException(status_code=422, detail=f"edge diameter_mm out of range: {eid}")
 
         material = _normalise_material(getattr(edge, "material", None))
-        sdr = _normalise_sdr(getattr(edge, "sdr", None) or getattr(edge, "sdr_ouvrage", None))
+        sdr = _normalise_sdr(getattr(edge, "sdr", None))
         geometry = _sanitize_geometry(getattr(edge, "geometry", None))
         if geometry is None:
             raise HTTPException(status_code=422, detail=f"edge geometry invalid or missing: {eid}")
@@ -944,6 +1236,58 @@ def sanitize_graph(graph: Graph | None, *, strict: bool = False) -> Graph:
                 if offset > edge_length:
                     n.pm_offset_m = round(edge_length, 2)
 
+    parent_lookup = getattr(branch_assignment, "branch_parents", {}) or {}
+
+    for edge in kept:
+        branch_id = getattr(edge, "branch_id", "")
+        _ensure_branch_entry(branch_store, branch_id, parent_id=parent_lookup.get(branch_id))
+    for node in nodes:
+        branch_id = getattr(node, "branch_id", "")
+        _ensure_branch_entry(branch_store, branch_id, parent_id=parent_lookup.get(branch_id))
+    for change in branch_changes:
+        new_branch = getattr(change, "new", "")
+        prev_branch = getattr(change, "previous", "")
+        _ensure_branch_entry(branch_store, new_branch, parent_id=parent_lookup.get(new_branch))
+        _ensure_branch_entry(branch_store, prev_branch, parent_id=parent_lookup.get(prev_branch))
+
+    for branch_id, parent_id in parent_lookup.items():
+        _ensure_branch_entry(branch_store, branch_id, parent_id=parent_id)
+
+    branches_sorted: List[BranchInfo] = []
+    for entry in branch_store.values():
+        if isinstance(entry, BranchInfo):
+            branch = entry.model_copy()
+        else:
+            try:
+                branch = BranchInfo.model_validate(entry)
+            except ValidationError:
+                continue
+        if not (branch.name or "").strip():
+            branch.name = branch.id
+        if branch.parent_id in (None, ""):
+            branch.parent_id = None
+        else:
+            parent = str(branch.parent_id).strip()
+            branch.parent_id = parent or None
+        branch.is_trunk = bool(branch.is_trunk)
+        branches_sorted.append(branch)
+    branches_sorted.sort(key=lambda b: ((b.name or b.id or '').lower(), b.id))
+
+    branch_names_by_id: Dict[str, str] = {}
+    for branch in branches_sorted:
+        branch_id = (branch.id or '').strip()
+        name = (branch.name or '').strip()
+        if not branch_id or not name:
+            continue
+        if name == branch_id:
+            continue
+        branch_names_by_id[branch_id] = name
+
+    if branch_names_by_id:
+        style_meta["branch_names_by_id"] = branch_names_by_id
+    else:
+        style_meta.pop("branch_names_by_id", None)
+
     if rename_map:
         for e in kept:
             if e.from_id in rename_map:
@@ -967,6 +1311,8 @@ def sanitize_graph(graph: Graph | None, *, strict: bool = False) -> Graph:
         site_id=site_id,
         generated_at=generated_at,
         style_meta=style_meta,
+        crs=crs,
+        branches=branches_sorted,
         nodes=nodes,
         edges=kept,
         branch_diagnostics=[

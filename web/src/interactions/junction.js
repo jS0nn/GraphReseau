@@ -134,14 +134,11 @@ function insertJunctionAt(edge, hit, ev){
         .map(nn => finiteDiameter(nn?.diameter_mm))
         .filter(v => v != null)
       const materialCandidate = canalNeighbors.map(nn => nn?.material).find(val => val)
-      const sdrCandidate = canalNeighbors.map(nn => nn?.sdr_ouvrage).find(val => val)
       const patch = { branch_id: n.branch_id }
       if(diameterCandidates.length){ patch.diameter_mm = diameterCandidates[0] }
       else if(baseProps?.diameter_mm != null){ patch.diameter_mm = baseProps.diameter_mm }
       if(materialCandidate){ patch.material = materialCandidate }
       else if(baseProps?.material){ patch.material = baseProps.material }
-      if(sdrCandidate){ patch.sdr_ouvrage = sdrCandidate }
-      else if(baseProps?.sdr){ patch.sdr_ouvrage = baseProps.sdr }
       updateNode(targetId, patch)
     }catch{}
   }

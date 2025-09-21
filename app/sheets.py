@@ -8,9 +8,10 @@ import unicodedata
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from .models import Edge, Graph, Node
+from .models import Edge, Graph, Node, BranchInfo, CRSInfo, _compute_length_from_geometry
 from .gcp_auth import get_credentials
 from googleapiclient.errors import HttpError
+from .shared.graph_transform import ensure_created_at_string
 
 
 def _client():
@@ -119,40 +120,121 @@ def _write_style_meta_sheet(svc, sheet_id: str, style_meta: Dict[str, Any]) -> N
             raise
 
 
+def _clear_sheet(svc, sheet_id: str, title: str) -> None:
+    try:
+        svc.spreadsheets().values().clear(
+            spreadsheetId=sheet_id, range=f"{title}!A:ZZZ"
+        ).execute()
+    except HttpError as exc:
+        if exc.resp.status == 400 and "Unable to parse range" in str(exc):
+            try:
+                svc.spreadsheets().batchUpdate(
+                    spreadsheetId=sheet_id,
+                    body={
+                        "requests": [
+                            {
+                                "addSheet": {
+                                    "properties": {
+                                        "title": title,
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                ).execute()
+            except HttpError as inner_exc:
+                if inner_exc.resp.status not in {400, 409}:
+                    raise
+        else:
+            raise
+
+
+def _read_branches_sheet(svc, sheet_id: str) -> List[BranchInfo]:
+    try:
+        resp = (
+            svc.spreadsheets()
+            .values()
+            .get(spreadsheetId=sheet_id, range=f"{BRANCHES_SHEET}!A:ZZZ")
+            .execute()
+        )
+    except HttpError as exc:
+        if exc.resp.status == 400 and "Unable to parse range" in str(exc):
+            return []
+        raise
+    rows = resp.get('values', [])
+    if not rows:
+        return []
+    header = rows[0]
+    entries = _values_to_dicts(rows[1:], header)
+    branches: Dict[str, BranchInfo] = {}
+    for entry in entries:
+        raw_id = entry.get('id')
+        branch_id = str(raw_id).strip() if raw_id not in (None, '') else ''
+        if not branch_id or branch_id in branches:
+            continue
+        raw_name = entry.get('name') or entry.get('nom') or ''
+        name = str(raw_name).strip() or branch_id
+        raw_parent = entry.get('parent_id') or entry.get('parentId')
+        parent_id = str(raw_parent).strip() if raw_parent not in (None, '') else None
+        is_trunk = _bool(entry.get('is_trunk'), default=False)
+        branches[branch_id] = BranchInfo(
+            id=branch_id,
+            name=name,
+            parent_id=parent_id,
+            is_trunk=is_trunk,
+        )
+    return list(branches.values())
+
+
+def _read_config_sheet(svc, sheet_id: str) -> Dict[str, Any]:
+    try:
+        resp = (
+            svc.spreadsheets()
+            .values()
+            .get(spreadsheetId=sheet_id, range=f"{CONFIG_SHEET}!A:B")
+            .execute()
+        )
+    except HttpError as exc:
+        if exc.resp.status == 400 and "Unable to parse range" in str(exc):
+            return {}
+        raise
+    rows = resp.get('values', [])
+    config: Dict[str, Any] = {}
+    for row in rows:
+        if not row:
+            continue
+        key = str(row[0]).strip().lower() if row[0] not in (None, '') else ''
+        if not key:
+            continue
+        value = row[1] if len(row) > 1 else ''
+        config[key] = value
+    return config
+
+
+def _normalise_crs_from_config(config: Dict[str, Any]) -> CRSInfo:
+    code_raw = config.get('crs_code') or config.get('crs') or 'EPSG:4326'
+    code = str(code_raw).strip() or 'EPSG:4326'
+    proj_raw = config.get('projected_for_lengths') or config.get('projected')
+    if proj_raw in (None, ''):
+        projected = 'EPSG:2154'
+    else:
+        projected = str(proj_raw).strip() or 'EPSG:2154'
+    return CRSInfo(code=code, projected_for_lengths=projected)
+
+
 # Header sets identical to Apps Script
-NODE_HEADERS_FR_V8 = [
-    'id','nom','type','id_branche','diametre_exterieur_mm','sdr_ouvrage','commentaire',
-    'pm_collector_edge_id','pm_pos_index','gps_lat','gps_lon','x','y','x_UI','y_UI'
-]
 
-NODE_HEADERS_FR_V9 = [
-    'id','nom','type','id_branche','diametre_exterieur_mm','sdr_ouvrage','materiau','commentaire',
-    'pm_collector_edge_id','pm_pos_index','gps_lat','gps_lon','x','y','x_UI','y_UI'
-]
+EDGE_HEADERS_FR_V6 = ['id','from_id','to_id','branch_id','geometry_json','diameter_mm','material','sdr','length_m','active','commentaire','Geometry']
 
-NODE_HEADERS_FR_V10 = [
+NODE_HEADERS_FR_V11 = [
     'id','nom','type','id_branche','gps_locked','pm_offset_m','diametre_exterieur_mm',
-    'sdr_ouvrage','materiau','commentaire','pm_collector_edge_id','pm_pos_index','gps_lat','gps_lon',
+    'materiau','commentaire','pm_collector_edge_id','pm_pos_index','gps_lat','gps_lon',
     'x','y','x_UI','y_UI'
 ]
 
-NODE_HEADERS_EN_V1 = [
-    'id','name','type','branch_id','order_index','diameter_mm',
-    'valve_status','gps_lat','gps_lon','x','y'
-]
-
-NODE_HEADERS_EN_V2 = [
-    'id','name','type','branch_id','order_index','diameter_mm','material',
-    'valve_status','gps_lat','gps_lon','x','y'
-]
-
-
-EDGE_HEADERS_FR_V5 = ['id','source_id','cible_id','diametre_mm','longueur_m','actif','commentaire','Geometry','BranchId','material','sdr']
-EDGE_HEADERS_FR_V4 = ['id','source_id','cible_id','diametre_mm','sdr','materiau','longueur_m','actif','commentaire','Geometry','PipeGroupId','BranchId']
-EDGE_HEADERS_FR_V3 = ['id','source_id','cible_id','diametre_mm','longueur_m','actif','commentaire','Geometry','PipeGroupId','BranchId']
-EDGE_HEADERS_EN_V3 = ['id','from_id','to_id','diameter_mm','sdr','material','length_m','active','comment','geometry','pipe_group_id','branch_id']
-EDGE_HEADERS_EN_V2 = ['id','from_id','to_id','diameter_mm','length_m','active','comment','geometry','pipe_group_id','branch_id']
-EDGE_HEADERS_EN_V1 = ['id','from_id','to_id','diameter_mm','length_m','active']
+BRANCH_HEADERS = ['id','name','parent_id','is_trunk']
+BRANCHES_SHEET = 'BRANCHES'
+CONFIG_SHEET = 'CONFIG'
 
 EXTRA_SHEET_HEADERS = [
     'idSite1','site','Regroupement','Canalisation','Casier','emplacement',
@@ -258,7 +340,6 @@ def _row_to_node(row: Dict[str, Any], header_set: List[str], full_row: Dict[str,
         or row.get("diametre_exterieur")
         or row.get("diametreExterieur")
     )
-    sdr_ouvrage = row.get("sdr_ouvrage") or row.get("sdrOuvrage") or ""
     material = row.get("materiau") or row.get("material") or row.get("matériau") or ""
 
     gps_locked = _bool(row.get("gps_locked"), True)
@@ -266,7 +347,6 @@ def _row_to_node(row: Dict[str, Any], header_set: List[str], full_row: Dict[str,
 
     if node_type != 'CANALISATION':
         diameter_mm = None
-        sdr_ouvrage = ""
         material = ""
 
     site_id = None
@@ -283,7 +363,6 @@ def _row_to_node(row: Dict[str, Any], header_set: List[str], full_row: Dict[str,
         branch_id=(row.get("id_branche") or row.get("branch_id") or ""),
         site_id=site_id,
         diameter_mm=diameter_mm,
-        sdr_ouvrage=sdr_ouvrage,
         material=material,
         gps_locked=gps_locked,
         pm_offset_m=pm_offset_m,
@@ -301,23 +380,63 @@ def _row_to_node(row: Dict[str, Any], header_set: List[str], full_row: Dict[str,
         extras=extras or {},
     )
 
+_EDGE_CREATED_AT_KEYS = {
+    "created_at",
+    "createdat",
+    "date_creation",
+    "datecreation",
+    "date_created",
+    "datecreated",
+    "created",
+    "creation_date",
+    "creationdate",
+}
+
+
 def _row_to_edge(row: Dict[str, Any], header_set: List[str]) -> Edge:
     from_id = row.get("source_id") or row.get("from_id")
     to_id = row.get("cible_id") or row.get("to_id")
-    geometry_coords = _parse_geometry_field(row.get("Geometry") or row.get("geometry"))
+    geometry_coords = None
+    if row.get('geometry_json') not in (None, ''):
+        geometry_coords = _parse_geometry_field(row.get('geometry_json'))
+    if geometry_coords is None:
+        geometry_coords = _parse_geometry_field(row.get('Geometry') or row.get('geometry'))
     branch_raw = row.get("BranchId") or row.get("branch_id")
     branch_id = str(branch_raw).strip() if branch_raw is not None else ""
     if not branch_id:
         raise ValueError("branch_id required for edge")
     diameter_mm = _num(row.get("diametre_mm") or row.get("diameter_mm"))
-    sdr = row.get("sdr") or row.get("sdr_canalisation") or row.get("sdr_pipe") or row.get("sdr_ouvrage")
+    sdr = row.get("sdr")
     material = row.get("materiau") or row.get("matériau") or row.get("material")
     length_m = _num(row.get("longueur_m") or row.get("length_m"))
 
+    edge_id_raw = row.get("id")
+    edge_id = str(edge_id_raw).strip() if edge_id_raw not in (None, "") else ""
+    created_source = None
+    for key, value in row.items():
+        if value in (None, ""):
+            continue
+        key_norm = str(key or "").strip().lower()
+        if key_norm in _EDGE_CREATED_AT_KEYS:
+            created_source = value
+            break
+    if created_source in (None, ""):
+        created_source = row.get("created_at") or row.get("createdAt")
+    from_id_str = str(from_id) if from_id is not None else ""
+    to_id_str = str(to_id) if to_id is not None else ""
+    created_at = None
+    if created_source not in (None, ""):
+        created_at = ensure_created_at_string(edge_id or f"{from_id_str}->{to_id_str}", created_source)
+
+    if length_m in (None, "") and geometry_coords:
+        computed_length = _compute_length_from_geometry(geometry_coords)
+        if computed_length is not None:
+            length_m = computed_length
+
     return Edge(
-        id=(row.get("id") or None),
-        from_id=str(from_id) if from_id is not None else "",
-        to_id=str(to_id) if to_id is not None else "",
+        id=edge_id or None,
+        from_id=from_id_str,
+        to_id=to_id_str,
         active=_bool(row.get("actif") if "actif" in header_set else row.get("active"), True),
         commentaire=(row.get("commentaire") or row.get("comment") or ""),
         geometry=(geometry_coords if geometry_coords else None),
@@ -326,6 +445,7 @@ def _row_to_edge(row: Dict[str, Any], header_set: List[str]) -> Edge:
         sdr=(sdr or None),
         material=(material or None),
         length_m=length_m,
+        created_at=created_at,
     )
 
 def _values_to_dicts(values: List[List[Any]], header: List[str]) -> List[Dict[str, Any]]:
@@ -444,11 +564,7 @@ def read_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, *, site_id: 
         node_header = _detect_header(
             node_header_raw,
             [
-                NODE_HEADERS_FR_V10,
-                NODE_HEADERS_FR_V9,
-                NODE_HEADERS_FR_V8,
-                NODE_HEADERS_EN_V2,
-                NODE_HEADERS_EN_V1,
+                NODE_HEADERS_FR_V11,
             ],
         )
         # Build rows using the full header actually present
@@ -493,12 +609,7 @@ def read_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, *, site_id: 
         edge_header = _detect_header(
             edge_header_raw,
             [
-                EDGE_HEADERS_FR_V5,
-                EDGE_HEADERS_FR_V4,
-                EDGE_HEADERS_FR_V3,
-                EDGE_HEADERS_EN_V3,
-                EDGE_HEADERS_EN_V2,
-                EDGE_HEADERS_EN_V1,
+                EDGE_HEADERS_FR_V6,
             ],
         )
         # Use the full raw header to capture extra columns like Geometry/PipeGroupId
@@ -521,20 +632,33 @@ def read_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, *, site_id: 
                 edges.append(e)
 
     style_meta = _read_style_meta_sheet(svc, sheet_id)
+    branches = _read_branches_sheet(svc, sheet_id)
+    config_map = _read_config_sheet(svc, sheet_id)
+    crs = _normalise_crs_from_config(config_map)
+    if not branches:
+        fallback: Dict[str, BranchInfo] = {}
+        for edge in edges:
+            branch_id = (edge.branch_id or '').strip()
+            if not branch_id or branch_id in fallback:
+                continue
+            fallback[branch_id] = BranchInfo(
+                id=branch_id,
+                name=branch_id,
+                parent_id=None,
+                is_trunk=branch_id.startswith('GENERAL-'),
+            )
+        branches = list(fallback.values())
 
-    return Graph(site_id=site_id, nodes=nodes, edges=edges, style_meta=style_meta)
+    return Graph(site_id=site_id, nodes=nodes, edges=edges, style_meta=style_meta, crs=crs, branches=branches)
 
 
 def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Graph, *, site_id: str | None = None) -> None:
     svc = _client()
 
-    node_headers = NODE_HEADERS_FR_V10 + EXTRA_SHEET_HEADERS
-    # Nouvelle entête riche pour arêtes (v5)
-    edge_headers = EDGE_HEADERS_FR_V5
+    node_headers = NODE_HEADERS_FR_V11 + EXTRA_SHEET_HEADERS
+    edge_headers = EDGE_HEADERS_FR_V6
 
     # Preserve existing canonical positions (x, y) when saving from UI.
-    # We fetch the current sheet to map node id -> (x, y) and re-inject
-    # those values in the write payload, so only x_UI/y_UI are updated.
     try:
         resp_nodes = (
             svc.spreadsheets().values().get(
@@ -545,7 +669,7 @@ def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Grap
     except Exception:
         cur_values = []
 
-    existing_xy_by_id = {}
+    existing_xy_by_id: Dict[str, Dict[str, Any]] = {}
     if cur_values:
         cur_header = cur_values[0]
         cur_rows = _values_to_dicts(cur_values[1:], cur_header)
@@ -553,12 +677,21 @@ def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Grap
             rid = r.get("id")
             if not rid:
                 continue
-            existing_xy_by_id[str(rid)] = (r.get("x"), r.get("y"))
+            key = str(rid).strip()
+            existing_x = _num(r.get("x"))
+            existing_y = _num(r.get("y"))
+            if existing_x is None:
+                existing_x = _num(r.get("x_UI"))
+            if existing_y is None:
+                existing_y = _num(r.get("y_UI"))
+            existing_xy_by_id[key] = {"x": existing_x, "y": existing_y}
 
     node_values = [node_headers]
-    for n in graph.nodes:
-        ex = existing_xy_by_id.get(n.id, (None, None))
-        x_preserved, y_preserved = ex[0], ex[1]
+    for n in graph.nodes or []:
+        key = str(n.id).strip() if getattr(n, 'id', None) is not None else ''
+        ex = existing_xy_by_id.get(key, {})
+        x_preserved = ex.get("x")
+        y_preserved = ex.get("y")
         extras_map = dict(n.extras or {}) if isinstance(n.extras, dict) else {}
         if site_id and not extras_map.get('idSite1'):
             extras_map['idSite1'] = site_id
@@ -567,11 +700,10 @@ def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Grap
             n.id,
             n.name or "",
             (n.type or "OUVRAGE"),
-            n.branch_id or "",  # recalculé par sanitizer avant l'écriture
+            n.branch_id or "",
             True if getattr(n, 'gps_locked', None) is not False else False,
             ("" if getattr(n, 'pm_offset_m', None) is None else n.pm_offset_m),
             ("" if not is_canal else ("" if n.diameter_mm is None else n.diameter_mm)),
-            ("" if not is_canal else (n.sdr_ouvrage or "")),
             ("" if not is_canal else (n.material or "")),
             n.commentaire or "",
             n.pm_collector_edge_id or n.attach_edge_id or "",
@@ -589,6 +721,14 @@ def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Grap
             extras.append(val if val is not None else "")
         node_values.append(row_core + extras)
 
+    def _format_geometry_json(geom) -> str:
+        try:
+            if not isinstance(geom, list):
+                return ""
+            return json.dumps(geom, ensure_ascii=False, separators=(",", ":"))
+        except Exception:
+            return ""
+
     def _format_geometry_lonlat_semicolon(geom) -> str:
         try:
             if not isinstance(geom, list):
@@ -602,40 +742,91 @@ def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Grap
             return ""
 
     edge_values = [edge_headers]
-    for e in graph.edges:
-        geom_txt = _format_geometry_lonlat_semicolon(getattr(e, 'geometry', None))
+    for e in graph.edges or []:
+        geometry = getattr(e, 'geometry', None)
+        geom_json = _format_geometry_json(geometry)
+        geom_txt = _format_geometry_lonlat_semicolon(geometry)
+        diameter = None if getattr(e, 'diameter_mm', None) in (None, "") else float(e.diameter_mm)
+        length = None if getattr(e, 'length_m', None) in (None, "") else float(e.length_m)
         edge_values.append([
             e.id or "",
             e.from_id,
             e.to_id,
-            (0.0 if getattr(e, 'diameter_mm', None) in (None, "") else float(e.diameter_mm)),
-            ("" if getattr(e, 'length_m', None) in (None, "") else float(e.length_m)),
+            getattr(e, 'branch_id', "") or "",
+            geom_json,
+            "" if diameter is None else diameter,
+            getattr(e, 'material', None) or "",
+            getattr(e, 'sdr', None) or "",
+            "" if length is None else round(length, 2),
             True if e.active is None else bool(e.active),
             getattr(e, 'commentaire', "") or "",
             geom_txt,
-            getattr(e, 'branch_id', "") or "",
-            (getattr(e, 'material', None) or ""),
-            (getattr(e, 'sdr', None) or ""),
         ])
+
+    branches_rows = [BRANCH_HEADERS]
+    seen_branch_ids: set[str] = set()
+    for entry in (graph.branches or []):
+        branch_obj = None
+        if isinstance(entry, BranchInfo):
+            branch_obj = entry
+        else:
+            try:
+                branch_obj = BranchInfo.model_validate(entry)
+            except Exception:
+                branch_obj = None
+        if branch_obj is None:
+            continue
+        branch_id = (branch_obj.id or "").strip()
+        if not branch_id or branch_id in seen_branch_ids:
+            continue
+        seen_branch_ids.add(branch_id)
+        name = (branch_obj.name or "").strip() or branch_id
+        parent = branch_obj.parent_id
+        if parent not in (None, ""):
+            parent = str(parent).strip() or None
+        else:
+            parent = None
+        branches_rows.append([
+            branch_id,
+            name,
+            parent or "",
+            "TRUE" if branch_obj.is_trunk else "FALSE",
+        ])
+
+    if len(branches_rows) == 1:
+        for edge in graph.edges or []:
+            branch_id = getattr(edge, 'branch_id', '') or ''
+            bid = str(branch_id).strip()
+            if not bid or bid in seen_branch_ids:
+                continue
+            seen_branch_ids.add(bid)
+            branches_rows.append([
+                bid,
+                bid,
+                "",
+                "TRUE" if bid.startswith('GENERAL-') else "FALSE",
+            ])
+
+    crs_obj = getattr(graph, 'crs', None)
+    if not isinstance(crs_obj, CRSInfo):
+        try:
+            crs_obj = CRSInfo.model_validate(crs_obj)
+        except Exception:
+            crs_obj = CRSInfo()
+    config_values = [
+        ["crs_code", crs_obj.code or "EPSG:4326"],
+        ["projected_for_lengths", crs_obj.projected_for_lengths or ""],
+    ]
 
     data = [
         {"range": f"{nodes_tab}!A1", "values": node_values},
         {"range": f"{edges_tab}!A1", "values": edge_values},
+        {"range": f"{BRANCHES_SHEET}!A1", "values": branches_rows},
+        {"range": f"{CONFIG_SHEET}!A1", "values": config_values},
     ]
 
-    # Clear previous content to avoid leftover rows when shrinking data.
-    try:
-        svc.spreadsheets().values().clear(
-            spreadsheetId=sheet_id, range=f"{nodes_tab}!A:ZZZ"
-        ).execute()
-    except Exception:
-        pass
-    try:
-        svc.spreadsheets().values().clear(
-            spreadsheetId=sheet_id, range=f"{edges_tab}!A:ZZZ"
-        ).execute()
-    except Exception:
-        pass
+    for title in (nodes_tab, edges_tab, BRANCHES_SHEET, CONFIG_SHEET):
+        _clear_sheet(svc, sheet_id, title)
 
     svc.spreadsheets().values().batchUpdate(
         spreadsheetId=sheet_id,

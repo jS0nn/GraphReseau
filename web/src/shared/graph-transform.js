@@ -29,6 +29,114 @@ const canonicalSdr = (value) => {
   return txt ? txt.toUpperCase() : null
 }
 
+const DEFAULT_CRS = { code: 'EPSG:4326', projected_for_lengths: 'EPSG:2154' }
+
+const normalizeBranchId = (value) => {
+  if(value == null) return ''
+  if(typeof value === 'string') return value.trim()
+  return String(value).trim()
+}
+
+export function normalizeCrs(raw){
+  try{
+    if(raw && typeof raw === 'object'){
+      const code = normalizeBranchId(raw.code || raw.Code || raw.crs || DEFAULT_CRS.code) || DEFAULT_CRS.code
+      const projectedRaw = raw.projected_for_lengths ?? raw.projected ?? DEFAULT_CRS.projected_for_lengths
+      const projected = normalizeBranchId(projectedRaw) || DEFAULT_CRS.projected_for_lengths
+      return { code, projected_for_lengths: projected }
+    }
+  }catch{}
+  return { ...DEFAULT_CRS }
+}
+
+function normalizeBranchEntry(entry, namesMap){
+  if(!entry) return null
+  if(entry instanceof Object && entry.id === undefined && entry.BranchId !== undefined){
+    entry = { id: entry.BranchId, name: entry.name ?? entry.Nom }
+  }
+  if(typeof entry === 'string'){
+    const id = entry.trim()
+    if(!id) return null
+    const lookup = namesMap && namesMap.get(id)
+    const name = lookup || id
+    return { id, name, parent_id: null, is_trunk: id.startsWith('GENERAL-') }
+  }
+  if(typeof entry === 'object'){
+    const id = normalizeBranchId(entry.id ?? entry.ID)
+    if(!id) return null
+    let name = ''
+    if(entry.name != null) name = String(entry.name).trim()
+    if(!name && namesMap){
+      const lookup = namesMap.get(id)
+      if(lookup) name = lookup
+    }
+    if(!name) name = id
+    let parent = entry.parent_id ?? entry.parentId ?? entry.parentID
+    parent = normalizeBranchId(parent)
+    if(!parent) parent = null
+    const isTrunk = !!entry.is_trunk || (!!entry.isTrunk)
+    return { id, name, parent_id: parent, is_trunk: isTrunk }
+  }
+  return null
+}
+
+export function normalizeBranches(raw, edges, namesById){
+  const namesMap = (() => {
+    if(!namesById || typeof namesById !== 'object') return null
+    const map = new Map()
+    try{
+      for(const [key, value] of Object.entries(namesById)){
+        if(!key) continue
+        const id = normalizeBranchId(key)
+        if(!id) continue
+        if(value == null) continue
+        const name = String(value).trim()
+        if(!name) continue
+        map.set(id, name)
+      }
+    }catch{}
+    return map
+  })()
+
+  const map = new Map()
+  if(Array.isArray(raw)){
+    for(const entry of raw){
+      const branch = normalizeBranchEntry(entry, namesMap)
+      if(!branch) continue
+      const existing = map.get(branch.id)
+      if(existing){
+        if(!existing.name && branch.name) existing.name = branch.name
+        if(!existing.parent_id && branch.parent_id) existing.parent_id = branch.parent_id
+        if(!existing.is_trunk && branch.is_trunk) existing.is_trunk = true
+        continue
+      }
+      map.set(branch.id, { ...branch })
+    }
+  }
+  for(const edge of edges){
+    const branchId = normalizeBranchId(edge.branch_id ?? edge.BranchId)
+    if(!branchId) continue
+    if(!map.has(branchId)){
+      const lookup = namesMap ? namesMap.get(branchId) : null
+      map.set(branchId, {
+        id: branchId,
+        name: lookup || branchId,
+        parent_id: null,
+        is_trunk: branchId.startsWith('GENERAL-'),
+      })
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => {
+    const nameA = (a.name || a.id || '').toLowerCase()
+    const nameB = (b.name || b.id || '').toLowerCase()
+    if(nameA < nameB) return -1
+    if(nameA > nameB) return 1
+    if(a.id < b.id) return -1
+    if(a.id > b.id) return 1
+    return 0
+  })
+}
+
 const isFiniteNumber = (value) => Number.isFinite(Number(value)) && Number.isFinite(+value)
 
 function haversineMeters(lon1, lat1, lon2, lat2){
@@ -87,7 +195,7 @@ export function normalizeEdge(raw){
   const length = normalizeNumericValue(raw.length_m ?? raw.longueur_m)
   const branch = (raw.branch_id ?? raw.BranchId ?? '').trim() || null
   const material = canonicalMaterial(raw.material ?? raw.materiau ?? raw['matériau'])
-  const sdr = canonicalSdr(raw.sdr ?? raw.sdr_ouvrage)
+  const sdr = canonicalSdr(raw.sdr)
   const siteId = (() => {
     const val = raw.site_id
     if(val == null || val === '') return null
@@ -167,14 +275,14 @@ function sanitizeNodeForSave(node){
   for(const key of NUMERIC_NODE_FIELDS){
     next[key] = normalizeNumericValue(next[key])
   }
+  if('lat' in next) delete next.lat
+  if('lon' in next) delete next.lon
   const type = String(next.type || '').toUpperCase()
   if(type !== 'CANALISATION'){
     next.diameter_mm = null
-    next.sdr_ouvrage = ''
     next.material = ''
   }else{
     if(next.diameter_mm == null) next.diameter_mm = null
-    if(next.sdr_ouvrage == null) next.sdr_ouvrage = ''
     if(next.material == null) next.material = ''
   }
   delete next.site_effective
@@ -196,7 +304,7 @@ function sanitizeEdgeForSave(edge){
   const length = normalizeNumericValue(edge.length_m ?? edge.longueur_m)
   const branch = (edge.branch_id ?? edge.BranchId ?? '').trim() || null
   const material = canonicalMaterial(edge.material ?? edge.materiau)
-  const sdr = canonicalSdr(edge.sdr ?? edge.sdr_ouvrage)
+  const sdr = canonicalSdr(edge.sdr)
   const siteId = (() => {
     const val = edge.site_id
     if(val == null || val === '') return null
@@ -332,20 +440,27 @@ export function sanitizeGraphPayload(graph){
     }
     if(lengthHint != null && offset != null){
       if(offset > lengthHint + OFFSET_TOLERANCE_M){
-        throw new Error(`Offset ${offset} m dépasse la longueur de l’arête ${anchorId}`)
+        console.warn(`[sanitizeGraphPayload] pm_offset ${offset} > length ${lengthHint} on edge ${anchorId}, value clamped.`)
       }
-      offset = Math.min(offset, lengthHint)
+      if(offset > lengthHint){
+        offset = lengthHint
+      }
     }
     node.pm_offset_m = offset == null ? null : Math.round(offset * 100) / 100
     node.pm_collector_edge_id = anchorId
     node.attach_edge_id = anchorId
   }
 
+  const branchNames = graph?.style_meta?.branch_names_by_id
+  const branches = normalizeBranches(graph?.branches, edges, branchNames)
+  const crs = normalizeCrs(graph?.crs)
   return {
     version: graph?.version || '1.5',
     site_id: graph?.site_id || null,
     generated_at: graph?.generated_at || null,
     style_meta: graph?.style_meta || {},
+    crs,
+    branches,
     nodes,
     edges,
   }

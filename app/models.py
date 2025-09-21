@@ -31,6 +31,31 @@ def _compute_length_from_geometry(geometry: List[List[float]] | None) -> Optiona
     return round(total, 2) if total > 0 else None
 
 
+
+class CRSInfo(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    code: str = "EPSG:4326"
+    projected_for_lengths: Optional[str] = "EPSG:2154"
+
+
+class BranchInfo(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    id: str
+    name: Optional[str] = None
+    parent_id: Optional[str] = None
+    is_trunk: bool = False
+
+    @model_validator(mode="after")
+    def _ensure_name(self) -> "BranchInfo":
+        try:
+            name = (self.name or "").strip()
+        except Exception:
+            name = ""
+        if not name:
+            self.name = self.id
+        return self
+
+
 class Node(BaseModel):
     model_config = ConfigDict(extra="allow")
     id: str
@@ -41,7 +66,6 @@ class Node(BaseModel):
     site_id: Optional[str] = None
 
     diameter_mm: Optional[float] = None
-    sdr_ouvrage: Optional[str] = ""
     material: Optional[str] = ""
 
     gps_locked: Optional[bool] = True
@@ -62,10 +86,6 @@ class Node(BaseModel):
 
     gps_lat: Optional[float] = None
     gps_lon: Optional[float] = None
-    # Aliases pour compat
-    lat: Optional[float] = None
-    lon: Optional[float] = None
-
     x: Optional[float] = None
     y: Optional[float] = None
     x_ui: Optional[float] = None
@@ -75,26 +95,11 @@ class Node(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _sync_lon_lat(cls, data: Any) -> Any:
-        try:
-            if not isinstance(data, dict):
-                return data
-            has_lat = data.get("lat") is not None
-            has_lon = data.get("lon") is not None
-            has_gps_lat = data.get("gps_lat") is not None
-            has_gps_lon = data.get("gps_lon") is not None
-            # lat/lon -> gps_*
-            if has_lat and not has_gps_lat:
-                data["gps_lat"] = data.get("lat")
-            if has_lon and not has_gps_lon:
-                data["gps_lon"] = data.get("lon")
-            # gps_* -> lat/lon
-            if has_gps_lat and not has_lat:
-                data["lat"] = data.get("gps_lat")
-            if has_gps_lon and not has_lon:
-                data["lon"] = data.get("gps_lon")
-        except Exception:
-            return data
+    def _reject_legacy_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            for key in ("lat", "lon", "sdr_ouvrage"):
+                if key in data:
+                    raise ValueError(f"{key} field is not supported")
         return data
 
     @model_validator(mode="before")
@@ -187,6 +192,8 @@ class Graph(BaseModel):
     site_id: Optional[str] = None
     generated_at: Optional[str] = None
     style_meta: Dict[str, Any] = Field(default_factory=dict)
+    crs: CRSInfo = Field(default_factory=CRSInfo)
+    branches: List[BranchInfo] = Field(default_factory=list)
 
     nodes: List[Node] = Field(default_factory=list)
     edges: List[Edge] = Field(default_factory=list)

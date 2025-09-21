@@ -15,6 +15,8 @@ export const state = {
     generated_at: null,
     style_meta: {},
   },
+  branches: [],
+  branchMap: new Map(),
   branchDiagnostics: [],
   branchChanges: [],
   branchConflicts: [],
@@ -25,14 +27,75 @@ export const state = {
   gridStep: 8,
   _spawnIndex: 0,
   edgeVarWidth: true,
+  crs: { code: 'EPSG:4326', projected_for_lengths: 'EPSG:2154' },
 }
 
 const GLOBAL_BRANCH_KEY = '__global__'
 const manualEdgeDefaults = new Map()
+const DEFAULT_CRS = { code: 'EPSG:4326', projected_for_lengths: 'EPSG:2154' }
+
+const NODE_BRANCH_FIELDS = ['branch_id', 'branchId', 'type']
+const EDGE_BRANCH_FIELDS = ['branch_id', 'branchId', 'from_id', 'to_id', 'source', 'target', 'geometry']
 
 const canonBranchId = (value) => {
   const txt = (value == null) ? '' : String(value).trim()
   return txt || null
+}
+
+function normaliseBranchEntry(entry){
+  if(!entry) return null
+  const id = canonBranchId(entry.id ?? entry.ID ?? entry.BranchId)
+  if(!id) return null
+  let name = ''
+  if(entry.name != null) name = String(entry.name).trim()
+  if(!name){
+    try{
+      const metaNames = state.graphMeta?.style_meta?.branch_names_by_id
+      if(metaNames && typeof metaNames === 'object'){
+        const lookup = metaNames[id]
+        if(lookup != null){
+          const candidate = String(lookup).trim()
+          if(candidate) name = candidate
+        }
+      }
+    }catch{}
+  }
+  const parentRaw = entry.parent_id ?? entry.parentId ?? entry.parentID
+  const parent = parentRaw == null ? null : canonBranchId(parentRaw)
+  const isTrunk = !!(entry.is_trunk ?? entry.isTrunk)
+  return {
+    id,
+    name: name || id,
+    parent_id: parent,
+    is_trunk: isTrunk,
+  }
+}
+
+function normalizeBranchesForState(entries){
+  const map = new Map()
+  if(Array.isArray(entries)){
+    for(const entry of entries){
+      const branch = normaliseBranchEntry(entry)
+      if(!branch) continue
+      const existing = map.get(branch.id)
+      if(existing){
+        if(!existing.name && branch.name) existing.name = branch.name
+        if(!existing.parent_id && branch.parent_id) existing.parent_id = branch.parent_id
+        if(!existing.is_trunk && branch.is_trunk) existing.is_trunk = true
+        continue
+      }
+      map.set(branch.id, branch)
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => {
+    const nameA = (a.name || a.id || '').toLowerCase()
+    const nameB = (b.name || b.id || '').toLowerCase()
+    if(nameA < nameB) return -1
+    if(nameA > nameB) return 1
+    if(a.id < b.id) return -1
+    if(a.id > b.id) return 1
+    return 0
+  })
 }
 
 const manualKey = (branchId) => canonBranchId(branchId) || GLOBAL_BRANCH_KEY
@@ -131,9 +194,270 @@ export function recordManualEdgeProps(branchId, patch){
   insertManualDefaults(branchId, patch)
 }
 
+
 export function getManualEdgeProps(branchId){
   const defaults = fetchManualDefaults(branchId)
   return defaults ? { ...defaults } : null
+}
+
+function rebuildBranchMap(list){
+  const nextMap = new Map()
+  if(Array.isArray(list)){
+    for(const entry of list){
+      if(!entry) continue
+      const branch = normaliseBranchEntry(entry)
+      if(!branch) continue
+      nextMap.set(branch.id, branch)
+    }
+  }
+  state.branchMap = nextMap
+}
+
+export function listBranches(){
+  return state.branches.map(branch => ({ ...branch }))
+}
+
+export function getBranch(branchId){
+  const id = canonBranchId(branchId)
+  if(!id) return null
+  return state.branchMap.get(id) || null
+}
+
+export function getBranchName(branchId){
+  const id = canonBranchId(branchId)
+  if(!id) return ''
+  const entry = state.branchMap.get(id)
+  const name = entry?.name != null ? String(entry.name).trim() : ''
+  return name || id
+}
+
+export function setBranchName(branchId, name){
+  const id = canonBranchId(branchId)
+  if(!id) return
+  const cleanName = name == null ? '' : String(name).trim()
+  const desiredName = cleanName || id
+  const baseline = normalizeBranchesForState(state.branches)
+  let updated = false
+  let found = false
+  const buffer = []
+  for(const branch of baseline){
+    if(branch.id === id){
+      found = true
+      if(branch.name !== desiredName){
+        updated = true
+      }
+      buffer.push({ ...branch, name: desiredName })
+    }else{
+      buffer.push(branch)
+    }
+  }
+  if(!found){
+    buffer.push({ id, name: desiredName, parent_id: null, is_trunk: id.startsWith('GENERAL-') })
+    updated = true
+  }
+  state.branches = normalizeBranchesForState(buffer)
+  rebuildBranchMap(state.branches)
+  const nextStyleMeta = (() => {
+    const base = (state.graphMeta?.style_meta && typeof state.graphMeta.style_meta === 'object') ? { ...state.graphMeta.style_meta } : {}
+    const namesMap = { ...(base.branch_names_by_id || {}) }
+    if(cleanName){
+      namesMap[id] = desiredName
+    }else{
+      delete namesMap[id]
+    }
+    if(Object.keys(namesMap).length){
+      base.branch_names_by_id = namesMap
+    }else{
+      delete base.branch_names_by_id
+    }
+    return base
+  })()
+  state.graphMeta = {
+    ...state.graphMeta,
+    style_meta: nextStyleMeta,
+  }
+  if(updated){
+    notify('branch:update', { id, name: getBranchName(id) })
+  }
+}
+
+export function renameBranchId(oldId, nextId){
+  const source = canonBranchId(oldId)
+  const target = canonBranchId(nextId)
+  if(!source || !target) return false
+  if(source === target) return false
+
+  const changedEdges = []
+  const changedNodes = []
+
+  state.edges.forEach(edge => {
+    if(!edge) return
+    const current = canonBranchId(edge.branch_id)
+    if(current === source){
+      edge.branch_id = target
+      changedEdges.push(edge.id)
+    }
+  })
+
+  state.nodes.forEach(node => {
+    if(!node) return
+    const current = canonBranchId(node.branch_id)
+    if(current === source){
+      node.branch_id = target
+      changedNodes.push(node.id)
+    }
+  })
+
+  const oldManualKey = manualKey(source)
+  const newManualKey = manualKey(target)
+  if(oldManualKey !== newManualKey){
+    const presets = manualEdgeDefaults.get(oldManualKey)
+    if(presets){
+      manualEdgeDefaults.delete(oldManualKey)
+      const existing = manualEdgeDefaults.get(newManualKey) || {}
+      manualEdgeDefaults.set(newManualKey, { ...existing, ...presets })
+    }
+  }
+
+  let branchEntryRenamed = false
+  let derivedName = null
+  const updatedBranches = (state.branches || []).map(entry => {
+    if(!entry) return entry
+    const entryId = canonBranchId(entry.id)
+    if(entryId === source){
+      branchEntryRenamed = true
+      const currentName = (entry.name || '').trim()
+      const nextName = (!currentName || currentName === source) ? target : currentName
+      derivedName = nextName
+      let parent = entry.parent_id
+      if(parent && canonBranchId(parent) === source) parent = target
+      return {
+        ...entry,
+        id: target,
+        name: nextName,
+        parent_id: parent,
+        is_trunk: entry.is_trunk || target.startsWith('GENERAL-'),
+      }
+    }
+    if(entry.parent_id && canonBranchId(entry.parent_id) === source){
+      return { ...entry, parent_id: target }
+    }
+    return entry
+  })
+
+  if(!branchEntryRenamed){
+    derivedName = derivedName || target
+    updatedBranches.push({ id: target, name: derivedName, parent_id: null, is_trunk: target.startsWith('GENERAL-') })
+  }
+
+  state.branches = normalizeBranchesForState(updatedBranches)
+  rebuildBranchMap(state.branches)
+
+  const baseStyleMeta = (state.graphMeta?.style_meta && typeof state.graphMeta.style_meta === 'object') ? { ...state.graphMeta.style_meta } : {}
+  const namesMap = { ...(baseStyleMeta.branch_names_by_id || {}) }
+  const existingName = (() => {
+    if(Object.prototype.hasOwnProperty.call(namesMap, source)){
+      const value = namesMap[source]
+      delete namesMap[source]
+      return (value == null) ? null : String(value).trim()
+    }
+    return null
+  })()
+
+  const finalName = (() => {
+    if(existingName) return existingName
+    if(derivedName && derivedName !== target) return derivedName
+    const entry = state.branchMap.get(target)
+    const fallback = entry?.name
+    if(fallback && String(fallback).trim() !== target) return String(fallback).trim()
+    return null
+  })()
+
+  if(finalName){
+    const prevTargetName = namesMap[target]
+    const prevTrimmed = typeof prevTargetName === 'string' ? prevTargetName.trim() : ''
+    if(!prevTargetName || !prevTrimmed || prevTrimmed === source || prevTrimmed === target){
+      namesMap[target] = finalName
+    }
+  } else {
+    if(Object.prototype.hasOwnProperty.call(namesMap, target)){
+      const candidate = namesMap[target]
+      if(candidate && String(candidate).trim() === source){
+        namesMap[target] = target
+      }
+    }
+  }
+
+  if(Object.keys(namesMap).length){
+    baseStyleMeta.branch_names_by_id = namesMap
+  }else{
+    delete baseStyleMeta.branch_names_by_id
+  }
+
+  state.graphMeta = {
+    ...state.graphMeta,
+    style_meta: baseStyleMeta,
+  }
+
+  if(changedEdges.length){
+    changedEdges.forEach(id => notify('edge:update', { id, patch: { branch_id: target } }))
+  }
+  if(changedNodes.length){
+    changedNodes.forEach(id => notify('node:update', { id, patch: { branch_id: target } }))
+  }
+
+  const updatedName = getBranchName(target)
+  notify('branch:update', { id: target, name: updatedName })
+  notify('graph:update')
+  scheduleBranchRecalc()
+  return true
+}
+
+function syncBranchesWithUsage(){
+  // Ensure every branch referenced by nodes/edges has a matching entry with a default name.
+  const used = new Set()
+  const metaBranchNames = (() => {
+    try{
+      const raw = state.graphMeta?.style_meta?.branch_names_by_id
+      if(raw && typeof raw === 'object') return raw
+    }catch{}
+    return {}
+  })()
+  for(const edge of state.edges){
+    if(!edge) continue
+    const branchId = canonBranchId(edge.branch_id ?? edge.branchId)
+    if(branchId) used.add(branchId)
+  }
+  for(const node of state.nodes){
+    if(!node) continue
+    const branchId = canonBranchId(node.branch_id ?? node.branchId)
+    if(branchId) used.add(branchId)
+  }
+  const additions = Array.from(used).map(id => {
+    const key = canonBranchId(id)
+    if(!key) return { id }
+    const lookup = metaBranchNames?.[key]
+    if(lookup != null){
+      const candidate = String(lookup).trim()
+      if(candidate) return { id: key, name: candidate }
+    }
+    return { id: key }
+  })
+  const next = normalizeBranchesForState([...(state.branches || []), ...additions])
+  let changed = next.length !== (state.branches?.length ?? 0)
+  if(!changed){
+    for(let i = 0; i < next.length; i += 1){
+      const prev = state.branches[i]
+      const curr = next[i]
+      if(!prev || prev.id !== curr.id || prev.name !== curr.name || prev.parent_id !== curr.parent_id || !!prev.is_trunk !== !!curr.is_trunk){
+        changed = true
+        break
+      }
+    }
+  }
+  state.branches = next
+  rebuildBranchMap(state.branches)
+  return changed
 }
 
 const listeners = new Set()
@@ -261,6 +585,7 @@ function scheduleBranchRecalc(){
           if(updated !== undefined) node.branch_id = updated
         })
       }
+      const branchSyncChanged = syncBranchesWithUsage()
       state.branchDiagnostics = result?.branch_diagnostics || []
       state.branchChanges = result?.branch_changes || []
       state.branchConflicts = result?.branch_conflicts || []
@@ -269,6 +594,9 @@ function scheduleBranchRecalc(){
         changes: state.branchChanges,
         conflicts: state.branchConflicts,
       })
+      if(branchSyncChanged){
+        notify('branch:update', { id: null })
+      }
     }catch(err){
       console.warn('[branch] recompute failed', err)
     }
@@ -282,22 +610,30 @@ export function triggerBranchRecalc(){
 }
 
 export function setGraph(graph){
-  const { nodes, edges, geoCenter, meta } = normalizeGraph(graph, { gridStep: state.gridStep })
-  state.nodes = nodes
-  state.edges = edges
+  const { nodes, edges, geoCenter, meta, branches = [], crs = DEFAULT_CRS } = normalizeGraph(graph, { gridStep: state.gridStep })
   state.graphMeta = Object.assign({
     version: '1.5',
     site_id: null,
     generated_at: null,
     style_meta: {},
   }, meta || {})
+  state.nodes = nodes
+  state.edges = edges
+  state.branches = normalizeBranchesForState(branches)
+  rebuildBranchMap(state.branches)
+  const branchSyncChanged = syncBranchesWithUsage()
+  state.crs = { ...DEFAULT_CRS, ...(crs || {}) }
   clearSelection()
   if(geoCenter) applyGeoCenter(geoCenter.centerLat, geoCenter.centerLon)
   pruneOrphanNodes()
   clearManualDiameter()
   notify('graph:set')
   scheduleBranchRecalc()
+  if(branchSyncChanged){
+    notify('branch:update', { id: null })
+  }
 }
+
 
 export function getGraph(){
   return {
@@ -305,10 +641,13 @@ export function getGraph(){
     site_id: state.graphMeta?.site_id ?? null,
     generated_at: state.graphMeta?.generated_at ?? null,
     style_meta: state.graphMeta?.style_meta ?? {},
+    crs: { ...DEFAULT_CRS, ...(state.crs || {}) },
+    branches: state.branches.map(branch => ({ ...branch })),
     nodes: state.nodes,
     edges: state.edges,
   }
 }
+
 
 export function setEdgeThicknessEnabled(enabled){ state.edgeVarWidth = !!enabled }
 export function isEdgeThicknessEnabled(){ return !!state.edgeVarWidth }
@@ -442,9 +781,29 @@ export function moveNode(id, dx, dy, { snap=true } = {}){
 export function updateNode(id, patch){
   const node = state.nodes.find(n => n.id === id)
   if(!node) return
+  let shouldRecalc = false
+  if(patch && typeof patch === 'object'){
+    for(const key of NODE_BRANCH_FIELDS){
+      if(Object.prototype.hasOwnProperty.call(patch, key)){
+        const next = patch[key]
+        const prev = node[key]
+        if(key === 'branch_id' || key === 'branchId'){
+          const prevClean = prev == null ? '' : String(prev).trim()
+          const nextClean = next == null ? '' : String(next).trim()
+          if(prevClean !== nextClean){
+            shouldRecalc = true
+            break
+          }
+        }else if(!Object.is(prev, next)){
+          shouldRecalc = true
+          break
+        }
+      }
+    }
+  }
   Object.assign(node, patch || {})
   notify('node:update', { id, patch })
-  scheduleBranchRecalc()
+  if(shouldRecalc) scheduleBranchRecalc()
 }
 
 export function addNode(partial = {}){
@@ -543,9 +902,29 @@ export function addEdge(source, target, partial = {}){
 export function updateEdge(id, patch){
   const edge = state.edges.find(e => e.id === id)
   if(!edge) return
+  let shouldRecalc = false
+  if(patch && typeof patch === 'object'){
+    for(const key of EDGE_BRANCH_FIELDS){
+      if(Object.prototype.hasOwnProperty.call(patch, key)){
+        const next = patch[key]
+        const prev = edge[key]
+        if(key === 'branch_id' || key === 'branchId'){
+          const prevClean = prev == null ? '' : String(prev).trim()
+          const nextClean = next == null ? '' : String(next).trim()
+          if(prevClean !== nextClean){
+            shouldRecalc = true
+            break
+          }
+        }else if(!Object.is(prev, next)){
+          shouldRecalc = true
+          break
+        }
+      }
+    }
+  }
   Object.assign(edge, patch || {})
   notify('edge:update', { id, patch })
-  scheduleBranchRecalc()
+  if(shouldRecalc) scheduleBranchRecalc()
 }
 
 export function removeEdge(id){
