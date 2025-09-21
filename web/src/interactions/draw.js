@@ -1,10 +1,10 @@
-import { state, addNode, addEdge, updateEdge, removeEdge, updateNode, getMode, setMode, subscribe, suspendOrphanPrune, getManualEdgeProps } from '../state/index.js'
+import { state, addNode, addEdge, updateEdge, removeEdge, updateNode, getMode, setMode, subscribe, suspendOrphanPrune, getManualEdgeProps, triggerBranchRecalc } from '../state/index.js'
 import { displayXYForNode, unprojectUIToLatLon, projectLatLonToUI } from '../geo.js'
 import { NODE_SIZE } from '../constants/nodes.js'
 import { getMap, isMapActive } from '../map.js'
 import { showMiniMenu } from '../ui/mini-menu.js'
 import { centerUIForNode, edgeGeometryToUIPoints, nearestPointOnPolyline, splitGeometryAt, ensureEdgeGeometry, geometryLengthMeters, offsetAlongGeometry } from '../shared/geometry.js'
-import { isCanal } from '../utils.js'
+import { isCanal, genIdWithTime } from '../utils.js'
 
 const SNAP_TOL = 15 // px for nodes (distance to node rectangle)
 const EDGE_TOL = 15 // px for snapping onto existing edges
@@ -26,8 +26,24 @@ const finiteDiameter = (value) => {
   const num = Number(value)
   return Number.isFinite(num) && num > 0 ? num : null
 }
-
 const roundMeters = (value) => (Number.isFinite(value) ? Math.round(value * 100) / 100 : null)
+
+const generateBranchId = () => {
+  let candidate = null
+  let guard = 0
+  const exists = (branchId) => {
+    const key = branchId ? String(branchId).trim() : ''
+    if(!key) return false
+    const edgeHit = state.edges.some(e => String(e?.branch_id ?? '').trim() === key)
+    if(edgeHit) return true
+    return state.nodes.some(n => String(n?.branch_id ?? '').trim() === key)
+  }
+  do{
+    candidate = genIdWithTime('BR')
+    guard += 1
+  }while(exists(candidate) && guard < 10)
+  return candidate
+}
 
 function pickEdgeProps(edge){
   if(!edge) return null
@@ -187,7 +203,6 @@ function discardPhantomPoint(){
 
 function finishDrawing(){
   if(!drawing) return
-  const shouldReturnToSelect = !!antennaSeedNodeId
   // Drop phantom if present so we only keep confirmed vertices
   discardPhantomPoint()
   const ptsLL = Array.isArray(drawing.pointsLL) ? drawing.pointsLL.slice() : []
@@ -425,9 +440,7 @@ function finishDrawing(){
   }
 
   stopDrawing()
-  if(shouldReturnToSelect){
-    try{ setMode('select') }catch{}
-  }
+  try{ setMode('select') }catch{}
 }
 
 function findNearestEdgeHit(x, y){
@@ -551,10 +564,20 @@ export function attachDraw(svgSel, gOverlay){
     // Store authoritative GPS for anchoring across view changes
     const ll = unprojectUIToLatLon(usePt[0], usePt[1])
     if(!Array.isArray(drawing.pointsLL)) drawing.pointsLL = []
-    drawing.pointsLL.push([ll.lon, ll.lat])
-    // UI cache will be recomputed from GPS in updatePreview
-    drawing.pointsUI.push(usePt)
-    drawing.snappedIds.push(snappedId)
+    if(!Array.isArray(drawing.pointsUI)) drawing.pointsUI = []
+    if(!Array.isArray(drawing.snappedIds)) drawing.snappedIds = []
+    if(drawing._hasPhantom && drawing.pointsLL.length){
+      const lastIdx = drawing.pointsLL.length - 1
+      drawing.pointsLL[lastIdx] = [ll.lon, ll.lat]
+      drawing.pointsUI[lastIdx] = usePt
+      drawing.snappedIds[lastIdx] = snappedId
+      drawing._hasPhantom = false
+    } else {
+      drawing.pointsLL.push([ll.lon, ll.lat])
+      // UI cache will be recomputed from GPS in updatePreview
+      drawing.pointsUI.push(usePt)
+      drawing.snappedIds.push(snappedId)
+    }
     if(snappedId && !antennaSeedProps){
       antennaSeedProps = inferPropsFromNodeId(snappedId)
     }
@@ -620,7 +643,18 @@ export function startDrawingFromNodeId(nodeId){
     drawing.pointsLL = [[ll.lon, ll.lat]]
     drawing.snappedIds = [nodeId]
     antennaSeedNodeId = nodeId
-    antennaSeedProps = inferPropsFromNodeId(nodeId) || antennaSeedProps
+    const baseProps = inferPropsFromNodeId(nodeId)
+    if(baseProps){
+      const nextProps = { ...baseProps }
+      const branch = typeof nextProps.branch_id === 'string' ? nextProps.branch_id.trim() : (nextProps.branch_id ? String(nextProps.branch_id).trim() : '')
+      if(branch){
+        nextProps.branch_id = generateBranchId()
+      }
+      antennaSeedProps = nextProps
+    } else if(!antennaSeedProps){
+      antennaSeedProps = null
+    }
     updatePreview()
+    triggerBranchRecalc()
   }catch{}
 }

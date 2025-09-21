@@ -3,6 +3,7 @@ import { computeCenterFromNodes, uiPosFromNodeGPS, unprojectUIToLatLon } from '.
 import { canonicalizeNodeType, shouldFilterNode } from './graph-rules.js'
 import { NODE_SIZE } from '../constants/nodes.js'
 import { normalizeNumericValue, normalizeEdge, dedupeEdges } from '../shared/graph-transform.js'
+import assignBranchIds from '../shared/branch-assign.js'
 
 export const XY_ABS_MAX = 100000
 const NUMERIC_NODE_FIELDS = ['x','y','diameter_mm','gps_lat','gps_lon','well_pos_index','pm_pos_index','pm_offset_m','x_ui','y_ui']
@@ -101,6 +102,7 @@ export function normalizeGraph(graph, { gridStep=8 } = {}){
   for(const node of nodes){ backfillNodePosition(node, step, { center: geoCenter }) }
   const rawEdges = Array.isArray(graph?.edges) ? graph.edges.slice() : []
   const edges = dedupeEdges(rawEdges.map(normalizeEdge))
+  assignBranchIds(nodes, edges)
   const filteredNodes = nodes.filter(n => !shouldFilterNode(n))
   repairInlineAnchors(filteredNodes, edges)
   applyDerivedGraphData(graph, filteredNodes, edges)

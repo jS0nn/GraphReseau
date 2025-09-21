@@ -4,6 +4,7 @@ import { isCanal } from '../utils.js'
 import { ensurePipeStyle } from '../style/pipes.js'
 import { NODE_WIDTH, NODE_HEIGHT, NODE_MARKER_RADIUS, NODE_BUBBLE_GAP, NODE_SIZE } from '../constants/nodes.js'
 import { getNodeCanvasPosition } from '../view/view-mode.js'
+import { colorPairForBranchId } from '../shared/branch-colors.js'
 
 const BUBBLE_GAP = NODE_BUBBLE_GAP // gap between marker and info bubble
 
@@ -105,13 +106,26 @@ export function renderNodes(gNodes, nodes){
     dot.attr('cx', NODE_WIDTH/2).attr('cy', NODE_HEIGHT/2).attr('r', NODE_MARKER_RADIUS).style('display','')
   })
   // Apply dynamic border color for CANALISATION nodes
+  const theme = document.body?.dataset?.theme || 'dark'
+  const styleMeta = state.graphMeta?.style_meta || {}
+  const pipeStyle = ensurePipeStyle({ nodes: state.nodes, edges: state.edges, theme, options: { styleMeta } })
   sel.merge(enter)
     .each(function(d){
-      if(!isCanal(d)) return
-      const styleMeta = state.graphMeta?.style_meta || {}
-      const style = ensurePipeStyle({ nodes: state.nodes, edges: state.edges, theme: document.body?.dataset?.theme || 'dark', options: { styleMeta } })
-      const stroke = style.borderColorForCanal(d)
-      if(stroke) this.querySelector('rect.box')?.setAttribute('stroke', stroke)
+      const { stroke, fill } = colorPairForBranchId(d.branch_id, theme)
+      const box = this.querySelector('rect.box')
+      const dot = this.querySelector('circle.marker-dot')
+      if(box){
+        if(fill) box.setAttribute('fill', fill)
+        if(stroke) box.setAttribute('stroke', stroke)
+      }
+      if(dot){
+        if(stroke) dot.setAttribute('stroke', stroke)
+        if(fill) dot.setAttribute('fill', fill)
+      }
+      if(isCanal(d) && !stroke){
+        const fallback = pipeStyle.borderColorForCanal(d)
+        if(fallback && box) box.setAttribute('stroke', fallback)
+      }
     })
   sel.merge(enter)
     .select('text.sublabel.pos')

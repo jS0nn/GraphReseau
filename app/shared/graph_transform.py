@@ -4,8 +4,11 @@ from __future__ import annotations
 import os
 import re
 import time
+import hashlib
+from dataclasses import dataclass, field
+from datetime import datetime, timezone, timedelta
 from math import radians, sin, cos, sqrt, atan2, isfinite
-from collections import defaultdict
+from collections import defaultdict, deque
 from typing import Iterable, Dict, List, Tuple, Optional, Any
 
 from fastapi import HTTPException
@@ -14,11 +17,323 @@ from ..models import Edge, Graph, Node
 
 
 INLINE_ANCHORED_TYPES = {"POINT_MESURE", "VANNE"}
+INLINE_BRANCH_MATCH_TYPES = {"VANNE"}
+PASS_THROUGH_TYPES = {"VANNE", "POINT_MESURE", "OUVRAGE"}
+SPLITTER_TYPES = {"JONCTION"}
+ALLOWED_NODE_TYPES = {"GENERAL", "OUVRAGE", "JONCTION", "POINT_MESURE", "VANNE"}
+NODE_TYPE_SYNONYMS = {
+    "PLATEFORME": "GENERAL",
+    "PLATFORM": "GENERAL",
+    "GÉNÉRAL": "GENERAL",
+    "PUITS": "OUVRAGE",
+    "WELL": "OUVRAGE",
+    "JUNCTION": "JONCTION",
+    "MEASURE_POINT": "POINT_MESURE",
+    "MEASUREMENT_POINT": "POINT_MESURE",
+    "VALVE": "VANNE",
+    "COLLECTEUR": "OUVRAGE",
+    "CANALISATION": "OUVRAGE",
+}
 UI_PREFIXES = ("ui_",)
 EPHEMERAL_KEYS = {"site_effective", "site_effective_is_fallback"}
-OFFSET_TOLERANCE_M = 0.5
+OFFSET_TOLERANCE_M = 0.05
 GRAPH_ALLOWED_TOP_LEVEL = {"version", "site_id", "generated_at", "style_meta", "nodes", "edges"}
 EDGE_FORBIDDEN_FIELDS = {"ui_diameter_mm"}
+ISO_8601_UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$")
+
+
+@dataclass
+class BranchChange:
+    edge_id: str
+    previous: str
+    new: str
+    reason: str
+
+
+@dataclass
+class JunctionDecision:
+    node_id: str
+    incoming_branch: str
+    main_edge: Optional[str]
+    rule: str
+    new_branches: List[str] = field(default_factory=list)
+
+
+@dataclass
+class BranchDiagnostics:
+    junctions: List[JunctionDecision] = field(default_factory=list)
+    conflicts: List[str] = field(default_factory=list)
+
+
+@dataclass
+class BranchAssignmentResult:
+    changes: List[BranchChange]
+    diagnostics: BranchDiagnostics
+
+
+def _parse_iso8601_z(value: str, *, context: str) -> datetime:
+    if not isinstance(value, str) or not value.strip():
+        raise HTTPException(status_code=422, detail=f"{context} created_at required")
+    text = value.strip()
+    try:
+        if text.endswith("Z"):
+            return datetime.fromisoformat(text[:-1] + "+00:00").astimezone(timezone.utc)
+        return datetime.fromisoformat(text).astimezone(timezone.utc)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"{context} created_at invalid: {text}") from exc
+
+
+def _new_branch_id(parent_branch: str, node_id: str, edge_id: str) -> str:
+    payload = f"{parent_branch}|{node_id}|{edge_id}"
+    digest = hashlib.sha1(payload.encode("utf-8")).hexdigest().upper()
+    return f"E-{digest[:12]}"
+
+
+def _fallback_created_at(edge_id: str) -> str:
+    digest = hashlib.sha1(edge_id.encode("utf-8")).hexdigest()
+    seconds = int(digest[:8], 16) % (3600 * 24 * 365)
+    base = datetime(2000, 1, 1, tzinfo=timezone.utc)
+    fallback = base + timedelta(seconds=seconds)
+    return fallback.isoformat().replace("+00:00", "Z")
+
+
+def _edge_sort_key(edge: Edge, diameter: float, created_at: datetime) -> Tuple[float, datetime, str]:
+    return (-diameter, created_at, edge.id)
+
+
+def _determine_rule_reason(sorted_edges: List[Tuple[Edge, float, datetime]]) -> str:
+    if len(sorted_edges) <= 1:
+        return "single_outlet"
+    first, second = sorted_edges[0], sorted_edges[1]
+    if first[1] > second[1]:
+        return "diameter"
+    if abs(first[1] - second[1]) < 1e-6 and first[2] < second[2]:
+        return "created_at"
+    return "edge_id"
+
+
+def _assign_branch_ids(
+    nodes: List[Node],
+    edges: List[Edge],
+) -> BranchAssignmentResult:
+    node_by_id: Dict[str, Node] = {n.id: n for n in nodes if getattr(n, "id", None)}
+    edge_by_id: Dict[str, Edge] = {e.id: e for e in edges if getattr(e, "id", None)}
+
+    diameter_cache: Dict[str, float] = {}
+    created_cache: Dict[str, datetime] = {}
+
+    for edge in edges:
+        if edge.id is None:
+            raise HTTPException(status_code=422, detail="edge id required for branch assignment")
+        if edge.diameter_mm is None:
+            raise HTTPException(status_code=422, detail=f"edge {edge.id} requires diameter_mm")
+        if edge.length_m is None or edge.length_m <= 0:
+            raise HTTPException(status_code=422, detail=f"edge {edge.id} requires positive length_m")
+        created_raw = getattr(edge, "created_at", None)
+        if created_raw in (None, ""):
+            edge.created_at = _fallback_created_at(edge.id)
+            created_raw = edge.created_at
+        created_cache[edge.id] = _parse_iso8601_z(created_raw, context=f"edge {edge.id}")
+        diameter_cache[edge.id] = float(edge.diameter_mm or 0.0)
+
+    out_edges: Dict[str, List[Edge]] = defaultdict(list)
+    in_edges: Dict[str, List[Edge]] = defaultdict(list)
+    edge_lookup: Dict[str, Edge] = {}
+    for edge in edges:
+        out_edges[edge.from_id].append(edge)
+        in_edges[edge.to_id].append(edge)
+        edge_lookup[edge.id] = edge
+
+    pending_incoming: Dict[str, int] = {}
+    for node_id in node_by_id:
+        pending_incoming[node_id] = len(out_edges.get(node_id, []))
+
+    node_branch: Dict[str, str] = {}
+    edge_branch: Dict[str, str] = {}
+    changes: List[BranchChange] = []
+    diagnostics = BranchDiagnostics()
+
+    def set_edge_branch(edge: Edge, branch: str, reason: str) -> None:
+        branch = branch or edge.id
+        previous = edge_branch.get(edge.id, edge.branch_id or "")
+        if previous != branch:
+            changes.append(BranchChange(edge_id=edge.id, previous=previous, new=branch, reason=reason))
+        edge_branch[edge.id] = branch
+        edge.branch_id = branch
+
+    def set_node_branch(node_id: str, branch: str) -> None:
+        branch = branch or node_id
+        node_branch[node_id] = branch
+        node = node_by_id.get(node_id)
+        if node is not None:
+            node.branch_id = branch
+
+    def branch_for_edge(edge: Edge) -> str:
+        return edge_branch.get(edge.id, edge.branch_id or "")
+
+    def select_primary(candidates: List[Edge]) -> Tuple[Optional[Edge], str]:
+        if not candidates:
+            return None, "no_candidate"
+        decorated = [
+            (edge, diameter_cache[edge.id], created_cache[edge.id])
+            for edge in candidates
+        ]
+        decorated.sort(key=lambda item: _edge_sort_key(item[0], item[1], item[2]))
+        reason = _determine_rule_reason(decorated)
+        return decorated[0][0], reason
+
+    queue: deque[str] = deque()
+    scheduled: set[str] = set()
+
+    def try_schedule(node_id: Optional[str]) -> None:
+        if not node_id or node_id not in node_by_id:
+            return
+        if pending_incoming.get(node_id, 0) <= 0 and node_id not in scheduled:
+            queue.append(node_id)
+            scheduled.add(node_id)
+
+    for node in nodes:
+        ntype = (node.type or "").upper()
+        if ntype == "GENERAL":
+            try_schedule(node.id)
+
+    for node_id, count in pending_incoming.items():
+        if count == 0:
+            try_schedule(node_id)
+
+    visited_nodes: set[str] = set()
+
+    def process_node(node_id: str) -> None:
+        node = node_by_id.get(node_id)
+        parent_edges = out_edges.get(node_id, [])
+        child_edges = in_edges.get(node_id, [])
+        node_type = (node.type or "").upper() if node else ""
+
+        parent_branches: List[str] = []
+        for edge in parent_edges:
+            branch = branch_for_edge(edge)
+            if branch:
+                parent_branches.append(branch)
+
+        branch_at_node = None
+        if parent_branches:
+            branch_at_node = parent_branches[0]
+            if len({*parent_branches}) > 1:
+                diagnostics.conflicts.append(
+                    f"node {node_id} received multiple parent branches"
+                )
+        elif node and node.branch_id:
+            branch_at_node = node.branch_id
+        else:
+            child_branch_candidates = [branch_for_edge(edge) for edge in child_edges if branch_for_edge(edge)]
+            if child_branch_candidates:
+                branch_at_node = child_branch_candidates[0]
+
+        branch_at_node = branch_at_node or node_id
+        set_node_branch(node_id, branch_at_node)
+
+        if node_type in PASS_THROUGH_TYPES or node_type == "GENERAL" or not child_edges:
+            for edge in child_edges:
+                set_edge_branch(edge, branch_at_node, "pass_through")
+                target = edge.to_id
+                pending_incoming[target] = pending_incoming.get(target, 0) - 1
+                if pending_incoming[target] <= 0:
+                    try_schedule(target)
+            return
+
+        if node_type in SPLITTER_TYPES:
+            parent_branch_values = parent_branches or [branch_at_node]
+            available: Dict[str, Edge] = {edge.id: edge for edge in child_edges}
+            for incoming_branch in sorted(set(parent_branch_values)):
+                candidate_values = list(available.values()) if available else list(child_edges)
+                main_edge, rule = select_primary(candidate_values)
+                if main_edge is None:
+                    diagnostics.conflicts.append(
+                        f"junction {node_id}: no available outgoing edge for branch {incoming_branch}"
+                    )
+                    continue
+                available.pop(main_edge.id, None)
+                set_edge_branch(main_edge, incoming_branch or branch_at_node, rule)
+                diagnostics.junctions.append(
+                    JunctionDecision(
+                        node_id=node_id,
+                        incoming_branch=incoming_branch or branch_at_node,
+                        main_edge=main_edge.id,
+                        rule=rule,
+                        new_branches=[],
+                    )
+                )
+                target = main_edge.to_id
+                pending_incoming[target] = pending_incoming.get(target, 0) - 1
+                if pending_incoming[target] <= 0:
+                    try_schedule(target)
+
+            remaining = [edge_lookup[eid] for eid in available.keys()]
+            if remaining:
+                base_branch = branch_at_node
+                for edge in remaining:
+                    new_branch = _new_branch_id(base_branch, node_id, edge.id)
+                    set_edge_branch(edge, new_branch, "split_new_branch")
+                    diagnostics.junctions.append(
+                        JunctionDecision(
+                            node_id=node_id,
+                            incoming_branch=base_branch,
+                            main_edge=None,
+                            rule="split_new_branch",
+                            new_branches=[new_branch],
+                        )
+                    )
+                    target = edge.to_id
+                    pending_incoming[target] = pending_incoming.get(target, 0) - 1
+                    if pending_incoming[target] <= 0:
+                        try_schedule(target)
+            return
+
+        # Default behaviour for unknown types: propagate current branch
+        for edge in child_edges:
+            set_edge_branch(edge, branch_at_node, "default_propagation")
+            target = edge.to_id
+            pending_incoming[target] = pending_incoming.get(target, 0) - 1
+            if pending_incoming[target] <= 0:
+                try_schedule(target)
+
+    while queue:
+        node_id = queue.popleft()
+        if node_id in visited_nodes:
+            continue
+        scheduled.discard(node_id)
+        visited_nodes.add(node_id)
+        process_node(node_id)
+
+    remaining_nodes = [nid for nid in node_by_id if nid not in visited_nodes]
+    for node_id in sorted(remaining_nodes):
+        process_node(node_id)
+
+    return BranchAssignmentResult(changes=changes, diagnostics=diagnostics)
+
+
+def apply_branch_change(graph: Graph | None, event: Optional[Dict[str, Any]] = None) -> BranchAssignmentResult:
+    """Re-evaluate branch identifiers after a mutation event."""
+    if graph is None:
+        raise HTTPException(status_code=400, detail="graph payload required")
+    nodes = list(graph.nodes or [])
+    edges = list(graph.edges or [])
+    result = _assign_branch_ids(nodes, edges)
+    graph.nodes = nodes
+    graph.edges = edges
+    setattr(graph, "branch_diagnostics", [
+        {
+            "node_id": decision.node_id,
+            "incoming_branch": decision.incoming_branch,
+            "main_edge": decision.main_edge,
+            "rule": decision.rule,
+            "new_branches": decision.new_branches,
+        }
+        for decision in result.diagnostics.junctions
+    ])
+    setattr(graph, "branch_conflicts", list(result.diagnostics.conflicts))
+    setattr(graph, "branch_changes", [change.__dict__ for change in result.changes])
+    return result
 
 
 def _is_forbidden_field_name(name: str) -> bool:
@@ -137,6 +452,93 @@ def _strip_ui_fields(mapping: Dict[str, Any]) -> Dict[str, Any]:
             continue
         cleaned[key] = value
     return cleaned
+
+
+def _canonical_node_type(raw: Any) -> str:
+    if raw is None:
+        return ""
+    text = str(raw).strip()
+    if not text:
+        return ""
+    upper = text.upper()
+    preferred = NODE_TYPE_SYNONYMS.get(upper, upper)
+    return preferred
+
+
+def _ensure_node_type(raw: Any, *, node_id: str) -> str:
+    value = _canonical_node_type(raw)
+    if value in ALLOWED_NODE_TYPES:
+        return value
+    raise HTTPException(status_code=422, detail=f"node {node_id or '<unknown>'} uses unsupported type: {raw}")
+
+
+def _normalise_branch_id(raw: Any) -> str:
+    if raw is None:
+        return ""
+    text = str(raw).strip()
+    return text
+
+
+def _require_iso8601_utc(raw: Any) -> str:
+    if raw is None:
+        raise HTTPException(status_code=422, detail="generated_at required (ISO-8601 UTC)")
+    if isinstance(raw, str):
+        text = raw.strip()
+    else:
+        text = str(raw).strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="generated_at required (ISO-8601 UTC)")
+    if not ISO_8601_UTC_RE.match(text):
+        raise HTTPException(status_code=422, detail=f"generated_at must be ISO-8601 UTC (got {text})")
+    return text
+
+
+def _require_float(raw: Any, *, field: str, context: str) -> float:
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail=f"{context} {field} must be a finite number")
+    if not isfinite(value):
+        raise HTTPException(status_code=422, detail=f"{context} {field} must be a finite number")
+    return value
+
+
+def _optional_float(raw: Any, *, allow_negative: bool = True) -> Optional[float]:
+    if raw in (None, ""):
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if not isfinite(value):
+        return None
+    if not allow_negative and value < 0:
+        return None
+    return value
+
+
+def _optional_int(raw: Any) -> Optional[int]:
+    if raw in (None, ""):
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_boolean(raw: Any, *, default: bool = False) -> bool:
+    if raw in (None, ""):
+        return default
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, (int, float)):
+        return bool(raw)
+    text = str(raw).strip().lower()
+    if text in {"true", "1", "yes", "y"}:
+        return True
+    if text in {"false", "0", "no", "n"}:
+        return False
+    return default
 
 
 def _normalise_material(value: Any) -> Optional[str]:
@@ -287,11 +689,71 @@ def sanitize_graph(graph: Graph | None, *, strict: bool = False) -> Graph:
 
     _purge_forbidden_fields(graph)
 
+    version_raw = getattr(graph, "version", None)
+    version = "1.5"
+    if version_raw not in (None, ""):
+        version = str(version_raw).strip() or "1.5"
+    if version != "1.5":
+        raise HTTPException(status_code=422, detail=f"version must be '1.5' (got {version_raw})")
+
+    site_id_raw = getattr(graph, "site_id", None)
+    site_id = str(site_id_raw).strip() if site_id_raw not in (None, "") else ""
+    if not site_id:
+        raise HTTPException(status_code=422, detail="site_id required")
+
+    generated_at_raw = getattr(graph, "generated_at", None)
+    if generated_at_raw in (None, ""):
+        generated_at: Optional[str] = None
+    else:
+        generated_at = _require_iso8601_utc(generated_at_raw)
+
+    style_meta_raw = getattr(graph, "style_meta", {}) or {}
+    if not isinstance(style_meta_raw, dict):
+        raise HTTPException(status_code=422, detail="style_meta must be an object when provided")
+    style_meta = dict(style_meta_raw)
+
     # --- collect nodes
     try:
         nodes: List[Node] = list(graph.nodes or [])
     except Exception:
         nodes = []
+
+    for node in nodes:
+        node_id_raw = getattr(node, "id", None)
+        node_id = str(node_id_raw).strip() if node_id_raw not in (None, "") else ""
+        if not node_id:
+            raise HTTPException(status_code=422, detail="node id required")
+        node.id = node_id
+        node.type = _ensure_node_type(getattr(node, "type", None), node_id=node_id)
+        node.name = "" if getattr(node, "name", None) is None else str(getattr(node, "name", ""))
+        node.branch_id = _normalise_branch_id(getattr(node, "branch_id", ""))
+        node.site_id = site_id
+        raw_comment = getattr(node, "commentaire", "")
+        node.commentaire = "" if raw_comment is None else str(raw_comment)
+        raw_material = getattr(node, "material", None)
+        node.material = (str(raw_material).strip() or None) if raw_material not in (None, "") else None
+        raw_sdr = getattr(node, "sdr_ouvrage", None)
+        node.sdr_ouvrage = (str(raw_sdr).strip() or None) if raw_sdr not in (None, "") else None
+        if getattr(node, "diameter_mm", None) not in (None, ""):
+            diameter_value = _optional_float(getattr(node, "diameter_mm"), allow_negative=False)
+            if diameter_value is None:
+                raise HTTPException(status_code=422, detail=f"node {node_id} diameter_mm must be >= 0")
+            node.diameter_mm = round(diameter_value, 3)
+        else:
+            node.diameter_mm = None
+        node.gps_lat = _require_float(getattr(node, "gps_lat", None), field="gps_lat", context=f"node {node_id}")
+        node.gps_lon = _require_float(getattr(node, "gps_lon", None), field="gps_lon", context=f"node {node_id}")
+        node.lat = _optional_float(getattr(node, "lat", None))
+        node.lon = _optional_float(getattr(node, "lon", None))
+        node.x = _optional_float(getattr(node, "x", None))
+        node.y = _optional_float(getattr(node, "y", None))
+        node.x_ui = _optional_float(getattr(node, "x_ui", None))
+        node.y_ui = _optional_float(getattr(node, "y_ui", None))
+        node.pm_pos_index = _optional_int(getattr(node, "pm_pos_index", None))
+        node.well_pos_index = _optional_int(getattr(node, "well_pos_index", None))
+        node.gps_locked = _coerce_boolean(getattr(node, "gps_locked", None), default=True)
+        extras = getattr(node, "extras", {}) or {}
+        node.extras = _clean_extras(extras)
 
     rename_map = _align_node_ids(nodes)
     node_by_id: Dict[str, Node] = {n.id: n for n in nodes if getattr(n, "id", None)}
@@ -338,6 +800,16 @@ def sanitize_graph(graph: Graph | None, *, strict: bool = False) -> Graph:
         if original_id and eid != original_id:
             edge_id_changes[original_id] = eid
 
+        if not eid.startswith("E-"):
+            regenerated = _gen_edge_id()
+            guard = 0
+            while regenerated in seen_ids and guard < 5:
+                regenerated = _gen_edge_id()
+                guard += 1
+            if original_id and original_id != regenerated:
+                edge_id_changes[original_id] = regenerated
+            eid = regenerated
+
         # Canonical branch id (accept legacy)
         branch_candidate = getattr(edge, "branch_id", None)
         if not branch_candidate:
@@ -365,31 +837,35 @@ def sanitize_graph(graph: Graph | None, *, strict: bool = False) -> Graph:
         material = _normalise_material(getattr(edge, "material", None))
         sdr = _normalise_sdr(getattr(edge, "sdr", None) or getattr(edge, "sdr_ouvrage", None))
         geometry = _sanitize_geometry(getattr(edge, "geometry", None))
-        extras = _clean_extras(getattr(edge, "extras", {}) or {})
-        site_id_raw = getattr(edge, "site_id", None)
-        if isinstance(site_id_raw, str):
-            site_id_clean = site_id_raw.strip() or None
-        elif site_id_raw is None:
-            site_id_clean = None
+        if geometry is None:
+            raise HTTPException(status_code=422, detail=f"edge geometry invalid or missing: {eid}")
+        active_flag = _coerce_boolean(getattr(edge, "active", True), default=True)
+        commentaire = getattr(edge, "commentaire", "") or ""
+        created_at_raw = getattr(edge, "created_at", None) or getattr(edge, "createdAt", None)
+        if created_at_raw in (None, ""):
+            created_at = _fallback_created_at(eid)
         else:
-            site_id_clean = str(site_id_raw).strip() or None
+            created_at = str(created_at_raw).strip()
+            if not ISO_8601_UTC_RE.match(created_at):
+                raise HTTPException(status_code=422, detail=f"edge {eid} created_at invalid: {created_at}")
 
         # Build sanitized edge (length computed later)
         e = Edge(
             id=eid,
             from_id=from_id,
             to_id=to_id,
-            active=True if getattr(edge, "active", True) is None else bool(getattr(edge, "active", True)),
-            commentaire=(getattr(edge, "commentaire", "") or ""),
+            active=active_flag,
+            commentaire=str(commentaire),
             geometry=geometry,
             branch_id=branch_id,
-            diameter_mm=diameter_mm,
+            diameter_mm=round(diameter_mm, 3),
             length_m=getattr(edge, "length_m", None),
             material=material,
             sdr=sdr,
-            slope_pct=getattr(edge, "slope_pct", None),
-            site_id=site_id_clean,
-            extras=extras,
+            slope_pct=None,
+            site_id=None,
+            extras={},
+            created_at=created_at,
         )
         kept.append(e)
         seen_ids.add(eid)
@@ -410,13 +886,14 @@ def sanitize_graph(graph: Graph | None, *, strict: bool = False) -> Graph:
                 e.length_m = round(float(e.length_m), 2)
             except (TypeError, ValueError):
                 e.length_m = None
+        if e.length_m is None or e.length_m <= 0:
+            raise HTTPException(status_code=422, detail=f"edge length_m missing or non-positive: {e.id}")
 
-    edge_by_id: Dict[str, Edge] = {e.id: e for e in kept}
+    branch_assignment = _assign_branch_ids(nodes, kept)
+    branch_diagnostics = branch_assignment.diagnostics
+    branch_changes = branch_assignment.changes
 
-    # --- Normalise nodes and anchors
     for n in nodes:
-        extras = getattr(n, "extras", {}) or {}
-        n.extras = _clean_extras(extras)
         pm_edge = (getattr(n, "pm_collector_edge_id", "") or getattr(n, "attach_edge_id", "") or "").strip()
         if pm_edge and pm_edge in edge_id_changes:
             pm_edge = edge_id_changes[pm_edge]
@@ -426,39 +903,36 @@ def sanitize_graph(graph: Graph | None, *, strict: bool = False) -> Graph:
         else:
             n.pm_collector_edge_id = ""
             n.attach_edge_id = ""
-        offset_value = getattr(n, "pm_offset_m", None)
-        if offset_value in ("", None):
+
+        offset_raw = getattr(n, "pm_offset_m", None)
+        if offset_raw in (None, ""):
             n.pm_offset_m = None
         else:
-            try:
-                offset_num = float(offset_value)
-            except (TypeError, ValueError):
-                offset_num = None
-            if offset_num is None or not isfinite(offset_num):
-                n.pm_offset_m = None
-            else:
-                n.pm_offset_m = round(offset_num, 2)
-        if str(getattr(n, "type", "")).upper() != "CANALISATION":
-            n.diameter_mm = None
-            n.sdr_ouvrage = ""
-            n.material = ""
-        if getattr(n, "gps_locked", None) is None:
-            n.gps_locked = True
+            offset_val = _optional_float(offset_raw, allow_negative=False)
+            if offset_val is None:
+                raise HTTPException(status_code=422, detail=f"node {n.id} pm_offset_m must be a non-negative number")
+            n.pm_offset_m = round(offset_val, 2)
 
-    # --- Validate inline anchors (PM / VANNE)
+    edge_by_id: Dict[str, Edge] = {e.id: e for e in kept}
+
+    # --- Validate inline anchors (POINT_MESURE / VANNE)
     for n in nodes:
         nodetype = str(getattr(n, "type", "")).upper()
         if nodetype not in INLINE_ANCHORED_TYPES:
             continue
         anchor_id = (getattr(n, "pm_collector_edge_id", "") or "").strip()
         if not anchor_id:
-            continue
+            raise HTTPException(status_code=422, detail=f"node {n.id} requires attach_edge_id")
         edge = edge_by_id.get(anchor_id)
         if edge is None:
             raise HTTPException(status_code=422, detail=f"anchor edge missing for node {n.id}: {anchor_id}")
         if edge.to_id != n.id:
             raise HTTPException(status_code=422, detail=f"anchor edge invalid for node {n.id}: {anchor_id}")
+        if n.branch_id and edge.branch_id and n.branch_id != edge.branch_id:
+            raise HTTPException(status_code=422, detail=f"node {n.id} branch_id must match anchor edge {anchor_id}")
         offset = getattr(n, "pm_offset_m", None)
+        if nodetype == "POINT_MESURE" and offset is None:
+            raise HTTPException(status_code=422, detail=f"node {n.id} pm_offset_m required")
         if offset is not None:
             if offset < 0:
                 raise HTTPException(status_code=422, detail=f"pm_offset_m negative for node {n.id}")
@@ -469,7 +943,6 @@ def sanitize_graph(graph: Graph | None, *, strict: bool = False) -> Graph:
                     raise HTTPException(status_code=422, detail=f"pm_offset_m exceeds edge length for node {n.id}")
                 if offset > edge_length:
                     n.pm_offset_m = round(edge_length, 2)
-                    offset = n.pm_offset_m
 
     if rename_map:
         for e in kept:
@@ -478,13 +951,35 @@ def sanitize_graph(graph: Graph | None, *, strict: bool = False) -> Graph:
             if e.to_id in rename_map:
                 e.to_id = rename_map[e.to_id]
 
+    node_ids = {n.id for n in nodes}
+    if len(node_ids) != len(nodes):
+        raise HTTPException(status_code=422, detail="duplicate node ids detected")
+    edge_ids = {e.id for e in kept}
+    if len(edge_ids) != len(kept):
+        raise HTTPException(status_code=422, detail="duplicate edge ids detected")
+    intersection = node_ids.intersection(edge_ids)
+    if intersection:
+        raise HTTPException(status_code=422, detail=f"node and edge ids must be unique across the document: {sorted(intersection)[0]}")
+
     # --- Return normalized graph (v1.5)
     return Graph(
-        version=getattr(graph, "version", "1.5") or "1.5",
-        site_id=getattr(graph, "site_id", None),
-        generated_at=getattr(graph, "generated_at", None),
-        style_meta=getattr(graph, "style_meta", {}) or {},
+        version=version,
+        site_id=site_id,
+        generated_at=generated_at,
+        style_meta=style_meta,
         nodes=nodes,
         edges=kept,
+        branch_diagnostics=[
+            {
+                "node_id": decision.node_id,
+                "incoming_branch": decision.incoming_branch,
+                "main_edge": decision.main_edge,
+                "rule": decision.rule,
+                "new_branches": decision.new_branches,
+            }
+            for decision in branch_diagnostics.junctions
+        ],
+        branch_conflicts=list(branch_diagnostics.conflicts),
+        branch_changes=[change.__dict__ for change in branch_changes],
         # style_meta etc. si présent dans graph.model_dump(...), FastAPI conservera
     )

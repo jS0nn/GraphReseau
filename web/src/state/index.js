@@ -2,6 +2,7 @@ import { genIdWithTime as genId, snap as snapToGrid, incrementName, defaultName 
 import { setGeoCenter as applyGeoCenter } from '../geo.js'
 import { normalizeGraph, reprojectNodesFromGPS } from './normalize.js'
 import { enforceEdgeOnlyNodeType } from './graph-rules.js'
+import { recomputeBranches } from '../api.js'
 
 export { setGeoScale, setGeoCenter } from '../geo.js'
 
@@ -14,6 +15,9 @@ export const state = {
     generated_at: null,
     style_meta: {},
   },
+  branchDiagnostics: [],
+  branchChanges: [],
+  branchConflicts: [],
   selection: { nodeId: null, edgeId: null, multi: new Set() },
   clipboard: null,
   mode: 'select',
@@ -223,6 +227,60 @@ function scheduleOrphanPrune(){
   else setTimeout(run, 0)
 }
 
+let branchRecalcScheduled = false
+
+function buildGraphForBranchRecalc(){
+  return {
+    version: state.graphMeta?.version || '1.5',
+    site_id: state.graphMeta?.site_id || null,
+    generated_at: state.graphMeta?.generated_at || null,
+    style_meta: state.graphMeta?.style_meta || {},
+    nodes: state.nodes,
+    edges: state.edges,
+  }
+}
+
+function scheduleBranchRecalc(){
+  if(branchRecalcScheduled) return
+  branchRecalcScheduled = true
+  const run = async () => {
+    branchRecalcScheduled = false
+    try{
+      const result = await recomputeBranches(buildGraphForBranchRecalc())
+      if(Array.isArray(result?.edges)){
+        const branchMap = new Map(result.edges.map(e => [e.id, e.branch_id]))
+        state.edges.forEach(edge => {
+          const updated = branchMap.get(edge.id)
+          if(updated !== undefined) edge.branch_id = updated
+        })
+      }
+      if(Array.isArray(result?.nodes)){
+        const nodeMap = new Map(result.nodes.map(n => [n.id, n.branch_id]))
+        state.nodes.forEach(node => {
+          const updated = nodeMap.get(node.id)
+          if(updated !== undefined) node.branch_id = updated
+        })
+      }
+      state.branchDiagnostics = result?.branch_diagnostics || []
+      state.branchChanges = result?.branch_changes || []
+      state.branchConflicts = result?.branch_conflicts || []
+      notify('graph:branches', {
+        diagnostics: state.branchDiagnostics,
+        changes: state.branchChanges,
+        conflicts: state.branchConflicts,
+      })
+    }catch(err){
+      console.warn('[branch] recompute failed', err)
+    }
+  }
+  if(typeof queueMicrotask === 'function') queueMicrotask(run)
+  else setTimeout(run, 0)
+}
+
+export function triggerBranchRecalc(){
+  scheduleBranchRecalc()
+}
+
 export function setGraph(graph){
   const { nodes, edges, geoCenter, meta } = normalizeGraph(graph, { gridStep: state.gridStep })
   state.nodes = nodes
@@ -238,6 +296,7 @@ export function setGraph(graph){
   pruneOrphanNodes()
   clearManualDiameter()
   notify('graph:set')
+  scheduleBranchRecalc()
 }
 
 export function getGraph(){
@@ -385,6 +444,7 @@ export function updateNode(id, patch){
   if(!node) return
   Object.assign(node, patch || {})
   notify('node:update', { id, patch })
+  scheduleBranchRecalc()
 }
 
 export function addNode(partial = {}){
@@ -470,10 +530,13 @@ export function addEdge(source, target, partial = {}){
     to_id: target,
     active: partial?.active !== false,
     commentaire: partial?.commentaire || '',
+    created_at: partial?.created_at || new Date().toISOString(),
     ...partial,
   }
+  if(!edge.created_at) edge.created_at = new Date().toISOString()
   state.edges.push(edge)
   notify('edge:add', edge)
+  scheduleBranchRecalc()
   return edge
 }
 
@@ -482,6 +545,7 @@ export function updateEdge(id, patch){
   if(!edge) return
   Object.assign(edge, patch || {})
   notify('edge:update', { id, patch })
+  scheduleBranchRecalc()
 }
 
 export function removeEdge(id){
@@ -490,6 +554,7 @@ export function removeEdge(id){
   state.edges.splice(index, 1)
   notify('edge:remove', { id })
   scheduleOrphanPrune()
+  scheduleBranchRecalc()
 }
 
 export function flipEdgeDirection(id){
@@ -506,4 +571,5 @@ export function flipEdgeDirection(id){
     edge.geometry = edge.geometry.slice().reverse()
   }
   notify('edge:flip', { id, from_id: edge.from_id, to_id: edge.to_id })
+  scheduleBranchRecalc()
 }

@@ -83,3 +83,17 @@ export async function saveGraph(graph) {
 export function getMode() {
   return parseSearch().mode || 'ro'
 }
+
+export async function recomputeBranches(graph) {
+  const payload = sanitizeGraphPayload(graph || {})
+  const res = await fetch('/api/graph/branch-recalc', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '')
+    throw new Error(`POST /api/graph/branch-recalc ${res.status} ${txt}`)
+  }
+  return res.json()
+}

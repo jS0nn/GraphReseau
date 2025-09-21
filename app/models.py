@@ -122,6 +122,7 @@ class Edge(BaseModel):
     to_id: str
     active: Optional[bool] = True
     commentaire: Optional[str] = ""
+    created_at: Optional[str] = None
 
     # V2 geometry: optional LineString coordinates [[lon,lat], ...]
     geometry: Optional[List[List[float]]] = None
@@ -159,6 +160,10 @@ class Edge(BaseModel):
                     data["diameter_mm"] = None
                 else:
                     data["diameter_mm"] = raw
+            created = data.get("created_at")
+            if not created:
+                raise ValueError("created_at required")
+            data["created_at"] = str(created).strip()
         except Exception:
             return data
         return data

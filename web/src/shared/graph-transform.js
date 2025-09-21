@@ -1,4 +1,5 @@
 import { genIdWithTime as genId } from '../utils.js'
+import assignBranchIds from './branch-assign.js'
 
 const NUMERIC_NODE_FIELDS = [
   'x',
@@ -14,6 +15,7 @@ const NUMERIC_NODE_FIELDS = [
 ]
 
 const OFFSET_TOLERANCE_M = 0.5
+const INLINE_BRANCH_LOCK_TYPES = new Set(['VANNE'])
 
 const canonicalMaterial = (value) => {
   if(value == null || value === '') return null
@@ -67,6 +69,7 @@ function edgeLengthMeters(edge){
   return geometryLength(Array.isArray(edge.geometry) ? edge.geometry : null)
 }
 
+
 export function normalizeNumericValue(value){
   if(value === '' || value === undefined || value === null) return null
   if(typeof value === 'number') return Number.isFinite(value) ? value : null
@@ -115,7 +118,7 @@ export function normalizeEdge(raw){
   }
 }
 
-export function dedupeEdges(edges){
+export function dedupeEdges(edges, idChanges = null){
   const used = new Set()
   const result = []
   for(const edge of edges){
@@ -135,6 +138,9 @@ export function dedupeEdges(edges){
     let guard = 0
     while(result.some(e => e.id === newId) && guard++ < 5){
       newId = genId('E')
+    }
+    if(idChanges && key){
+      idChanges.set(key, newId)
     }
     result.push({ ...edge, id: newId })
     used.add(newId)
@@ -205,6 +211,12 @@ function sanitizeEdgeForSave(edge){
     if(!Object.keys(extras).length) extras = null
   }
 
+  const normalizedDiameter = diameter != null ? Math.round(diameter * 100) / 100 : 0
+  let createdAt = edge.created_at || edge.createdAt || null
+  if(!createdAt){
+    createdAt = new Date().toISOString()
+  }
+
   const payload = {
     id: edge.id,
     from_id: edge.from_id ?? edge.source,
@@ -213,10 +225,11 @@ function sanitizeEdgeForSave(edge){
     commentaire: edge.commentaire || '',
     geometry: sanitizeGeometry(edge.geometry),
     branch_id: branch,
-    diameter_mm: diameter != null ? Math.round(diameter * 100) / 100 : null,
+    diameter_mm: normalizedDiameter,
     length_m: length != null ? Math.round(length * 100) / 100 : null,
     material,
     sdr,
+    created_at: createdAt,
   }
   if(siteId) payload.site_id = siteId
   if(extras) payload.extras = extras
@@ -226,7 +239,32 @@ function sanitizeEdgeForSave(edge){
 export function sanitizeGraphPayload(graph){
   const nodes = Array.isArray(graph?.nodes) ? graph.nodes.map(sanitizeNodeForSave) : []
   const edgesRaw = Array.isArray(graph?.edges) ? graph.edges.map(sanitizeEdgeForSave) : []
-  const edges = dedupeEdges(edgesRaw)
+  const idChanges = new Map()
+  const edges = dedupeEdges(edgesRaw, idChanges)
+
+  assignBranchIds(nodes, edges)
+
+  if(idChanges.size){
+    const remap = (value) => {
+      if(value == null || value === '') return value
+      const key = String(value).trim()
+      if(!key) return key
+      return idChanges.get(key) || key
+    }
+    for(const node of nodes){
+      if(!node) continue
+      if(node.pm_collector_edge_id != null){
+        const next = remap(node.pm_collector_edge_id)
+        if(next !== node.pm_collector_edge_id) node.pm_collector_edge_id = next
+      }
+      if(node.attach_edge_id != null){
+        const nextAttach = remap(node.attach_edge_id)
+        if(nextAttach !== node.attach_edge_id) node.attach_edge_id = nextAttach
+      }
+    }
+  }
+
+  assignBranchIds(nodes, edges)
 
   const edgeById = new Map()
   for(const edge of edges){
@@ -248,6 +286,14 @@ export function sanitizeGraphPayload(graph){
     if(!Object.prototype.hasOwnProperty.call(edge, 'sdr')) edge.sdr = null
   }
 
+  const incomingByNode = new Map()
+  for(const edge of edges){
+    const to = edge?.to_id ?? edge?.target
+    if(!to) continue
+    if(!incomingByNode.has(to)) incomingByNode.set(to, [])
+    incomingByNode.get(to).push(edge)
+  }
+
   const inlineTypes = new Set(['POINT_MESURE', 'VANNE'])
   for(const node of nodes){
     const typeUpper = String(node.type || '').toUpperCase()
@@ -258,11 +304,20 @@ export function sanitizeGraphPayload(graph){
       }
       continue
     }
-    const anchorId = String(node.pm_collector_edge_id || node.attach_edge_id || '').trim()
+    let anchorId = String(node.pm_collector_edge_id || node.attach_edge_id || '').trim()
     if(!anchorId){
       throw new Error(`Le nœud ${node.id} doit être relié à une arête (pm_collector_edge_id manquant)`)
     }
-    const anchor = edgeById.get(anchorId)
+    let anchor = edgeById.get(anchorId)
+    if(!anchor){
+      const incoming = incomingByNode.get(node.id) || []
+      anchor = incoming.find(e => (e.to_id ?? e.target) === node.id) || null
+      if(anchor){
+        anchorId = anchor.id
+        node.pm_collector_edge_id = anchorId
+        node.attach_edge_id = anchorId
+      }
+    }
     if(!anchor){
       throw new Error(`Le nœud ${node.id} référence une arête inexistante (${anchorId})`)
     }

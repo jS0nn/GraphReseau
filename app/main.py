@@ -7,6 +7,7 @@ from .auth_embed import build_csp
 from .config import settings
 from .routers.api import router as api_router
 from .routers.embed import router as embed_router
+from .routers.branch import router as branch_router
 
 
 class CSPMiddleware(BaseHTTPMiddleware):
@@ -34,5 +35,5 @@ def healthz():
 
 
 app.include_router(api_router, prefix="/api", tags=["graph"])
+app.include_router(branch_router, tags=["graph"])
 app.include_router(embed_router, prefix="/embed", tags=["embed"])
-

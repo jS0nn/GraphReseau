@@ -2,6 +2,7 @@ import { d3 } from '../vendor.js'
 import { state } from '../state/index.js'
 import { projectLatLonToUI } from '../geo.js'
 import { ensurePipeStyle } from '../style/pipes.js'
+import { colorForBranchId } from '../shared/branch-colors.js'
 import { showTooltip, hideTooltip, scheduleHide, cancelHide } from '../ui/tooltip.js'
 import { getNodeCanvasPosition, getNodeCenterPosition, isGraphView } from '../view/view-mode.js'
 
@@ -139,6 +140,7 @@ export function renderEdges(gEdges, edges){
   sel.merge(enter)
     .attr('class', d => `edge ${state.selection.edgeId===d.id?'selected':''}`)
     .attr('data-id', d=>d.id)
+    .attr('data-branch-id', d => d.branch_id || '')
     .attr('data-site-effective', d => d.site_effective || '')
     .attr('data-site-fallback', d => d.site_effective_is_fallback ? '1' : '0')
     .each(function(d){
@@ -157,7 +159,8 @@ export function renderEdges(gEdges, edges){
       const widthEdge = (visualDiameter != null) ? { ...d, diameter_mm: visualDiameter } : d
       const baseW = varWidth ? (style.widthForEdge(widthEdge) || DEFAULT_EDGE_WIDTH) : DEFAULT_EDGE_WIDTH
       const sel = state.selection.edgeId===d.id
-      const baseColor = d.active ? style.colorForEdge({ from_id:d.source, to_id:d.target }) : 'var(--muted)'
+      const branchColor = colorForBranchId(d.branch_id, theme)
+      const baseColor = branchColor || (d.active ? style.colorForEdge({ from_id:d.source, to_id:d.target }) : 'var(--muted)')
       const hiColor = d.active ? 'var(--edge-color-sel)' : 'var(--muted)'
       const strokeColor = sel ? hiColor : baseColor
       const w = sel ? Math.max(baseW * 1.6, baseW + 1.4) : baseW

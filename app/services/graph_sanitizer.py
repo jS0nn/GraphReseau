@@ -57,6 +57,7 @@ def graph_to_persistable_payload(graph: Graph) -> dict[str, Any]:
             "sdr": edge.sdr if edge.sdr not in ("", None) else None,
             "material": edge.material if edge.material not in ("", None) else None,
             "length_m": length,
+            "created_at": edge.created_at,
         }
         edges_payload.append(payload_edge)
 

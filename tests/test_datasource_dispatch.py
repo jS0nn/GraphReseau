@@ -20,19 +20,42 @@ class DatasourceDispatchTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "graph.json")
             uri = f"file://{path}"
+            node_a = Node(
+                id="OUVRAGE-A",
+                type="OUVRAGE",
+                branch_id="BR-1",
+                site_id="SITE-TEST",
+                gps_lat=48.0,
+                gps_lon=2.0,
+                gps_locked=True,
+            )
+            node_b = Node(
+                id="OUVRAGE-B",
+                type="OUVRAGE",
+                branch_id="BR-1",
+                site_id="SITE-TEST",
+                gps_lat=48.001,
+                gps_lon=2.001,
+                gps_locked=True,
+            )
+            edge = Edge(
+                id="E1",
+                from_id=node_a.id,
+                to_id=node_b.id,
+                branch_id="BR-1",
+                diameter_mm=63.0,
+                material="PVC",
+                sdr="17",
+                geometry=[[2.0, 48.0], [2.001, 48.001]],
+                length_m=150.0,
+                created_at="2025-01-01T00:00:00Z",
+            )
             graph = Graph(
-                nodes=[Node(id="A"), Node(id="B")],
-                edges=[
-                    Edge(
-                        id="E1",
-                        from_id="A",
-                        to_id="B",
-                        branch_id="BR-1",
-                        diameter_mm=63.0,
-                        material="PVC",
-                        sdr="17",
-                    )
-                ],
+                version="1.5",
+                site_id="SITE-TEST",
+                generated_at="2025-01-01T00:00:00Z",
+                nodes=[node_a, node_b],
+                edges=[edge],
             )
 
             save_graph(source="json", graph=graph, gcs_uri=uri)
