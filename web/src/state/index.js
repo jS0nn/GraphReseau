@@ -184,11 +184,6 @@ export function recordManualDiameter(branchId, diameter){
   insertManualDefaults(branchId, { diameter_mm: diameter })
 }
 
-export function getManualDiameter(branchId){
-  const defaults = fetchManualDefaults(branchId)
-  return defaults?.diameter_mm ?? null
-}
-
 export function recordManualEdgeProps(branchId, patch){
   if(!patch || typeof patch !== 'object') return
   insertManualDefaults(branchId, patch)
@@ -211,10 +206,6 @@ function rebuildBranchMap(list){
     }
   }
   state.branchMap = nextMap
-}
-
-export function listBranches(){
-  return state.branches.map(branch => ({ ...branch }))
 }
 
 export function getBranch(branchId){
@@ -279,138 +270,6 @@ export function setBranchName(branchId, name){
   if(updated){
     notify('branch:update', { id, name: getBranchName(id) })
   }
-}
-
-export function renameBranchId(oldId, nextId){
-  const source = canonBranchId(oldId)
-  const target = canonBranchId(nextId)
-  if(!source || !target) return false
-  if(source === target) return false
-
-  const changedEdges = []
-  const changedNodes = []
-
-  state.edges.forEach(edge => {
-    if(!edge) return
-    const current = canonBranchId(edge.branch_id)
-    if(current === source){
-      edge.branch_id = target
-      changedEdges.push(edge.id)
-    }
-  })
-
-  state.nodes.forEach(node => {
-    if(!node) return
-    const current = canonBranchId(node.branch_id)
-    if(current === source){
-      node.branch_id = target
-      changedNodes.push(node.id)
-    }
-  })
-
-  const oldManualKey = manualKey(source)
-  const newManualKey = manualKey(target)
-  if(oldManualKey !== newManualKey){
-    const presets = manualEdgeDefaults.get(oldManualKey)
-    if(presets){
-      manualEdgeDefaults.delete(oldManualKey)
-      const existing = manualEdgeDefaults.get(newManualKey) || {}
-      manualEdgeDefaults.set(newManualKey, { ...existing, ...presets })
-    }
-  }
-
-  let branchEntryRenamed = false
-  let derivedName = null
-  const updatedBranches = (state.branches || []).map(entry => {
-    if(!entry) return entry
-    const entryId = canonBranchId(entry.id)
-    if(entryId === source){
-      branchEntryRenamed = true
-      const currentName = (entry.name || '').trim()
-      const nextName = (!currentName || currentName === source) ? target : currentName
-      derivedName = nextName
-      let parent = entry.parent_id
-      if(parent && canonBranchId(parent) === source) parent = target
-      return {
-        ...entry,
-        id: target,
-        name: nextName,
-        parent_id: parent,
-        is_trunk: entry.is_trunk || target.startsWith('GENERAL-'),
-      }
-    }
-    if(entry.parent_id && canonBranchId(entry.parent_id) === source){
-      return { ...entry, parent_id: target }
-    }
-    return entry
-  })
-
-  if(!branchEntryRenamed){
-    derivedName = derivedName || target
-    updatedBranches.push({ id: target, name: derivedName, parent_id: null, is_trunk: target.startsWith('GENERAL-') })
-  }
-
-  state.branches = normalizeBranchesForState(updatedBranches)
-  rebuildBranchMap(state.branches)
-
-  const baseStyleMeta = (state.graphMeta?.style_meta && typeof state.graphMeta.style_meta === 'object') ? { ...state.graphMeta.style_meta } : {}
-  const namesMap = { ...(baseStyleMeta.branch_names_by_id || {}) }
-  const existingName = (() => {
-    if(Object.prototype.hasOwnProperty.call(namesMap, source)){
-      const value = namesMap[source]
-      delete namesMap[source]
-      return (value == null) ? null : String(value).trim()
-    }
-    return null
-  })()
-
-  const finalName = (() => {
-    if(existingName) return existingName
-    if(derivedName && derivedName !== target) return derivedName
-    const entry = state.branchMap.get(target)
-    const fallback = entry?.name
-    if(fallback && String(fallback).trim() !== target) return String(fallback).trim()
-    return null
-  })()
-
-  if(finalName){
-    const prevTargetName = namesMap[target]
-    const prevTrimmed = typeof prevTargetName === 'string' ? prevTargetName.trim() : ''
-    if(!prevTargetName || !prevTrimmed || prevTrimmed === source || prevTrimmed === target){
-      namesMap[target] = finalName
-    }
-  } else {
-    if(Object.prototype.hasOwnProperty.call(namesMap, target)){
-      const candidate = namesMap[target]
-      if(candidate && String(candidate).trim() === source){
-        namesMap[target] = target
-      }
-    }
-  }
-
-  if(Object.keys(namesMap).length){
-    baseStyleMeta.branch_names_by_id = namesMap
-  }else{
-    delete baseStyleMeta.branch_names_by_id
-  }
-
-  state.graphMeta = {
-    ...state.graphMeta,
-    style_meta: baseStyleMeta,
-  }
-
-  if(changedEdges.length){
-    changedEdges.forEach(id => notify('edge:update', { id, patch: { branch_id: target } }))
-  }
-  if(changedNodes.length){
-    changedNodes.forEach(id => notify('node:update', { id, patch: { branch_id: target } }))
-  }
-
-  const updatedName = getBranchName(target)
-  notify('branch:update', { id: target, name: updatedName })
-  notify('graph:update')
-  scheduleBranchRecalc()
-  return true
 }
 
 function syncBranchesWithUsage(){
@@ -647,11 +506,6 @@ export function getGraph(){
     edges: state.edges,
   }
 }
-
-
-export function setEdgeThicknessEnabled(enabled){ state.edgeVarWidth = !!enabled }
-export function isEdgeThicknessEnabled(){ return !!state.edgeVarWidth }
-
 export function clearSelection(){
   state.selection.nodeId = null
   state.selection.edgeId = null
@@ -759,12 +613,6 @@ export function pasteClipboard(offset = { x: 24, y: 24 }){
   state.selection.nodeId = clones[0]?.id || null
   notify('clipboard:paste', { count: clones.length })
   return clones
-}
-
-export function applyGPSPositions({ force=false } = {}){
-  const { changed, geoCenter } = reprojectNodesFromGPS(state.nodes, { gridStep: state.gridStep, force })
-  if(geoCenter) applyGeoCenter(geoCenter.centerLat, geoCenter.centerLon)
-  if(changed) notify('graph:update')
 }
 
 export function moveNode(id, dx, dy, { snap=true } = {}){

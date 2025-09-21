@@ -36,10 +36,6 @@ export function setGeoCenter(lat, lon){
   if(isFinite(lon)) geoConfig.centerLon = +lon
 }
 
-export function getGeoCenter(){
-  return { centerLat: geoConfig.centerLat, centerLon: geoConfig.centerLon }
-}
-
 // Compute median center from nodes containing gps_lat/gps_lon
 export function computeCenterFromNodes(nodes){
   const lats = []

@@ -604,31 +604,6 @@ def _assign_branch_ids(
 
     return BranchAssignmentResult(changes=changes, diagnostics=diagnostics, branch_parents=branch_parent_map)
 
-
-def apply_branch_change(graph: Graph | None, event: Optional[Dict[str, Any]] = None) -> BranchAssignmentResult:
-    """Re-evaluate branch identifiers after a mutation event."""
-    if graph is None:
-        raise HTTPException(status_code=400, detail="graph payload required")
-    nodes = list(graph.nodes or [])
-    edges = list(graph.edges or [])
-    result = _assign_branch_ids(nodes, edges)
-    graph.nodes = nodes
-    graph.edges = edges
-    setattr(graph, "branch_diagnostics", [
-        {
-            "node_id": decision.node_id,
-            "incoming_branch": decision.incoming_branch,
-            "main_edge": decision.main_edge,
-            "rule": decision.rule,
-            "new_branches": decision.new_branches,
-        }
-        for decision in result.diagnostics.junctions
-    ])
-    setattr(graph, "branch_conflicts", list(result.diagnostics.conflicts))
-    setattr(graph, "branch_changes", [change.__dict__ for change in result.changes])
-    return result
-
-
 def _is_forbidden_field_name(name: str) -> bool:
     if not name:
         return False

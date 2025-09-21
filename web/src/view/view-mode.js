@@ -477,11 +477,6 @@ export function getNodeCanvasPosition(node){
   return displayXYForNode(node)
 }
 
-export function getGraphLayoutMeta(){
-  if(!isGraphView()) return null
-  return ensureLayout().meta
-}
-
 export function getNodeCenterPosition(node){
   const pos = getNodeCanvasPosition(node)
   const type = String(node?.type || '').toUpperCase()
