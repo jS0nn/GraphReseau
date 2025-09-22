@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graphreseau.local/schemas/branch-recalc-request.schema.json",
+  "title": "BranchRecalcRequest",
+  "description": "Payload envoyé à POST /api/graph/branch-recalc (identique au schéma Graph).",
+  "allOf": [
+    {
+      "$ref": "graph.schema.json"
+    }
+  ]
+}

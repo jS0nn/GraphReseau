@@ -81,6 +81,8 @@ Note: les sauvegardes depuis l’UI écrivent l’onglet `Nodes` au format FR V5
 
 ## Déploiement Cloud Run (source)
 
+Consultez `docs/NOTICE_DEPLOIEMENT_CLOUD_RUN.md` pour une notice détaillée (prérequis, IAM, variables d'environnement, secrets et vérifications).
+
 ```
 gcloud run deploy editeur-reseau-api \
   --source . \
@@ -102,6 +104,20 @@ gcloud run deploy editeur-reseau-api \
   - GCS JSON: `GCS_JSON_URI`
   - BigQuery: `BQ_PROJECT_ID` (optionnel si `GOOGLE_CLOUD_PROJECT`), `BQ_DATASET`, `BQ_NODES_TABLE`, `BQ_EDGES_TABLE`
 - Contexte global détaillé: [`docs/contexte-global-editeur-reseau.md`](docs/contexte-global-editeur-reseau.md)
+
+## Documentation Diátaxis auto-générée
+
+Un corpus complet destiné aux développeurs et aux non-techniciens est disponible dans `docsAuto/`. Il est organisé selon le cadre Diátaxis :
+
+- **Overview** : `docsAuto/overview/architecture.md` et `docsAuto/overview/processes.md` (C4 L1/L2/L3, BPMN, flux principaux).
+- **Tutoriels** : `docsAuto/tutorials/getting-started.md`, `docsAuto/tutorials/build-first-feature.md`.
+- **Guides How-to** : `docsAuto/how-to/*.md` (exécution locale, ajout d’endpoint ou de composant UI, rotation de secrets, upgrade dépendances…).
+- **Références** : `docsAuto/reference/` (OpenAPI 3.1, JSON Schema, variables d’env, CLI, catalogues d’erreurs, schéma de données).
+- **Explications** : `docsAuto/explanations/*.md` (décisions d’architecture, sécurité, performance, limites).
+- **Diagrams** : `docsAuto/diagrams/*.md` (Mermaid C4, séquences, BPMN) et `docsAuto/data-contracts/data-catalog.md` pour les DTO.
+- **Traçabilité & audit** : `docsAuto/TRACEABILITY.md`, `docsAuto/DRIFT.md`, `docsAuto/observability/logging-audit-map.md`.
+
+> Les éléments marqués `⚠️ TODO` dans ces fichiers signalent les chantiers à prioriser (ex. middleware `correlation_id`, incidents runbook, rotation automatique des secrets, suite de tests frontend Node.js à ajouter pour couvrir `how-to/add-ui-component.md`).
 
 ## API vs Frontend (rôles et périmètre)
 - API (backend FastAPI):

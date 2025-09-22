@@ -1,0 +1,477 @@
+openapi: 3.1.0
+info:
+  title: Éditeur Réseau API
+  version: "0.1.0"
+  description: >
+    API REST du projet Éditeur Réseau. Les routes permettent de lire/écrire des graphes,
+    recalculer les branches et servir l'iframe d'édition.
+servers:
+  - url: http://localhost:8080
+    description: Développement local
+  - url: https://{project-id}-{hash}-a.run.app
+    description: Déploiement Cloud Run
+    variables:
+      project-id:
+        default: my-gcp-project
+tags:
+  - name: health
+    description: Surveillance basique
+  - name: graph
+    description: Lecture/écriture du graphe de réseau
+  - name: embed
+    description: Page iframe de l’éditeur
+paths:
+  /healthz:
+    get:
+      summary: Vérification de santé
+      tags: [health]
+      responses:
+        '200':
+          description: L’API répond.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationAck'
+  /api/graph:
+    get:
+      summary: Récupérer un graphe
+      tags: [graph]
+      parameters:
+        - name: source
+          in: query
+          description: Source de données à utiliser (`sheet`, `gcs_json`, `bigquery`)
+          schema:
+            type: string
+            enum: [sheet, sheets, google_sheets, gcs_json, gcs, json, bigquery, bq]
+        - name: sheet_id
+          in: query
+          schema:
+            type: string
+        - name: nodes_tab
+          in: query
+          schema:
+            type: string
+        - name: edges_tab
+          in: query
+          schema:
+            type: string
+        - name: gcs_uri
+          in: query
+          description: URI `gs://bucket/path.json` ou `file:///abs/path` en dev
+          schema:
+            type: string
+        - name: bq_project
+          in: query
+          schema:
+            type: string
+        - name: bq_dataset
+          in: query
+          schema:
+            type: string
+        - name: bq_nodes
+          in: query
+          schema:
+            type: string
+        - name: bq_edges
+          in: query
+          schema:
+            type: string
+        - name: site_id
+          in: query
+          description: Filtre optionnel (colonne `idSite1` ou équivalent)
+          schema:
+            type: string
+        - name: normalize
+          in: query
+          description: Normaliser le graphe côté serveur (calcul longueurs, branches)
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Graphe au format `Graph`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Graph'
+        '400':
+          description: Paramètre manquant (ex: `sheet_id required`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Graphe corrompu ou invalide
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '501':
+          description: Source non disponible (ex: BigQuery ou GCS indisponible)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      summary: Écrire un graphe
+      tags: [graph]
+      parameters:
+        - $ref: '#/paths/~1api~1graph/get/parameters/0'
+        - $ref: '#/paths/~1api~1graph/get/parameters/1'
+        - $ref: '#/paths/~1api~1graph/get/parameters/2'
+        - $ref: '#/paths/~1api~1graph/get/parameters/3'
+        - $ref: '#/paths/~1api~1graph/get/parameters/4'
+        - $ref: '#/paths/~1api~1graph/get/parameters/5'
+        - $ref: '#/paths/~1api~1graph/get/parameters/6'
+        - $ref: '#/paths/~1api~1graph/get/parameters/7'
+        - $ref: '#/paths/~1api~1graph/get/parameters/8'
+        - $ref: '#/paths/~1api~1graph/get/parameters/9'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Graph'
+      responses:
+        '200':
+          description: Sauvegarde effectuée sur la source cible.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationAck'
+        '400':
+          description: Paramètre manquant (`graph payload required`, `site_id required`…)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Graphe invalide (ex: `edge missing diameter_mm`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '501':
+          description: Fonctionnalité non implémentée (BigQuery write)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/graph/branch-recalc:
+    post:
+      summary: Recalculer les branches et diagnostics
+      tags: [graph]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Graph'
+      responses:
+        '200':
+          description: Graphe nettoyé + diagnostics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BranchRecalcResponse'
+        '400':
+          description: Payload manquant (`graph payload required`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Graphe invalide (mêmes règles que POST /api/graph)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /embed/editor:
+    get:
+      summary: Page iframe de l’éditeur
+      tags: [embed]
+      parameters:
+        - name: k
+          in: query
+          required: true
+          description: Clé d’accès statique (`EMBED_STATIC_KEY`)
+          schema:
+            type: string
+        - name: sheet_id
+          in: query
+          schema:
+            type: string
+        - name: mode
+          in: query
+          description: Mode (`ro` lecture seule, `rw` écriture preview)
+          schema:
+            type: string
+            default: ro
+            enum: [ro, rw]
+        - name: source
+          in: query
+          schema:
+            type: string
+        - name: gcs_uri
+          in: query
+          schema:
+            type: string
+        - name: bq_project
+          in: query
+          schema:
+            type: string
+        - name: bq_dataset
+          in: query
+          schema:
+            type: string
+        - name: bq_nodes
+          in: query
+          schema:
+            type: string
+        - name: bq_edges
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: HTML embarquant l’éditeur.
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: Paramètre invalide (`unsupported mode`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Refus (clé ou referer invalides)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  schemas:
+    OperationAck:
+      type: object
+      properties:
+        ok:
+          type: boolean
+      required: [ok]
+    ErrorResponse:
+      type: object
+      properties:
+        detail:
+          description: Détail de l’erreur (texte ou objet)
+      additionalProperties: true
+    Graph:
+      type: object
+      description: Représentation d’un réseau hydraulique version 1.5.
+      additionalProperties: true
+      required: [version, site_id, nodes, edges]
+      properties:
+        version:
+          type: string
+          const: "1.5"
+        site_id:
+          type: string
+          minLength: 1
+        generated_at:
+          type: string
+          format: date-time
+        style_meta:
+          type: object
+          additionalProperties: true
+        crs:
+          $ref: '#/components/schemas/CRSInfo'
+        branches:
+          type: array
+          items:
+            $ref: '#/components/schemas/BranchInfo'
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Node'
+        edges:
+          type: array
+          items:
+            $ref: '#/components/schemas/Edge'
+        branch_changes:
+          type: array
+          items:
+            $ref: '#/components/schemas/BranchChange'
+        branch_diagnostics:
+          type: array
+          items:
+            $ref: '#/components/schemas/BranchDiagnosticEntry'
+        branch_conflicts:
+          type: array
+          items:
+            type: string
+    Node:
+      type: object
+      additionalProperties: true
+      required: [id]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          default: ""
+        type:
+          type: string
+          enum: [GENERAL, OUVRAGE, JONCTION, POINT_MESURE, VANNE]
+        branch_id:
+          type: string
+        site_id:
+          type: [string, "null"]
+        diameter_mm:
+          type: [number, "null"]
+          minimum: 0
+        material:
+          type: [string, "null"]
+        gps_lat:
+          type: [number, "null"]
+        gps_lon:
+          type: [number, "null"]
+        x:
+          type: [number, "null"]
+        y:
+          type: [number, "null"]
+        x_ui:
+          type: [number, "null"]
+        y_ui:
+          type: [number, "null"]
+        gps_locked:
+          type: [boolean, "null"]
+        commentaire:
+          type: [string, "null"]
+        extras:
+          type: object
+          additionalProperties: true
+    Edge:
+      type: object
+      additionalProperties: true
+      required: [from_id, to_id, branch_id, diameter_mm, geometry, created_at]
+      properties:
+        id:
+          type: [string, "null"]
+        from_id:
+          type: string
+        to_id:
+          type: string
+        active:
+          type: [boolean, "null"]
+        commentaire:
+          type: [string, "null"]
+        created_at:
+          type: string
+          format: date-time
+        geometry:
+          type: array
+          minItems: 2
+          items:
+            $ref: '#/components/schemas/Coordinate'
+        branch_id:
+          type: string
+          minLength: 1
+        diameter_mm:
+          type: number
+          minimum: 0
+        length_m:
+          type: [number, "null"]
+          minimum: 0
+        material:
+          type: [string, "null"]
+        sdr:
+          type: [string, "null"]
+        slope_pct:
+          type: [number, "null"]
+        site_id:
+          type: [string, "null"]
+        extras:
+          type: object
+          additionalProperties: true
+    BranchInfo:
+      type: object
+      additionalProperties: true
+      required: [id]
+      properties:
+        id:
+          type: string
+        name:
+          type: [string, "null"]
+        parent_id:
+          type: [string, "null"]
+        is_trunk:
+          type: boolean
+    CRSInfo:
+      type: object
+      properties:
+        code:
+          type: string
+          default: EPSG:4326
+        projected_for_lengths:
+          type: [string, "null"]
+    BranchChange:
+      type: object
+      required: [edge_id, previous, new, reason]
+      properties:
+        edge_id:
+          type: string
+        previous:
+          type: string
+        new:
+          type: string
+        reason:
+          type: string
+    BranchDiagnosticEntry:
+      type: object
+      required: [node_id, incoming_branch, rule]
+      properties:
+        node_id:
+          type: string
+        incoming_branch:
+          type: string
+        main_edge:
+          type: [string, "null"]
+        rule:
+          type: string
+        new_branches:
+          type: array
+          items:
+            type: string
+    BranchRecalcResponse:
+      type: object
+      required: [nodes, edges, branch_changes, branch_diagnostics, branch_conflicts]
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Node'
+        edges:
+          type: array
+          items:
+            $ref: '#/components/schemas/Edge'
+        branch_changes:
+          type: array
+          items:
+            $ref: '#/components/schemas/BranchChange'
+        branch_diagnostics:
+          type: array
+          items:
+            $ref: '#/components/schemas/BranchDiagnosticEntry'
+        branch_conflicts:
+          type: array
+          items:
+            type: string
+    Coordinate:
+      type: array
+      minItems: 2
+      maxItems: 2
+      items:
+        - type: number
+          description: Longitude (EPSG:4326)
+        - type: number
+          description: Latitude (EPSG:4326)

@@ -1,0 +1,315 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graphreseau.local/schemas/graph.schema.json",
+  "title": "Graph",
+  "description": "Représentation canonique d’un réseau (version 1.5) échangé via /api/graph.",
+  "type": "object",
+  "required": ["version", "site_id", "nodes", "edges"],
+  "additionalProperties": true,
+  "properties": {
+    "version": {
+      "type": "string",
+      "enum": ["1.5"],
+      "description": "Version du schéma de graphe."
+    },
+    "site_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Identifiant métier du site (obligatoire)."
+    },
+    "generated_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Horodatage ISO-8601 (UTC) de génération."
+    },
+    "style_meta": {
+      "type": "object",
+      "description": "Métadonnées d’affichage (legendes, palettes…).",
+      "additionalProperties": true
+    },
+    "crs": {
+      "$ref": "#/$defs/CRSInfo"
+    },
+    "branches": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/BranchInfo"
+      },
+      "description": "Liste des branches connues (peut être vide)."
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Node"
+      },
+      "description": "Liste des nœuds."
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Edge"
+      },
+      "description": "Liste des arêtes (canalisations)."
+    },
+    "branch_changes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/BranchChange"
+      },
+      "description": "Modifications appliquées lors d’un recalcul (optionnel)."
+    },
+    "branch_diagnostics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/BranchDiagnostic"
+      },
+      "description": "Diagnostics sur les jonctions (optionnel)."
+    },
+    "branch_conflicts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Messages d’alerte sur les branches (optionnel)."
+    }
+  },
+  "$defs": {
+    "CRSInfo": {
+      "type": "object",
+      "description": "Système de coordonnées utilisé pour le graphe.",
+      "properties": {
+        "code": {
+          "type": "string",
+          "default": "EPSG:4326"
+        },
+        "projected_for_lengths": {
+          "type": ["string", "null"],
+          "default": "EPSG:2154"
+        }
+      },
+      "additionalProperties": false
+    },
+    "BranchInfo": {
+      "type": "object",
+      "required": ["id"],
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": ["string", "null"]
+        },
+        "parent_id": {
+          "type": ["string", "null"]
+        },
+        "is_trunk": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "Coordinate": {
+      "type": "array",
+      "description": "Couple longitude/latitude en EPSG:4326.",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        {
+          "type": "number",
+          "description": "Longitude"
+        },
+        {
+          "type": "number",
+          "description": "Latitude"
+        }
+      ]
+    },
+    "Node": {
+      "type": "object",
+      "required": ["id"],
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": ["string", "null"],
+          "default": ""
+        },
+        "type": {
+          "type": ["string", "null"],
+          "description": "Type de nœud (GENERAL, OUVRAGE, JONCTION, POINT_MESURE, VANNE)."
+        },
+        "branch_id": {
+          "type": ["string", "null"]
+        },
+        "site_id": {
+          "type": ["string", "null"]
+        },
+        "diameter_mm": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "material": {
+          "type": ["string", "null"]
+        },
+        "gps_locked": {
+          "type": ["boolean", "null"]
+        },
+        "pm_offset_m": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "commentaire": {
+          "type": ["string", "null"]
+        },
+        "collector_well_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "well_collector_id": {
+          "type": ["string", "null"]
+        },
+        "well_pos_index": {
+          "type": ["integer", "null"]
+        },
+        "pm_collector_id": {
+          "type": ["string", "null"]
+        },
+        "pm_pos_index": {
+          "type": ["integer", "null"]
+        },
+        "gps_lat": {
+          "type": ["number", "null"]
+        },
+        "gps_lon": {
+          "type": ["number", "null"]
+        },
+        "x": {
+          "type": ["number", "null"]
+        },
+        "y": {
+          "type": ["number", "null"]
+        },
+        "x_ui": {
+          "type": ["number", "null"]
+        },
+        "y_ui": {
+          "type": ["number", "null"]
+        },
+        "extras": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "Edge": {
+      "type": "object",
+      "required": ["from_id", "to_id", "branch_id", "diameter_mm", "geometry", "created_at"],
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": ["string", "null"]
+        },
+        "from_id": {
+          "type": "string"
+        },
+        "to_id": {
+          "type": "string"
+        },
+        "active": {
+          "type": ["boolean", "null"]
+        },
+        "commentaire": {
+          "type": ["string", "null"]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "geometry": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "$ref": "#/$defs/Coordinate"
+          }
+        },
+        "branch_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "diameter_mm": {
+          "type": "number",
+          "minimum": 0
+        },
+        "length_m": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "material": {
+          "type": ["string", "null"]
+        },
+        "sdr": {
+          "type": ["string", "null"]
+        },
+        "slope_pct": {
+          "type": ["number", "null"]
+        },
+        "site_id": {
+          "type": ["string", "null"]
+        },
+        "extras": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "BranchChange": {
+      "type": "object",
+      "required": ["edge_id", "previous", "new", "reason"],
+      "properties": {
+        "edge_id": {
+          "type": "string"
+        },
+        "previous": {
+          "type": "string"
+        },
+        "new": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "BranchDiagnostic": {
+      "type": "object",
+      "required": ["node_id", "incoming_branch", "rule"],
+      "properties": {
+        "node_id": {
+          "type": "string"
+        },
+        "incoming_branch": {
+          "type": "string"
+        },
+        "main_edge": {
+          "type": ["string", "null"]
+        },
+        "rule": {
+          "type": "string"
+        },
+        "new_branches": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
