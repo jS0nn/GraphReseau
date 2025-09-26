@@ -7,7 +7,8 @@
     "build:dev": "BUILD_DEV=1 node build.mjs",
     "types:generate": "python scripts/export_schema.py --out docs/graph.schema.json --ts-out web/src/types/graph.d.ts",
     "migrate:nodes": "bash scripts/migrate_nodes_npm.sh",
-    "test": "node --test web/tests/**/*.mjs"
+    "test": "tsx --test --require ./web/tests/test-setup.ts web/tests/**/*.test.*",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@fontsource/inter": "^5.1.0",
@@ -17,6 +18,12 @@
     "leaflet": "^1.9.4"
   },
   "devDependencies": {
-    "esbuild": "^0.21.5"
+    "@types/d3": "^7.4.3",
+    "@types/d3-selection": "^3.0.11",
+    "@types/leaflet": "^1.9.20",
+    "@types/node": "^20.12.7",
+    "esbuild": "^0.21.5",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0"
   }
 }

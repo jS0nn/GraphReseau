@@ -14,10 +14,10 @@
 - Sécurité embed : clé statique `k`, filtrage Referer, CSP strict, option orthophoto configurée via attributs de template.
 
 ## Flux détaillés supplémentaires
-- **Logs UI** (`ui/logs.js`): souscription globale aux événements `state` -> append DOM, export, toggle dev logs; utile pour tracer actions utilisateur.
-- **Formulaire propriétés** (`ui/forms.js`): lit la sélection `state.selection`, remplit panneaux nœud/arête, applique patches via `updateNode`/`updateEdge`, pilote flip arête, enregistrement des diamètres manuels.
-- **Carte Leaflet** (`map.js`): injectée si `data-tiles-url` défini; synchronise zoom/centre avec projection interne (`geo.js`), recalcule padding en fonction du panneau propriétés / tiroir logs.
-- **Interactions & layout**: `layout.js` filtre arêtes invalides avant ELK, `state.normalizeGraph` enrichit les nœuds avec `site_effective`, `ui_diameter_mm`, etc. Ces propriétés ne sont pas persistées (retirées par `graph_to_persistable_payload`).
+- **Logs UI** (`ui/logs.ts`): souscription globale aux événements `state` -> append DOM, export, toggle dev logs; utile pour tracer actions utilisateur.
+- **Formulaire propriétés** (`ui/forms.ts`): lit la sélection `state.selection`, remplit panneaux nœud/arête, applique patches via `updateNode`/`updateEdge`, pilote flip arête, enregistrement des diamètres manuels.
+- **Carte Leaflet** (`map.ts`): injectée si `data-tiles-url` défini; synchronise zoom/centre avec projection interne (`geo.ts`), recalcule padding en fonction du panneau propriétés / tiroir logs.
+- **Interactions & layout**: `layout.ts` filtre arêtes invalides avant ELK, `state.normalizeGraph` enrichit les nœuds avec `site_effective`, `ui_diameter_mm`, etc. Ces propriétés ne sont pas persistées (retirées par `graph_to_persistable_payload`).
 - **Branch recalculation**: `state.scheduleBranchRecalc` déclenche `POST /api/graph/branch-recalc`, réinjecte `branch_diagnostics`, `branch_changes`, `branch_conflicts` dans l'état pour affichage UI / logs.
 
 ## Objets de données suivis
@@ -29,5 +29,5 @@
 
 ## Pistes suivantes
 - Approfondir la gestion d'erreurs: scénarios Sheets hors ligne, BigQuery non disponible, validation stricte (`strict=True`) pour détecter les champs transitoires.
-- Documenter les conversions unités (mètres ↔ coordonnées) et la reprojection carte (`geo.js`, `map.js`).
+- Documenter les conversions unités (mètres ↔ coordonnées) et la reprojection carte (`geo.ts`, `map.ts`).
 - Ajouter un tableau de correspondance colonnes Sheets ↔ modèles pour audit futur.

@@ -47,16 +47,16 @@ Flux type (lecture):
 - Mode operationnel recommande (Option A du guide): `gcloud auth application-default login --impersonate-service-account=<SA>` et ne pas definir `IMPERSONATE_SERVICE_ACCOUNT` dans `.env` (pour eviter double hop).
 
 ## 5. Frontend (bundle esbuild)
-- **Sources**: `web/src/*` (modules ES). `editor.js` charge `editor.boot.js` qui instancie l application.
-- **Libs**: D3 pour le rendu SVG, Elkjs pour la mise en page auto, Leaflet-like map maison pour superposer une orthophoto (optionnelle). `vendor.js` regroupe D3/Elkjs et icones Unicons.
+- **Sources**: `web/src/*` (modules ES). `editor.ts` charge `editor.boot.ts` qui instancie l’application.
+- **Libs**: D3 pour le rendu SVG, Elkjs pour la mise en page auto, Leaflet-like map maison pour superposer une orthophoto (optionnelle). `vendor.ts` regroupe D3/Elkjs et icones Unicons.
 - **Etat et interactions**:
   - `state/`: store reactif minimaliste (subscribe, history undo/redo, modes ro/rw).
   - `render/`: `render-nodes.js`, `render-edges.js`, `render-inline.js` pour dessiner le graphe.
   - `interactions/`: drag & drop, selection, creation d aretes, edition de geometrique, junction.
   - `ui/`: barres d outils, formulaires propriete, logs (console dev), support theme clair/sombre.
 - **API client** (`web/src/api.js`): wrappers fetch pour GET/POST, injection des params `source`/`sheet_id` a partir de l URL de l iframe. Gestion mode lecture seule.
-- **Exports** (`web/src/exports.js`): génération du JSON complet pour diagnostic.
-- **Map** (`web/src/map.js`): active si `MAP_TILES_URL` non vide; s aligne sur le graphe, peut re-projeter les positions GPS.
+- **Exports** (`web/src/exports.ts`): génération du JSON complet pour diagnostic.
+- **Map** (`web/src/map.ts`): active si `MAP_TILES_URL` non vide; s'aligne sur le graphe, peut re-projeter les positions GPS.
 - **Build**: `npm run build` appelle `build.mjs` -> esbuild (browser target moderne), minification, copy assets (`app/static/vendor/*`). Aucun CDN n est charge, ressources hebergees localement.
 - **Compatibilite iframe**: l embed s adapte a la hauteur de la barre d outils et expose un bouton de bascule vue graphe/vues geographiques (dev).
 

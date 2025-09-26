@@ -10,7 +10,7 @@ Objectif : ajouter un nouvel attribut métier (`pressure_kpa`) sur les arêtes, 
 
 ## Étape 1 – Comprendre le modèle
 - Backend : `app/models.Edge`, `app/shared/graph_transform.py`.
-- Frontend : `web/src/shared/graph-transform.js`, `web/src/state/index.js`, `web/src/ui/forms.js`.
+- Frontend : `web/src/shared/graph-transform.ts`, `web/src/state/index.js`, `web/src/ui/forms.ts`.
 - Tests : `tests/test_graph_sanitizer.py`.
 
 ## Étape 2 – Étendre le modèle Pydantic
@@ -25,8 +25,8 @@ python scripts/export_schema.py --out docs/reference/schemas/graph.schema.json \
 ```
 
 ## Étape 4 – Adapter le frontend
-1. Normalisation : `web/src/shared/graph-transform.js` et `web/src/state/index.js`.
-2. UI : ajouter le champ dans `web/src/ui/forms.js` et l’affichage (ex: `render/render-edges.js`).
+1. Normalisation : `web/src/shared/graph-transform.ts` et `web/src/state/index.js`.
+2. UI : ajouter le champ dans `web/src/ui/forms.ts` et l’affichage (ex: `render/render-edges.js`).
 3. Valider la contrainte (valeur ≥ 0, nullable).
 
 ## Étape 5 – Exposer l’attribut via l’API

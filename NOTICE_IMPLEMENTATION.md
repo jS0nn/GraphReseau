@@ -97,7 +97,7 @@ Notes:
 - Installer les dépendances frontend et builder les assets locaux (sans CDN):
   - `npm install`
   - `npm run build`
-  - Résultat: `app/static/bundle/{vendor.js, polyfills.js, editor.js, main.js, app.css, editor.css}` et `app/static/vendor/{inter, unicons}`
+  - Résultat: `app/static/bundle/{vendor.ts, polyfills.ts, editor.js, main.js, app.css, editor.css}` et `app/static/vendor/{inter, unicons}`
 
 ### 5bis) Fichier .env.dev (recommandé)
 Créez un fichier `.env.dev` à la racine pour partager les variables entre terminaux:

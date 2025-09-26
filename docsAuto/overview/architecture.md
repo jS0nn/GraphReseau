@@ -12,9 +12,9 @@ L’Éditeur Réseau est une application Cloud Run composée d’un backend Fast
 ## Couches techniques
 
 ### [Frontend JS/TS]
-- `web/src/editor.boot.js:1-220` orchestration UI : initialise D3/Leaflet, l’historique (`createHistory`), les interactions (drag/draw) et appelle `web/src/api.js:1-86`.
+- `web/src/editor.boot.ts:1-220` orchestration UI : initialise D3/Leaflet, l’historique (`createHistory`), les interactions (drag/draw) et appelle `web/src/api.js:1-86`.
 - `web/src/state/` : magasin d’état centralisé, normalisation des graphes (`normalizeGraph`), règles de branche (`graph-rules.js`).
-- `web/src/shared/graph-transform.js:1-220` : nettoyage côté client (coercition numérique, gestion des branches, géométrie).
+- `web/src/shared/graph-transform.ts:1-220` : nettoyage côté client (coercition numérique, gestion des branches, géométrie).
 - Les bundles sont générés via `build.mjs:1-88` (JS + CSS + assets fonts/icônes). Aucun CDN n’est utilisé (`package.json`, `web/styles/*`).
 
 ### [Backend Python]

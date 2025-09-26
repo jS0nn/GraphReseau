@@ -14,7 +14,7 @@ Ce document compile tout le contexte utile pour développer, maintenir et déplo
 
 ## 2) Prérequis (outillage)
 - Python 3.11 ou 3.12
-- Node.js 18+ (recommandé: 20+) et npm
+- Node.js 18+ (recommandé: 20+) et npm  - le code sera en typescript
 - Google Cloud SDK (`gcloud`) connecté à votre compte
 - Docker (facultatif, pour tester l’image)
 
@@ -92,11 +92,11 @@ Fichier d’exemple: `.env.example` (copiable en `.env.dev`).
 
 ## 6) Frontend (build et usage)
 - Code source: `web/`
-  - `src/`: modules JS (rendu SVG, interactions, état, exports, API client)
+  - `src/`: modules JS/TS (rendu SVG, interactions, état, exports, API client)
   - `styles/`: `app.css`, `editor.css`, thème de base
   - `index.html`: page de dev (charge `web/src/*` directement)
 - Build (esbuild): `npm run build`
-  - Entrées: `web/src/vendor.js`, `polyfills.js`, `main.js`, `editor.js`, `editor.boot.js`
+  - Entrées: `web/src/vendor.ts`, `polyfills.ts`, `main.ts`, `editor.ts`, `editor.boot.ts`
   - Sorties: `app/static/bundle/*.js|*.css`, assets `app/static/vendor/*`
 - Pages servies par l’API (prod/dev): `app/templates/index.html` charge les bundles `/static/bundle/*`.
 
@@ -140,7 +140,7 @@ Vérifications utiles
   - `templates/index.html`: HTML d’embed qui charge les bundles
   - `static/`: bundles et assets copiés par le build
 - `web/` (frontend source — dev)
-  - `src/`: `editor.js`, `editor.boot.js`, `render/*`, `interactions/*`, `state/*`, `shared/*`, etc.
+  - `src/`: `editor.ts`, `editor.boot.ts`, `render/*`, `interactions/*`, `state/*`, `shared/*`, etc.
   - `styles/`: `app.css`, `editor.css`, `theme.css`, `base.css`
   - `index.html`: page de dev locale
   - `types/graph.d.ts`: types TypeScript générés à partir du schéma Pydantic (`npm run types:generate`)
@@ -179,7 +179,7 @@ Vérifications utiles
 - Étendre le schéma `Graph`
   - Ajuster `app/models.py`, les mappings Sheets/BQ dans `app/sheets.py`/`app/datasources.py`, et l’UI si champs visibles.
 - Ajouter un module UI
-  - Créer un fichier dans `web/src/*`, l’importer depuis `editor.js` (ou `editor.boot.js`), puis `npm run build`.
+  - Créer un fichier dans `web/src/*`, l’importer depuis `editor.ts` (ou `editor.boot.ts`), puis `npm run build`.
 - Sécurité/CSP
   - Adapter `build_csp()` dans `app/auth_embed.py` (garder `frame-ancestors` en phase avec l’environnement cible).
 - Organisation des secrets

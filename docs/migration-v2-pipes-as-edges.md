@@ -110,11 +110,11 @@ Fond de plan (orthophoto)
 - `app/auth_embed.py`: CSP mise à jour pour domaine des tuiles (img-src, et connect-src/style-src si requis).
 
 ## 7) Frontend — impacts et tâches
-- `web/src/vendor.js`: ajouter Leaflet (ou MapLibre) et `rbush` si utilisé.
-- `web/src/geo.js`: haversine, encode/decode geometry, helpers project/unproject.
+- `web/src/vendor.ts`: ajouter Leaflet (ou MapLibre) et `rbush` si utilisé.
+- `web/src/geo.ts`: haversine, encode/decode geometry, helpers project/unproject.
 - `web/src/state.js`: `mode`, `snapTolerancePx`, `drawInProgress`, `currentPolyline`, `selectedEdgeId`, `selectedNodeId`.
-- `web/src/modes.js`: SELECT, DRAW, EDIT, JUNCTION; raccourcis V/D/E/J, Échap, Entrée, Shift.
-- `web/src/interactions/*`: `draw.js`, `edit-geometry.js`, `junction.js` (nouveaux) + Undo/Redo via `history.js`.
+- `web/src/modes.ts`: SELECT, DRAW, EDIT, JUNCTION; raccourcis V/D/E/J, Échap, Entrée, Shift.
+- `web/src/interactions/*`: `draw.js`, `edit-geometry.ts`, `junction.js` (nouveaux) + Undo/Redo via `history.js`.
 - `web/src/render/*`: polylignes SVG (paths), styles hover/sélection; longueur dynamique pendant le dessin.
 - `web/src/ui/toolbar.js`: boutons modes + réglages snapping + bascule fond.
 - `web/styles/editor.css`: curseurs par mode; handles sommets.
@@ -161,8 +161,8 @@ Backend
 - `app/models.py`, `app/datasources.py`, `app/sheets.py`, `app/config.py`, `app/auth_embed.py`
 
 Frontend
-- `web/src/vendor.js`, `web/src/geo.js`, `web/src/state.js`, `web/src/modes.js`
-- `web/src/interactions/draw.js`, `web/src/interactions/edit-geometry.js`, `web/src/interactions/junction.js`
+- `web/src/vendor.ts`, `web/src/geo.ts`, `web/src/state.js`, `web/src/modes.ts`
+- `web/src/interactions/draw.js`, `web/src/interactions/edit-geometry.ts`, `web/src/interactions/junction.js`
 - `web/src/render/render-edges.js`, `web/src/ui/toolbar.js`, `web/styles/editor.css`
 - `build.mjs`, `app/templates/index.html`
 

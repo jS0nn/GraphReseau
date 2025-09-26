@@ -44,9 +44,9 @@ Statut: à cocher au fur et à mesure. Cible: V1 fonctionnelle (embed RO), sourc
 - [x] Rendu SVG: `render/canvas`, `render/edges`, `render/inline`, `render/colors`
 - [x] Interactions: drag, multi‑sélection, raccourcis, modes (`modes`, `interactions/*`)
 - [x] Propriétés: formulaires nœud/arête/canal (`ui/forms/*`) + callbacks → state+render
-- [x] Exports: JSON (`exports.js`)
-- [x] Layout: consolider `layout.js` (ELK + fallback) + journaux (`ui/logs`)
-- [x] Entrée unique propre: `editor.js` assemble les modules; déprécier puis supprimer `legacy-editor.js`
+- [x] Exports: JSON (`exports.ts`)
+- [x] Layout: consolider `layout.ts` (ELK + fallback) + journaux (`ui/logs`)
+- [x] Entrée unique propre: `editor.ts` assemble les modules; déprécier puis supprimer `legacy-editor.js`
 - [x] CSS: renommer `web/styles/legacy.css` → `editor.css` (maj `build.mjs` + `app/templates/index.html`)
 
 ## Docs & DX
@@ -84,18 +84,18 @@ Tâches (par étapes de livraison)
   - [x] `app/sheets.py`: parse `Geometry` ("lon lat; …" > GeoJSON > WKT) et `PipeGroupId` (lecture).
   - [x] Tests manuels lecture V1/V2 (GCS JSON, Sheets, BQ).
 - [x] Étape 2 — Fond de plan + rendu polylignes
-  - [x] `web/src/vendor.js`: Leaflet (bundle local).
-  - [x] `web/src/geo.js`: project/unproject exact via Leaflet (containerPoint), zéro drift.
+  - [x] `web/src/vendor.ts`: Leaflet (bundle local).
+  - [x] `web/src/geo.ts`: project/unproject exact via Leaflet (containerPoint), zéro drift.
   - [x] `web/src/render/render-edges.js`: polylignes SVG; flèche directionnelle au milieu.
   - [x] `app/config.py`: env `MAP_TILES_URL`, `MAP_TILES_ATTRIBUTION`, `MAP_TILES_API_KEY`.
   - [x] `app/auth_embed.py`: CSP dynamique pour l’origine des tuiles (img-src/connect-src).
   - [x] UX zoom/pan: molette `setZoomAround`, boutons ± (±1 niveau), overlay stabilisé (SVG plein écran, coords Leaflet).
 - [x] Étape 3 — Mode D (dessin) + snapping + Undo
-  - [x] `web/src/state.js`, `web/src/modes.js` (V/D/E/J; Échap/Entrée/Shift).
+  - [x] `web/src/state.js`, `web/src/modes.ts` (V/D/E/J; Échap/Entrée/Shift).
   - [x] `web/src/interactions/draw.js`: clics, prévisualisation, terminer; snapping sur nœuds.
   - [x] Undo/Redo via `history.js`.
 - [x] Étape 4 — Mode E (édition)
-  - [x] `web/src/interactions/edit-geometry.js`: handles, drag vertex; Alt+clic insert; Delete retire sommet.
+  - [x] `web/src/interactions/edit-geometry.ts`: handles, drag vertex; Alt+clic insert; Delete retire sommet.
 - [x] Étape 5 — Mode J (jonction/split)
   - [x] `web/src/interactions/junction.js`: pick segment, split; nouveau nœud ancré GPS; héritage `pipe_group_id`.
   - [x] Option « démarrer une antenne » et choix du type inséré (jonction/ouvrage/PM/vanne).

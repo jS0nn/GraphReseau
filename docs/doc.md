@@ -51,7 +51,7 @@ Bienvenue dans la base de connaissances de l’Éditeur Réseau. Ce projet rempl
 
 ## Résumé produit
 - **[Backend Python]** expose l’API `/api/graph` (lecture/écriture), le recalcul de branches et la page `/embed/editor`, avec CSP stricte et middleware dédié (`app/main.py:13-39`, `app/routers/api.py:12-68`, `app/routers/branch.py:11-22`, `app/routers/embed.py:14-46`).
-- **[Frontend JS/TS]** fournit un éditeur autonome (bundles `app/static/bundle/*`) orchestré par `web/src/editor.boot.js` et son magasin d’état (`web/src/state/index.js`).
+- **[Frontend JS/TS]** fournit un éditeur autonome (bundles `app/static/bundle/*`) orchestré par `web/src/editor.boot.ts` et son magasin d’état (`web/src/state/index.js`).
 - **Sources de données** interchangeables via `app/datasources/` : Google Sheets (par défaut), fichier JSON local/GCS, BigQuery (lecture seule).
 - **Sécurité** : clé d’embed statique, contrôle du Referer (`app/auth_embed.py:8-49`), ADC/impersonation Google (`app/gcp_auth.py:8-44`), CSP calculée dynamiquement.
 
@@ -105,9 +105,9 @@ L’Éditeur Réseau est une application Cloud Run composée d’un backend Fast
 ## Couches techniques
 
 ### [Frontend JS/TS]
-- `web/src/editor.boot.js:1-220` orchestration UI : initialise D3/Leaflet, l’historique (`createHistory`), les interactions (drag/draw) et appelle `web/src/api.js:1-86`.
+- `web/src/editor.boot.ts:1-220` orchestration UI : initialise D3/Leaflet, l’historique (`createHistory`), les interactions (drag/draw) et appelle `web/src/api.js:1-86`.
 - `web/src/state/` : magasin d’état centralisé, normalisation des graphes (`normalizeGraph`), règles de branche (`graph-rules.js`).
-- `web/src/shared/graph-transform.js:1-220` : nettoyage côté client (coercition numérique, gestion des branches, géométrie).
+- `web/src/shared/graph-transform.ts:1-220` : nettoyage côté client (coercition numérique, gestion des branches, géométrie).
 - Les bundles sont générés via `build.mjs:1-88` (JS + CSS + assets fonts/icônes). Aucun CDN n’est utilisé (`package.json`, `web/styles/*`).
 
 ### [Backend Python]
@@ -303,7 +303,7 @@ Objectif : ajouter un nouvel attribut métier (`pressure_kpa`) sur les arêtes, 
 
 ## Étape 1 – Comprendre le modèle
 - Backend : `app/models.Edge` (ligne `Edge`), `app/shared/graph_transform.py` (sanitisation).
-- Frontend : `web/src/shared/graph-transform.js`, `web/src/state/index.js`, `web/src/ui/forms.js`.
+- Frontend : `web/src/shared/graph-transform.ts`, `web/src/state/index.js`, `web/src/ui/forms.ts`.
 - Tests : `tests/test_graph_sanitizer.py` (validation des arêtes).
 
 ## Étape 2 – Étendre le modèle Pydantic
@@ -322,11 +322,11 @@ python scripts/export_schema.py --out docs/reference/schemas/graph.schema.json \
 
 ## Étape 4 – Adapter le frontend
 1. Normalisation : 
-   - `web/src/shared/graph-transform.js` → ajouter la coercition numérique (`normalizeEdge`) + validation.
+   - `web/src/shared/graph-transform.ts` → ajouter la coercition numérique (`normalizeEdge`) + validation.
    - `web/src/state/index.js` → prévoir la persistance dans l’état et l’historique.
 2. UI :
-   - `web/src/ui/forms.js` → ajouter un champ `pressure_kpa` dans le panneau de propriétés.
-   - `web/src/ui/logs.js` ou `render/render-edges.js` → visualiser (ex: variation d’épaisseur ou label).
+   - `web/src/ui/forms.ts` → ajouter un champ `pressure_kpa` dans le panneau de propriétés.
+   - `web/src/ui/logs.ts` ou `render/render-edges.js` → visualiser (ex: variation d’épaisseur ou label).
 3. Tenir compte de la validation (valeur ≥ 0, optional).
 
 ## Étape 5 – Exposer l’attribut via l’API
@@ -443,8 +443,8 @@ Consultez `docs/reference/error-catalog.md` pour les messages détaillés.
 
 ## 4. Frontend – détecter les anomalies
 - Activer le mode dev : reconstruire avec `npm run build:dev`, recharger l’iframe.
-- Vérifier la console : `sanitizeGraphPayload` (front) peut rejeter des champs non pris en charge (`web/src/shared/graph-transform.js`).
-- Utiliser `state.logs` (HUD) pour suivre les évènements (`web/src/ui/logs.js`).
+- Vérifier la console : `sanitizeGraphPayload` (front) peut rejeter des champs non pris en charge (`web/src/shared/graph-transform.ts`).
+- Utiliser `state.logs` (HUD) pour suivre les évènements (`web/src/ui/logs.ts`).
 
 ## 5. Logs & observabilité
 - Ajouter un `logging.getLogger` dans FastAPI et logger `correlation_id`/`site_id` (`docs/observability/logging-audit-map.md`).
@@ -520,13 +520,13 @@ Références : `tests/test_datasource_dispatch.py`, `tests/test_api_contract.py`
 # Guide pratique – Ajouter un composant UI
 
 ## 1. Identifier l’emplacement
-- Barre d’outils (`web/src/modes.js`, `web/src/ui/forms.js`).
-- Panneau latéral (`web/src/ui/forms.js`, `web/src/ui/mode-help.js`).
+- Barre d’outils (`web/src/modes.ts`, `web/src/ui/forms.ts`).
+- Panneau latéral (`web/src/ui/forms.ts`, `web/src/ui/mode-help.ts`).
 - Canvas (SVG) (`web/src/render/render-nodes.js`, `render-edges.js`, `render-inline.js`).
 
 ## 2. Créer le composant
 - Ajouter un module dans `web/src/ui/` ou `web/src/render/`.
-- Exporter une fonction (pattern modules ES) et gérer l’initialisation via `editor.boot.js`.
+- Exporter une fonction (pattern modules ES) et gérer l’initialisation via `editor.boot.ts`.
 
 ## 3. Brancher l’état
 - Utiliser le magasin `state` (`web/src/state/index.js`) :
@@ -545,7 +545,7 @@ Références : `tests/test_datasource_dispatch.py`, `tests/test_api_contract.py`
 - Les styles sont bundlés automatiquement (`build.mjs`: section `buildCSS`).
 
 ## 6. Internationalisation / libellés
-- Centraliser les libellés dans `web/src/ui/mode-help.js` ou un module `locale`.
+- Centraliser les libellés dans `web/src/ui/mode-help.ts` ou un module `locale`.
 - Prévoir la traduction FR/EN si nécessaire (⚠️ TODO si internationalisation demandée).
 
 ## 7. Tests & QA
@@ -2084,7 +2084,7 @@ Ce catalogue recense les DTO traversant les frontières (frontend ↔ backend �
 - `event_id` (Edge/Node ID concerné) pour les erreurs.
 
 ### Contrôles d’entrée / sortie
-- Frontend : `sanitizeGraphPayload` (`web/src/shared/graph-transform.js`).
+- Frontend : `sanitizeGraphPayload` (`web/src/shared/graph-transform.ts`).
 - Backend : `sanitize_graph` (`app/shared/graph_transform.py`).
 - Datasources : validations spécifiques (Sheets, GCS, BQ).
 
@@ -2199,15 +2199,15 @@ https://<host>/embed/editor?k=abcdef123456&sheet_id=1AbCdEf&mode=ro
 
 | Artefact doc | Sources code (fichier:ligne) | Tests associés | Commentaires |
 | --- | --- | --- | --- |
-| docs/README.md | app/main.py:13-39; app/routers/api.py:12-68; web/src/editor.boot.js:1-200; app/auth_embed.py:8-49 | tests/test_api_contract.py:12-110 | Vue d’ensemble produit |
+| docs/README.md | app/main.py:13-39; app/routers/api.py:12-68; web/src/editor.boot.ts:1-200; app/auth_embed.py:8-49 | tests/test_api_contract.py:12-110 | Vue d’ensemble produit |
 | docs/overview/architecture.md | app/datasources/__init__.py:21-77; app/services/graph_sanitizer.py:12-165; build.mjs:1-88; package.json:1-24 | tests/test_datasource_dispatch.py:12-63 | Architecture couches |
 | docs/overview/processes.md | app/routers/api.py:12-68; app/routers/branch.py:11-22; web/src/api.js:1-86 | tests/test_graph_sanitizer.py:20-168 | Parcours métier |
 | docs/tutorials/getting-started.md | README.md:1-160; requirements.txt:1-12; app/main.py:24-39; dev-embed.html | tests/test_api_contract.py:12-110 | Démarrage complet |
-| docs/tutorials/build-first-feature.md | app/models.py:58-149; app/services/graph_sanitizer.py:12-165; scripts/export_schema.py:1-189; web/src/shared/graph-transform.js:1-200 | tests/test_graph_sanitizer.py:20-168 | Extension champ exemple |
+| docs/tutorials/build-first-feature.md | app/models.py:58-149; app/services/graph_sanitizer.py:12-165; scripts/export_schema.py:1-189; web/src/shared/graph-transform.ts:1-200 | tests/test_graph_sanitizer.py:20-168 | Extension champ exemple |
 | docs/how-to/run-locally.md | README.md:32-120; app/main.py:24-39; web/src/api.js:1-86 | tests/test_datasource_dispatch.py:12-63 | Exécution locale |
 | docs/how-to/diagnose-failures.md | app/auth_embed.py:39-49; app/datasources/gcs_json.py:17-117; app/shared/graph_transform.py:1040-1299 | tests/test_api_contract.py:12-110; tests/test_graph_sanitizer.py:20-168 | Dépannage |
 | docs/how-to/add-endpoint.md | app/routers/api.py:12-68; app/main.py:24-39; app/models.py:37-151 | tests/test_api_contract.py:12-110 | Procédure ajout route |
-| docs/how-to/add-ui-component.md | web/src/editor.boot.js:1-200; web/src/state/index.js:1-200; web/src/render/render-nodes.js:1-160 | (⚠️ TODO tests frontend) | Ajout composant UI |
+| docs/how-to/add-ui-component.md | web/src/editor.boot.ts:1-200; web/src/state/index.js:1-200; web/src/render/render-nodes.js:1-160 | (⚠️ TODO tests frontend) | Ajout composant UI |
 | docs/how-to/rotate-secrets.md | app/auth_embed.py:39-49; app/config.py:38-75; app/gcp_auth.py:8-44 | tests/test_datasource_dispatch.py:12-63 (ADC mocks) | Rotation clé/ADC |
 | docs/how-to/upgrade-deps.md | requirements.txt:1-12; package.json:1-24; build.mjs:1-88 | tests/test_api_contract.py:12-110 | Upgrade dépendances |
 | docs/reference/api/openapi.yaml | app/routers/api.py:12-68; app/routers/branch.py:11-22; app/routers/embed.py:14-46 | tests/test_api_contract.py:12-110 | Spécification REST |
@@ -2224,11 +2224,11 @@ https://<host>/embed/editor?k=abcdef123456&sheet_id=1AbCdEf&mode=ro
 | docs/explanations/performance-scalability.md | app/shared/graph_transform.py:1012-1272; app/datasources/bigquery.py:37-146; build.mjs:1-88 | tests/test_graph_sanitizer.py:20-168 | Performance |
 | docs/explanations/limitations-future-work.md | app/datasources/bigquery.py:148-149; AGENTS.md; TASKS.md | (N/A) | Roadmap |
 | docs/diagrams/c4-context.md | app/main.py:24-39; app/datasources/__init__.py:21-77 | tests/test_api_contract.py:12-110 | Diagramme L1 |
-| docs/diagrams/c4-container.md | app/routers/*; app/services/graph_sanitizer.py:12-165; web/src/editor.boot.js:1-200 | tests/test_datasource_dispatch.py:12-63 | Diagramme L2 |
+| docs/diagrams/c4-container.md | app/routers/*; app/services/graph_sanitizer.py:12-165; web/src/editor.boot.ts:1-200 | tests/test_datasource_dispatch.py:12-63 | Diagramme L2 |
 | docs/diagrams/c4-component.md | app/routers/*; app/shared/graph_transform.py:942-1318; web/src/state/index.js:1-200 | tests/test_api_contract.py:12-110 | Diagramme L3 |
 | docs/diagrams/key-sequences.md | web/src/api.js:1-86; app/routers/api.py:12-68; app/routers/branch.py:11-22 | tests/test_api_contract.py:12-110 | Séquences |
 | docs/diagrams/processes-bpmn.md | docs/overview/processes.md; app/routers/api.py:12-68 | tests/test_datasource_dispatch.py:12-63 | Processus |
-| docs/data-contracts/data-catalog.md | app/models.py:37-151; app/routers/api.py:12-68; app/routers/branch.py:11-22; web/src/shared/graph-transform.js:1-200 | tests/test_api_contract.py:12-110 | DTO |
+| docs/data-contracts/data-catalog.md | app/models.py:37-151; app/routers/api.py:12-68; app/routers/branch.py:11-22; web/src/shared/graph-transform.ts:1-200 | tests/test_api_contract.py:12-110 | DTO |
 | docs/observability/logging-audit-map.md | app/routers/api.py:12-68; app/datasources/__init__.py:21-77; app/auth_embed.py:39-49 | (⚠️ TODO tests observabilité) | Logging |
 | docs/TRACEABILITY.md | (auto) | (auto) | Ce document |
 | docs/DRIFT.md | app/datasources/bigquery.py:148-149; docs/how-to/rotate-secrets.md | (N/A) | Divergences |

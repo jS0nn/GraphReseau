@@ -22,7 +22,7 @@ app/
     api.py       # GET/POST /api/graph
     embed.py     # GET /embed/editor
   templates/
-    index.html   # charge /static/bundle/app.css|js, vendor.js
+    index.html   # charge /static/bundle/app.css|js, vendor.ts
   static/
     bundle/      # généré par esbuild
     vendor/      # assets Inter + Unicons
@@ -30,7 +30,7 @@ web/
   index.html     # dev only
   styles/        # base.css, theme.css, app.css
   types/         # graph.d.ts (types TS générés depuis le schéma Pydantic)
-  src/           # vendor.js, shim.js, main.js, modules
+  src/           # vendor.ts, shim.js, main.ts, modules
     shared/      # helpers communs (géométrie, sanitation front)
 ```
 
@@ -127,10 +127,10 @@ Un corpus complet destiné aux développeurs et aux non-techniciens est disponib
   - Sert les assets locaux (sans CDN) depuis `/static`.
 - Frontend (build local, sans CDN):
   - Code source dans `web/`, bundlé par `esbuild` dans `app/static/bundle`.
-  - `vendor.js` expose D3/ELK sans CDN; polices et icônes copiées en local (`app/static/vendor`).
+  - `vendor.ts` expose D3/ELK sans CDN; polices et icônes copiées en local (`app/static/vendor`).
   - Entrées JS bundlées:
-    - `editor.js` (éditeur modulaire — UI principale).
-    - `main.js` (viewer minimal pour tests de bout‑en‑bout).
+    - `editor.ts` (éditeur modulaire — UI principale, bundlé en `editor.js`).
+    - `main.ts` (viewer minimal pour tests de bout‑en‑bout).
   - L’éditeur modulaire est complet (rendu SVG, interactions, formulaires, layout, exports) — aucun fallback legacy.
 
 ## L’embed, simplement

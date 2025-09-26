@@ -1,13 +1,13 @@
 # Guide pratique – Ajouter un composant UI
 
 ## 1. Identifier l’emplacement
-- Barre d’outils (`web/src/modes.js`, `web/src/ui/forms.js`).
-- Panneau latéral (`web/src/ui/forms.js`, `web/src/ui/mode-help.js`).
+- Barre d’outils (`web/src/modes.ts`, `web/src/ui/forms.ts`).
+- Panneau latéral (`web/src/ui/forms.ts`, `web/src/ui/mode-help.ts`).
 - Canvas (`web/src/render/render-nodes.js`, `render-edges.js`).
 
 ## 2. Créer le composant
 - Ajouter un module dans `web/src/ui/` ou `web/src/render/`.
-- Initialiser depuis `web/src/editor.boot.js`.
+- Initialiser depuis `web/src/editor.boot.ts`.
 
 ## 3. Brancher l’état
 ```javascript
@@ -25,7 +25,7 @@ import { state, subscribe } from '../state/index.js';
 - `build.mjs` bundlera automatiquement.
 
 ## 6. Libellés & i18n
-- Centraliser les textes (ex: `web/src/ui/mode-help.js`).
+- Centraliser les textes (ex: `web/src/ui/mode-help.ts`).
 - ⚠️ TODO : fournir une base d’i18n si déploiement multilingue.
 
 ## 7. Tests & QA

@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "lib": ["DOM", "ES2020"],
+    "moduleResolution": "Bundler",
+    "allowJs": false,
+    "allowImportingTsExtensions": true,
+    "jsx": "preserve",
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "strict": false,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "baseUrl": "./",
+    "paths": {
+      "@types/*": ["web/src/types/*"]
+    }
+  },
+  "include": ["web/src/**/*", "web/tests/**/*", "docs/graph.schema.json"],
+  "exclude": ["node_modules", "app/static"]
+}

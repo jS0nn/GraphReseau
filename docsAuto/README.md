@@ -4,7 +4,7 @@ Bienvenue dans la base de connaissances de l’Éditeur Réseau. Ce projet rempl
 
 ## Résumé produit
 - **[Backend Python]** expose l’API `/api/graph` (lecture/écriture), le recalcul de branches et la page `/embed/editor`, avec CSP stricte et middleware dédié (`app/main.py:13-39`, `app/routers/api.py:12-68`, `app/routers/branch.py:11-22`, `app/routers/embed.py:14-46`).
-- **[Frontend JS/TS]** fournit un éditeur autonome (bundles `app/static/bundle/*`) orchestré par `web/src/editor.boot.js` et son magasin d’état (`web/src/state/index.js`).
+- **[Frontend JS/TS]** fournit un éditeur autonome (bundles `app/static/bundle/*`) orchestré par `web/src/editor.boot.ts` et son magasin d’état (`web/src/state/index.js`).
 - **Sources de données** interchangeables via `app/datasources/` : Google Sheets (par défaut), fichier JSON local/GCS, BigQuery (lecture seule).
 - **Sécurité** : clé d’embed statique, contrôle du Referer (`app/auth_embed.py:8-49`), ADC/impersonation Google (`app/gcp_auth.py:8-44`), CSP calculée dynamiquement.
 

@@ -23,22 +23,22 @@ Cette feuille de route structure le chantier de nettoyage post‑migration (Apps
 ## Phase 2 — Frontend : état & interactions modularisés
 - [x] **Supprimer `window.__PIPES_AS_EDGES__`** et toutes les branches associées (`state.js`, `forms.js`, `render-*`).
 - [x] **Scinder `web/src/state.js`** en modules : `state/index.js` (store), `state/normalize.js`, `state/history.js`, `state/graph-rules.js`. Retirer fonctions `moveWellToCanal`, `child_canal_ids`, `connectByRules` devenues obsolètes.
-- [x] **Nettoyer les interactions**: supprimer `web/src/interactions/connect.js` et ajuster `editor.boot.js` pour ne plus l’importer; vérifier `draw.js`/`junction.js`.
+- [x] **Nettoyer les interactions**: supprimer `web/src/interactions/connect.js` et ajuster `editor.boot.ts` pour ne plus l’importer; vérifier `draw.ts`/`junction.ts`.
 - [x] **Couverture**: écrire tests unitaires front (vitest ou tiny runner) pour `normalizeGraph` et `sanitiseGraph`.
 - [x] **Correctifs post-audit**: corriger le menu contextuel du mode dessin (`showMiniMenu`) et éliminer les arêtes orphelines à la suppression de nœuds.
 
 ## Phase 3 — UI & exports alignés sur le nouvel état
-- [x] **Refondre `web/src/ui/forms.js`**: simplifier les panneaux Propriétés en se basant sur les arêtes (sélection, affectations). Supprimer sections canal-specific obsolètes.
+- [x] **Refondre `web/src/ui/forms.ts`**: simplifier les panneaux Propriétés en se basant sur les arêtes (sélection, affectations). Supprimer sections canal-specific obsolètes.
 - [x] **Adapter `render-nodes.js` et `render-edges.js`**: déplacer les styles pipelines vers les arêtes (largeur, couleur) et retirer les attributs nœuds inutiles.
-- [x] **Mettre à jour `exports.js`** pour produire JSON cohérent avec le modèle d’arête enrichie (devices, ordres). Documenter le format dans `docs/`.
+- [x] **Mettre à jour `exports.ts`** pour produire JSON cohérent avec le modèle d’arête enrichie (devices, ordres). Documenter le format dans `docs/`.
 - [ ] **Revues visuelles**: scénario QA (chargement, édition, sauvegarde) sur dataset réel.
 
 ## Phase 4 — Schéma partagé & génération de types
 - [x] **Exposer le schéma Pydantic** (`Graph.model_json_schema()`) via script `scripts/export_schema.py`.
 - [x] **Générer les types TypeScript** (ex. `pydantic2ts` ou `datamodel-code-generator`) ➜ `web/src/types/graph.d.ts` et remplacer les `any` dans les modules front.
-- [x] **Centraliser la sanitation**: créer un package `shared/graph_transform.py` + `web/src/shared/graph-transform.js` dérivé du schéma pour éviter la duplication.
+- [x] **Centraliser la sanitation**: créer un package `shared/graph_transform.py` + `web/src/shared/graph-transform.ts` dérivé du schéma pour éviter la duplication.
 - [x] **Tests de compatibilité**: valider qu’un JSON produit côté front est accepté par l’API (contract tests).
-- [x] **Mutualiser les helpers géométriques** (`draw.js`, `junction.js`, `edit-geometry.js`) pour garantir un seul jeu de tolérances/splitting.
+- [x] **Mutualiser les helpers géométriques** (`draw.js`, `junction.js`, `edit-geometry.ts`) pour garantir un seul jeu de tolérances/splitting.
 
 ## Phase 5 — Nettoyage final & documentation
 - [x] **Supprimer dossiers/artefacts legacy**: vérifier `frontend/`, scripts non utilisés, anciennes pages.

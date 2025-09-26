@@ -11,7 +11,7 @@
 - **R3 — Branches explicites :** exposer à la racine du JSON un tableau `branches[]` (`id`, `name`, `parent_id`, `is_trunk`) issu d’une feuille dédiée dans Google Sheets. Les données existantes doivent initialiser `name = id` tant que l’utilisateur ne les renomme pas.
 - **R4 — SDR côté canalisations uniquement :** retirer toute occurrence de `sdr`/`sdr_ouvrage` sur les nœuds (lecture, écriture, UI). Les arêtes conservent le champ `sdr`.
 - **R5 — Coordonnées sans doublon :** ne sérialiser que `gps_lat` / `gps_lon`. Accepter `lat` / `lon` en entrée pour rétro-compatibilité mais ne plus les émettre dans les réponses JSON.
-- **R6 — Google Sheets :** ajuster le schéma pour gérer les feuilles `NODES`, `EDGES`, `BRANCHES`, `CONFIG`, avec `geometry_json` (LineString WGS84) et `length_m` calculés côté application. Les anciennes colonnes restantes doivent être ignorées sans casser la lecture.
+- **R6 — Google Sheets :** ajuster le schéma pour gérer les feuilles `NODES`, `EDGES`, `BRANCHES`, `CONFIG`, avec `geometry.tson` (LineString WGS84) et `length_m` calculés côté application. Les anciennes colonnes restantes doivent être ignorées sans casser la lecture.
 - **R7 — UI & branches :** afficher les noms des branches (`name`) partout où l’UI affiche aujourd’hui les `branch_id`. Permettre l’édition du nom qui persiste dans la feuille `BRANCHES`.
 
 ## 3. Orientations de mise en œuvre
@@ -22,7 +22,7 @@
 
 ### Google Sheets
 - Lire/écrire les feuilles supplémentaires :
-  - `EDGES` : `id, from_id, to_id, branch_id, geometry_json, diameter_mm, material, sdr, length_m, ...`
+  - `EDGES` : `id, from_id, to_id, branch_id, geometry.tson, diameter_mm, material, sdr, length_m, ...`
   - `NODES` : `id, name, type, branch_id, gps_lat, gps_lon, ...` (sans colonne `sdr`).
   - `BRANCHES` : `id, name, parent_id, is_trunk`.
   - `CONFIG` : `crs_code`, `projected_for_lengths` (valeurs par défaut `EPSG:4326` / `EPSG:2154`).
@@ -39,7 +39,7 @@
 |------|-------------|--------|-------|
 | DOC | Création du cahier des charges révisé (`taskModeleReseau.md`). | ✅ Terminé | Point de référence pour l’équipe. |
 | BE-1 | Mise à jour des modèles / sanitisation (`crs`, `branches`, retrait `sdr` nœuds, GPS only). | ✅ Terminé | |
-| BE-2 | Lecture/écriture Sheets avec `BRANCHES`, `CONFIG`, `geometry_json`, `length_m`. | ✅ Terminé | Compat rétro NODES/EDGES à vérifier. |
+| BE-2 | Lecture/écriture Sheets avec `BRANCHES`, `CONFIG`, `geometry.tson`, `length_m`. | ✅ Terminé | Compat rétro NODES/EDGES à vérifier. |
 | BE-3 | Persistable payload & API : conserver longueurs pré-calculées, propager `crs`/`branches`. | ✅ Terminé | |
 | FE-1 | Extensions `state`/types + ingestion `crs`/`branches`. | ✅ Terminé | |
 | FE-2 | UI branches : affichage `name`, édition persistée, retrait `sdr` nœuds. | ✅ Terminé | |

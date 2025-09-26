@@ -7,8 +7,8 @@
 - Ajout de tests de contrat FastAPI (`tests/test_api_contract.py`) pour valider GET/POST `/api/graph`.
 
 ### Frontend
-- Mutualisation des helpers géométriques (`web/src/shared/geometry.js`) utilisés par toutes les interactions.
-- Sanitation/normalisation front rassemblée dans `web/src/shared/graph-transform.js` et consommée par `api.js` / `state/normalize.js`.
+- Mutualisation des helpers géométriques (`web/src/shared/geometry.ts`) utilisés par toutes les interactions.
+- Sanitation/normalisation front rassemblée dans `web/src/shared/graph-transform.ts` et consommée par `api.js` / `state/normalize.js`.
 - Types TypeScript générés automatiquement dans `web/src/types/graph.d.ts` (commande `npm run types:generate`).
 
 ### Documentation / Outillage

@@ -53,12 +53,12 @@ async function buildJS(){
   logDev('Compilation JS (esbuild) en cours...')
   await build({
     entryPoints: [
-      path.join(webDir, 'src', 'vendor.js'),
-      path.join(webDir, 'src', 'polyfills.js'),
-      path.join(webDir, 'src', 'main.js'),
-      path.join(webDir, 'src', 'editor.js'),
+      path.join(webDir, 'src', 'vendor.ts'),
+      path.join(webDir, 'src', 'polyfills.ts'),
+      path.join(webDir, 'src', 'main.ts'),
+      path.join(webDir, 'src', 'editor.ts'),
       // Ensure dynamic imports exist as standalone bundles for runtime
-      path.join(webDir, 'src', 'editor.boot.js'),
+      path.join(webDir, 'src', 'editor.boot.ts'),
     ],
     bundle: true,
     splitting: false,
@@ -70,6 +70,7 @@ async function buildJS(){
     entryNames: '[name]',
     loader: { '.ttf': 'file', '.woff': 'file', '.woff2': 'file' },
     define: { __DEV__: String(DEV) },
+    tsconfig: path.join(root, 'tsconfig.json'),
     logLevel: 'info',
     logLimit: undefined,
     color: true,

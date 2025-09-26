@@ -158,21 +158,21 @@ app/routers/api.py
 
 
 ## 7) Frontend — impacts et tâches
-web/src/vendor.js
+web/src/vendor.ts
 - Ajouter Leaflet (ou MapLibre) et éventuellement `rbush`.
 
-web/src/geo.js
+web/src/geo.ts
 - Ajouter utilitaires: haversine, encode/decode geometry (string ⇄ coords), helpers Leaflet project/unproject.
 
 web/src/state.js
 - Étendre le state: `mode`, `snapTolerancePx`, `drawInProgress`, `currentPolyline`, `selectedEdgeId`, `selectedNodeId`.
 
-web/src/modes.js
+web/src/modes.ts
 - Définir les modes: SELECT, DRAW, EDIT, JUNCTION. Raccourcis: V/D/E/J, Échap, Entrée, Shift.
 
 web/src/interactions/*
 - Nouveau `draw.js`: gestion clics, sommets, terminer/annuler, snapping.
-- Nouveau `edit-geometry.js`: Alt+Drag, insert/remove vertex, Suppr.
+- Nouveau `edit-geometry.ts`: Alt+Drag, insert/remove vertex, Suppr.
 - Nouveau `junction.js`: pick segment, project, split edge, créer nœud.
 - Réutiliser `history.js` pour undo/redo.
 
@@ -251,12 +251,12 @@ Backend
 - app/auth_embed.py
 
 Frontend
-- web/src/vendor.js
-- web/src/geo.js
+- web/src/vendor.ts
+- web/src/geo.ts
 - web/src/state.js
-- web/src/modes.js
+- web/src/modes.ts
 - web/src/interactions/draw.js (nouveau)
-- web/src/interactions/edit-geometry.js (nouveau)
+- web/src/interactions/edit-geometry.ts (nouveau)
 - web/src/interactions/junction.js (nouveau)
 - web/src/render/render-edges.js
 - web/src/ui/toolbar.js

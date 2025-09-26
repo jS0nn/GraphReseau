@@ -19,7 +19,7 @@
 ## 4. Frontend
 - `npm run build:dev`, recharger l’iframe et surveiller la console.
 - `sanitizeGraphPayload` peut rejeter des champs non pris en charge.
-- Utiliser le HUD (`web/src/ui/logs.js`).
+- Utiliser le HUD (`web/src/ui/logs.ts`).
 
 ## 5. Logs & observabilité
 - Logger `correlation_id`, `site_id`, `source` (`../observability/logging-audit-map.md`).
