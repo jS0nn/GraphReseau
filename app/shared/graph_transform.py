@@ -1079,13 +1079,6 @@ def sanitize_graph(graph: Graph | None, *, strict: bool = False) -> Graph:
 
         # Canonical branch id (accept legacy)
         branch_candidate = getattr(edge, "branch_id", None)
-        if not branch_candidate:
-            legacy_branch = None
-            if isinstance(edge, dict):
-                legacy_branch = edge.get("pipe_group_id") or edge.get("PipeGroupId")
-            elif hasattr(edge, "pipe_group_id"):
-                legacy_branch = getattr(edge, "pipe_group_id", None)
-            branch_candidate = legacy_branch
         branch_id = str(branch_candidate).strip() if branch_candidate else ""
         if not branch_id:
             raise HTTPException(status_code=422, detail=f"edge missing branch_id: {eid}")

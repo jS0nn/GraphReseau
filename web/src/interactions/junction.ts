@@ -103,15 +103,6 @@ function findNearestEdgeHitForJunction(ux: number, uy: number): JunctionHit | nu
 
 function insertJunctionAt(edge: MutableEdge, hit: NonNullable<PolylineHit>, ev: MouseEvent): boolean {
   const centerLL = unprojectUIToLatLon(hit.px, hit.py)
-  const node = addNode({
-    type: 'JONCTION',
-    gps_lat: centerLL.lat,
-    gps_lon: centerLL.lon,
-    gps_locked: true,
-    name: '',
-    x: hit.px,
-    y: hit.py,
-  }) as MutableNode
   const geom = ensureEdgeGeometry(edge, asNodes())
   if(!geom) return false
   const parts = splitGeometryAt(geom, hit)
@@ -128,8 +119,17 @@ function insertJunctionAt(edge: MutableEdge, hit: NonNullable<PolylineHit>, ev: 
     }
     return ''
   })()
-  let newEdgeAId: string | null = null
-  let newEdgeBId: string | null = null
+  const upstreamOffset = roundMeters(geometryLengthMeters(parts.g1))
+  const { clientX: x, clientY: y } = ev
+
+  type CreationResult = {
+    nodeId: string
+    newEdgeAId: string | null
+    newEdgeBId: string | null
+    branchId: string | null
+  }
+
+  let created: CreationResult | null = null
 
   const buildEdgeOpts = (): EdgePatch => {
     const opts: EdgePatch = { active: keepActive, commentaire }
@@ -151,37 +151,52 @@ function insertJunctionAt(edge: MutableEdge, hit: NonNullable<PolylineHit>, ev: 
     return opts
   }
 
-  suspendOrphanPrune(() => {
-    if(edge.id) removeEdge(edge.id)
-    const optsA = buildEdgeOpts()
-    const newEdgeA = addEdge(fromId, node.id, optsA)
-    if(newEdgeA?.id){
-      newEdgeAId = newEdgeA.id
-      updateEdge(newEdgeA.id, { geometry: parts.g1 })
-    }
-    const optsB = buildEdgeOpts()
-    const newEdgeB = addEdge(node.id, toId, optsB)
-    if(newEdgeB?.id){
-      newEdgeBId = newEdgeB.id
-      updateEdge(newEdgeB.id, { geometry: parts.g2 })
-    }
-  })
+  const ensureCreated = (): CreationResult | null => {
+    if(created) return created
+    const node = addNode({
+      type: 'JONCTION',
+      gps_lat: centerLL.lat,
+      gps_lon: centerLL.lon,
+      gps_locked: true,
+      name: '',
+      x: hit.px,
+      y: hit.py,
+    }) as MutableNode | null
+    if(!node) return null
+    let newEdgeAId: string | null = null
+    let newEdgeBId: string | null = null
 
-  if(branchId) updateNode(node.id, { branch_id: branchId })
-  devlog('junction:split', edge.id, '->', newEdgeAId, newEdgeBId, 'new node', node.id)
+    suspendOrphanPrune(() => {
+      if(edge.id) removeEdge(edge.id)
+      const optsA = buildEdgeOpts()
+      const newEdgeA = addEdge(fromId, node.id, optsA)
+      if(newEdgeA?.id){
+        newEdgeAId = newEdgeA.id
+        updateEdge(newEdgeA.id, { geometry: parts.g1 })
+      }
+      const optsB = buildEdgeOpts()
+      const newEdgeB = addEdge(node.id, toId, optsB)
+      if(newEdgeB?.id){
+        newEdgeBId = newEdgeB.id
+        updateEdge(newEdgeB.id, { geometry: parts.g2 })
+      }
+    })
 
-  const upstreamEdgeId = newEdgeAId
-  const upstreamOffset = roundMeters(geometryLengthMeters(parts.g1))
-  const { clientX: x, clientY: y } = ev
+    if(branchId) updateNode(node.id, { branch_id: branchId })
+    devlog('junction:split', edge.id, '->', newEdgeAId, newEdgeBId, 'new node', node.id)
 
-  const inheritBranchAttrs = (targetId: string | null): void => {
-    if(!targetId) return
+    created = { nodeId: node.id, newEdgeAId, newEdgeBId, branchId: branchId || null }
+    return created
+  }
+
+  const inheritBranchAttrs = (creation: CreationResult | null, targetId: string | null): void => {
+    if(!creation || !targetId) return
     try{
       const n = asNodes().find((nn) => nn.id === targetId)
       if(!n) return
-      const edgeA = newEdgeAId ? asEdges().find((xx) => xx.id === newEdgeAId) : null
-      const edgeB = newEdgeBId ? asEdges().find((xx) => xx.id === newEdgeBId) : null
-      const nextBranchId = branchId || edgeA?.branch_id || edgeB?.branch_id || edgeA?.id || edgeB?.id || edge.id
+      const edgeA = creation.newEdgeAId ? asEdges().find((xx) => xx.id === creation.newEdgeAId) : null
+      const edgeB = creation.newEdgeBId ? asEdges().find((xx) => xx.id === creation.newEdgeBId) : null
+      const nextBranchId = creation.branchId || edgeA?.branch_id || edgeB?.branch_id || edgeA?.id || edgeB?.id || edge.id
       n.branch_id = nextBranchId ?? null
       const fromNode = asNodes().find((nn) => nn.id === fromId)
       const toNode = asNodes().find((nn) => nn.id === toId)
@@ -205,8 +220,8 @@ function insertJunctionAt(edge: MutableEdge, hit: NonNullable<PolylineHit>, ev: 
     }catch{}
   }
 
-  const attachInlineToEdge = (inlineId: string | null, options: { anchorEdgeId?: string | null; offsetMeters?: number | null } = {}): void => {
-    if(!inlineId) return
+  const attachInlineToEdge = (creation: CreationResult | null, inlineId: string | null, options: { anchorEdgeId?: string | null; offsetMeters?: number | null } = {}): void => {
+    if(!creation || !inlineId) return
     try{
       const nodeRef = asNodes().find((nn) => nn.id === inlineId)
       if(!nodeRef) return
@@ -214,8 +229,8 @@ function insertJunctionAt(edge: MutableEdge, hit: NonNullable<PolylineHit>, ev: 
       const toNode = asNodes().find((nn) => nn.id === toId)
       const preferredId = options.anchorEdgeId || null
       const preferred = preferredId ? asEdges().find((e) => e.id === preferredId) : null
-      const edgeA = newEdgeAId ? asEdges().find((e) => e.id === newEdgeAId) : null
-      const edgeB = newEdgeBId ? asEdges().find((e) => e.id === newEdgeBId) : null
+      const edgeA = creation.newEdgeAId ? asEdges().find((e) => e.id === creation.newEdgeAId) : null
+      const edgeB = creation.newEdgeBId ? asEdges().find((e) => e.id === creation.newEdgeBId) : null
       const resolvedEdge = preferred
         || (edgeA && (edgeA.to_id ?? edgeA.target) === inlineId ? edgeA : null)
         || (edgeB && (edgeB.to_id ?? edgeB.target) === inlineId ? edgeB : null)
@@ -263,18 +278,25 @@ function insertJunctionAt(edge: MutableEdge, hit: NonNullable<PolylineHit>, ev: 
     {
       label: 'Jonction',
       onClick: () => {
-        updateNode(node.id, { type: 'JONCTION' })
+        const creation = ensureCreated()
+        if(!creation) return
+        updateNode(creation.nodeId, { type: 'JONCTION' })
         try{ setMode('select') }catch{}
       },
     },
     {
       label: 'Point de mesure',
       onClick: () => {
+        const creation = ensureCreated()
+        if(!creation) return
+        let nodeId = creation.nodeId
         const nid = genId('POINT_MESURE')
-        renameNodeId(node.id, nid)
+        renameNodeId(nodeId, nid)
+        nodeId = nid
+        creation.nodeId = nid
         updateNode(nid, { type: 'POINT_MESURE', gps_lat: centerLL.lat, gps_lon: centerLL.lon, gps_locked: true })
-        inheritBranchAttrs(nid)
-        attachInlineToEdge(nid, { anchorEdgeId: upstreamEdgeId, offsetMeters: upstreamOffset })
+        inheritBranchAttrs(creation, nid)
+        attachInlineToEdge(creation, nid, { anchorEdgeId: creation.newEdgeAId, offsetMeters: upstreamOffset })
         try{
           setMode('select')
           selectNodeById(nid)
@@ -284,11 +306,16 @@ function insertJunctionAt(edge: MutableEdge, hit: NonNullable<PolylineHit>, ev: 
     {
       label: 'Vanne',
       onClick: () => {
+        const creation = ensureCreated()
+        if(!creation) return
+        let nodeId = creation.nodeId
         const nid = genId('VANNE')
-        renameNodeId(node.id, nid)
+        renameNodeId(nodeId, nid)
+        nodeId = nid
+        creation.nodeId = nid
         updateNode(nid, { type: 'VANNE', gps_lat: centerLL.lat, gps_lon: centerLL.lon, gps_locked: true })
-        inheritBranchAttrs(nid)
-        attachInlineToEdge(nid, { anchorEdgeId: upstreamEdgeId, offsetMeters: upstreamOffset })
+        inheritBranchAttrs(creation, nid)
+        attachInlineToEdge(creation, nid, { anchorEdgeId: creation.newEdgeAId, offsetMeters: upstreamOffset })
         try{
           setMode('select')
           selectNodeById(nid)
@@ -298,8 +325,10 @@ function insertJunctionAt(edge: MutableEdge, hit: NonNullable<PolylineHit>, ev: 
     {
       label: 'Démarrer une antenne',
       onClick: () => {
+        const creation = ensureCreated()
+        if(!creation) return
         try{ setMode('draw') }catch{}
-        startDrawingFromNodeId(node.id)
+        startDrawingFromNodeId(creation.nodeId)
       },
     },
   ])

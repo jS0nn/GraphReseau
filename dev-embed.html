@@ -58,13 +58,6 @@
                 <option value="bigquery">bigquery</option>
               </select>
             </div>
-            <div class="col">
-              <label for="pipesMode">Pipes = arêtes</label>
-              <select id="pipesMode">
-                <option value="off">off</option>
-                <option value="edges">edges</option>
-              </select>
-            </div>
             <div class="col" style="text-align:right">
               <button type="submit">Ouvrir l’embed</button>
             </div>
@@ -109,7 +102,6 @@
         base: document.getElementById('base'), key: document.getElementById('key'), sheet: document.getElementById('sheet'),
         site: document.getElementById('site'), mode: document.getElementById('mode'), source: document.getElementById('source'), gcs: document.getElementById('gcs'),
         bqp: document.getElementById('bqp'), bqd: document.getElementById('bqd'), bqn: document.getElementById('bqn'), bqe: document.getElementById('bqe'),
-        pipes: document.getElementById('pipesMode'),
       }
       function loadSaved(){
         const saved = JSON.parse(localStorage.getItem('devEmbedCfg') || '{}')
@@ -124,11 +116,12 @@
         els.bqd.value   = qs.get('bq_dataset') || saved.bqd || ''
         els.bqn.value   = qs.get('bq_nodes')   || saved.bqn || 'Nodes'
         els.bqe.value   = qs.get('bq_edges')   || saved.bqe || 'Edges'
-        els.pipes.value = (qs.get('pipes') || saved.pipes || 'off')
+        const pipeMode = qs.get('pipes') || saved.pipes
+        if(pipeMode && pipeMode !== 'off'){ console.warn('Embed: "pipes" parameter is deprecated; ignoring') }
       }
       function save(){
         const cfg = { base:els.base.value, key:els.key.value, sheet:els.sheet.value, site:els.site.value, mode:els.mode.value, source:els.source.value,
-          gcs:els.gcs.value, bqp:els.bqp.value, bqd:els.bqd.value, bqn:els.bqn.value, bqe:els.bqe.value, pipes:els.pipes.value }
+          gcs:els.gcs.value, bqp:els.bqp.value, bqd:els.bqd.value, bqn:els.bqn.value, bqe:els.bqe.value }
         localStorage.setItem('devEmbedCfg', JSON.stringify(cfg))
       }
       function openEmbed(ev){
@@ -140,8 +133,7 @@
         if (els.site.value) p.set('site_id', els.site.value)
         if (els.mode.value) p.set('mode', els.mode.value)
         if (els.source.value) p.set('source', els.source.value)
-        // Feature switches
-        if (els.pipes.value === 'edges') p.set('pipes', 'edges')
+        // No legacy feature switches retained
         // Only attach params relevant to the chosen source
         if (els.source.value === 'gcs_json') {
           if (els.gcs.value) p.set('gcs_uri', els.gcs.value)

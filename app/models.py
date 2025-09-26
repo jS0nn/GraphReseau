@@ -152,10 +152,6 @@ class Edge(BaseModel):
                 return data
             b = data.get("branch_id") or data.get("branchId")
             if not b:
-                legacy = data.get("pipe_group_id") or data.get("PipeGroupId")
-                if legacy:
-                    b = legacy
-            if not b:
                 raise ValueError("branch_id required")
             data["branch_id"] = str(b).strip()
             # diameter: normaliser vide -> 0
