@@ -116,8 +116,9 @@
         els.bqd.value   = qs.get('bq_dataset') || saved.bqd || ''
         els.bqn.value   = qs.get('bq_nodes')   || saved.bqn || 'Nodes'
         els.bqe.value   = qs.get('bq_edges')   || saved.bqe || 'Edges'
-        const pipeMode = qs.get('pipes') || saved.pipes
-        if(pipeMode && pipeMode !== 'off'){ console.warn('Embed: "pipes" parameter is deprecated; ignoring') }
+        if(qs.has('pipes')){
+          console.warn('Embed: "pipes" parameter is deprecated and ignored')
+        }
       }
       function save(){
         const cfg = { base:els.base.value, key:els.key.value, sheet:els.sheet.value, site:els.site.value, mode:els.mode.value, source:els.source.value,

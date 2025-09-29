@@ -87,3 +87,22 @@ Vérifications
 Régressions à éviter
 - Les nœuds sans GPS restent déplaçables; la coche est désactivée.
 - Les interactions existantes (sélection, menu, suppression) ne sont pas perturbées.
+
+## Visualisation — Lot 0 (données)
+
+Préparation
+- Disposer d’un accès lecture aux sources : Sheets éditeur (ID), BigQuery (dataset mesures, métadonnées), exports terrain si disponibles.
+- Configurer ADC (`gcloud auth application-default login --impersonate-service-account=...` si nécessaire).
+
+Vérifications
+- `python scripts/lot0/fetch_sheets_inventory.py --sheet-id $SHEET_ID_DEFAULT` retourne la liste des onglets et en-têtes attendus.
+- `python scripts/lot0/analyze_sheet_links.py --survey-sheet-id 1Nf5zPrzV6nlYrWI8tqFCmBG3RX8w8rReQxZH8_sncyE --primary-tab "R&T BIOGAZ || 965523" --secondary-tab "releve_biogaz" --network-sheet-id 10y5y_3H-3qKzQmY8lx9wevIXXbkWfIU-Qx2uyaaw6Bg` synthétise la jointure (matchs / manquants).
+- `python scripts/lot0/sample_bigquery.py --project $GCP_PROJECT_ID --dataset <dataset> --table <table>` extrait un échantillon sans erreur et respecte le `--limit`.
+- Les fichiers générés dans `data/samples/` sont consignés et utilisés pour renseigner `docs/data_model_visualisation.md`.
+- Les règles qualité (plages valeurs, somme gaz, discontinuités) sont vérifiées via les scripts Lot 0 ou un notebook associé; les anomalies sont reportées dans `docs/data_quality_report.md`.
+- `python scripts/lot0/validate_timeseries.py --input data/samples/mesures.json` génère un rapport JSON des violations (paramétrable via les options de champ).
+
+Sorties attendues
+- `docs/data_model_visualisation.md` complété avec le mapping sources → champs.
+- `docs/data_quality_report.md` renseigné pour la revue.
+- Décisions/API `/v1/...` confirmées avant d’entamer le Lot A.

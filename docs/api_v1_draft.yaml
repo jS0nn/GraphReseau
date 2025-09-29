@@ -1,0 +1,492 @@
+openapi: 3.1.0
+info:
+  title: Visualisation & Interprétation API (draft)
+  version: v1
+  description: >-
+    Lecture des données pour le module Visualisation & Interprétation.
+    Draft initial basé sur `docs/cdc_visualisation_v1_7.md`.
+servers:
+  - url: https://example.com
+    description: Placeholder
+security:
+  - EmbedKey: []
+components:
+  securitySchemes:
+    EmbedKey:
+      type: apiKey
+      in: header
+      name: X-Embed-Key
+  schemas:
+    Site:
+      type: object
+      required: [siteId, name, location]
+      properties:
+        siteId:
+          type: string
+        name:
+          type: string
+        location:
+          type: object
+          required: [lat, lon]
+          properties:
+            lat:
+              type: number
+              format: double
+            lon:
+              type: number
+              format: double
+        status:
+          type: string
+          enum: [ok, alert, maintenance, unknown]
+        kpis:
+          type: object
+          additionalProperties:
+            type: number
+            format: double
+    MapPoint:
+      type: object
+      required: [pointId, siteId, type, position]
+      properties:
+        pointId:
+          type: string
+        siteId:
+          type: string
+        branchId:
+          type: string
+          nullable: true
+        type:
+          type: string
+          enum: [well, valve, junction, drain, collector, sensor]
+        position:
+          type: object
+          required: [lat, lon]
+          properties:
+            lat:
+              type: number
+              format: double
+            lon:
+              type: number
+              format: double
+        glyph:
+          type: object
+          properties:
+            color:
+              type: string
+              description: Token couleur (palette design system)
+            size:
+              type: number
+              format: double
+            status:
+              type: string
+        metrics:
+          type: object
+          properties:
+            methane_pct:
+              type: number
+            oxygen_pct:
+              type: number
+            depression_mbar:
+              type: number
+            flow_velocity_ms:
+              type: number
+    SeriesResponse:
+      type: object
+      required: [series, axes, meta]
+      properties:
+        series:
+          type: array
+          items:
+            $ref: '#/components/schemas/Timeseries'
+        axes:
+          type: array
+          items:
+            $ref: '#/components/schemas/AxisDescriptor'
+        meta:
+          type: object
+          properties:
+            siteId:
+              type: string
+            pointId:
+              type: string
+            tz:
+              type: string
+            unitPreference:
+              type: string
+              enum: [mbar, Pa]
+            period:
+              type: object
+              properties:
+                from:
+                  type: string
+                  format: date-time
+                to:
+                  type: string
+                  format: date-time
+    Timeseries:
+      type: object
+      required: [metric, axis, unit, points]
+      properties:
+        metric:
+          type: string
+        displayName:
+          type: string
+        unit:
+          type: string
+          description: Unité SI
+        unitDisplayDefault:
+          type: string
+          description: Unité préférée (mbar, %…)
+        axis:
+          type: string
+          description: Axis id suggestion (G1, G2, D1…)
+        points:
+          type: array
+          items:
+            $ref: '#/components/schemas/SeriesPoint'
+    SeriesPoint:
+      type: object
+      required: [ts, value]
+      properties:
+        ts:
+          type: string
+          format: date-time
+        value:
+          type: number
+          nullable: true
+        quality:
+          type: string
+          nullable: true
+    AxisDescriptor:
+      type: object
+      required: [axisId, label, unit]
+      properties:
+        axisId:
+          type: string
+        label:
+          type: string
+        unit:
+          type: string
+        range:
+          type: array
+          items:
+            type: number
+            format: double
+          minItems: 2
+          maxItems: 2
+        side:
+          type: string
+          enum: [left, right]
+    AggregateResponse:
+      type: object
+      required: [metric, buckets]
+      properties:
+        metric:
+          type: string
+        agg:
+          type: string
+          enum: [min, max, avg, p50, p95]
+        buckets:
+          type: array
+          items:
+            $ref: '#/components/schemas/AggregateBucket'
+    AggregateBucket:
+      type: object
+      required: [ts, value]
+      properties:
+        ts:
+          type: string
+          format: date-time
+        value:
+          type: number
+          nullable: true
+    Event:
+      type: object
+      required: [eventId, type, ts]
+      properties:
+        eventId:
+          type: string
+        type:
+          type: string
+          enum: [opening, closing, maintenance, alert, note]
+        ts:
+          type: string
+          format: date-time
+        pointId:
+          type: string
+        branchId:
+          type: string
+          nullable: true
+        metadata:
+          type: object
+          additionalProperties: true
+paths:
+  /v1/sites:
+    get:
+      summary: Liste des sites et indicateurs principaux
+      parameters:
+        - in: query
+          name: projectId
+          schema:
+            type: string
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        '200':
+          description: OK
+          headers:
+            X-Trace-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sites:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Site'
+  /v1/map/points:
+    get:
+      summary: Points cartographiques pour un site ou une zone
+      parameters:
+        - in: query
+          name: siteId
+          schema:
+            type: string
+        - in: query
+          name: bbox
+          description: 'Bounding box: west,south,east,north'
+          schema:
+            type: string
+        - in: query
+          name: metrics
+          description: Liste des métriques à inclure
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: false
+      responses:
+        '200':
+          description: OK
+          headers:
+            X-Trace-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  points:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MapPoint'
+  /v1/series:
+    get:
+      summary: Séries temporelles multi-métriques
+      parameters:
+        - in: query
+          name: siteId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: pointId
+          schema:
+            type: string
+        - in: query
+          name: branchId
+          schema:
+            type: string
+        - in: query
+          name: from
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: to
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: metrics
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: false
+        - in: query
+          name: agg
+          schema:
+            type: string
+            enum: [raw, 1m, 15m, 1h, 1d]
+        - in: query
+          name: unitPref
+          schema:
+            type: string
+            enum: [mbar, Pa]
+      responses:
+        '200':
+          description: OK
+          headers:
+            X-Trace-Id:
+              schema:
+                type: string
+            ETag:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeriesResponse'
+  /v1/aggregates:
+    get:
+      summary: Agrégats temporels par métrique
+      parameters:
+        - in: query
+          name: siteId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: metric
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: agg
+          required: true
+          schema:
+            type: string
+            enum: [min, max, avg, p50, p95, delta]
+        - in: query
+          name: from
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: to
+          required: true
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: OK
+          headers:
+            X-Trace-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateResponse'
+  /v1/events:
+    get:
+      summary: Événements de réglage et maintenance
+      parameters:
+        - in: query
+          name: siteId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: from
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: to
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: eventType
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          headers:
+            X-Trace-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  events:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Event'
+  /v1/export:
+    post:
+      summary: Prépare un export CSV/PNG de la vue courante
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                siteId:
+                  type: string
+                pointId:
+                  type: string
+                branchId:
+                  type: string
+                series:
+                  type: array
+                  items:
+                    type: string
+                period:
+                  type: object
+                  properties:
+                    from:
+                      type: string
+                      format: date-time
+                    to:
+                      type: string
+                      format: date-time
+      responses:
+        '202':
+          description: Export accepté
+          headers:
+            X-Trace-Id:
+              schema:
+                type: string
+            Retry-After:
+              schema:
+                type: integer
+              description: Délai recommandé (s)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exportId:
+                    type: string
+                  statusUrl:
+                    type: string
+        '200':
+          description: Export prêt (cas synchro)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+                    format: uri
