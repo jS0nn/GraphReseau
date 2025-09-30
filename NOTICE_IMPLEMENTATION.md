@@ -14,11 +14,11 @@ Deux chemins sont possibles. En environnement d’entreprise, l’impersonation 
 
 ### 2.A — RECOMMANDÉ: Impersonation d’un Service Account (sans clé JSON)
 1. Choisir le projet et définir des variables:
-   - `export PROJECT_ID=<GCP_PROJECT_ID>`
+   - `export PROJECT_ID="fr-tpd-sarpi-datagrs-dev"`
    - `gcloud config set project "$PROJECT_ID"`
    - `export SA_NAME=editeur-reseau-sa`
    - `export SA_EMAIL="$SA_NAME@${PROJECT_ID}.iam.gserviceaccount.com"`
-   - `export USER_EMAIL=<votre_email@domaine.com>`
+   - `export USER_EMAIL="jsonnier@sarpindustries.fr"`
 2. Créer (ou réutiliser) le Service Account:
    - `gcloud iam service-accounts create "$SA_NAME" --display-name="Éditeur Réseau SA" --project="$PROJECT_ID"`
 3. Donner le droit d’impersonation à votre utilisateur:
@@ -55,6 +55,11 @@ APIs à activer côté GCP (si besoin):
     - `id, nom, type, id_branche, diametre_mm, puits_amont, well_collector_id, well_pos_index, pm_collecteur_id, pm_pos_index, gps_lat, gps_lon, x, y`
   - `Edges`:
     - `id, source_id, cible_id, actif`
+- Plan optionnel (surcouche PNG/PDF) :
+  - Ajouter une feuille `PlanOverlay` avec une ligne par plan (généralement un plan par site).
+  - Colonnes attendues : `site_id`, `display_name`, `drive_file_id` (ou `url` en dev), `media_type`, `cache_max_age_s`, les coins géoréférencés `corner_nw_lat|lon`, `corner_ne_lat|lon`, `corner_sw_lat|lon`, `corner_se_lat|lon`, les réglages par défaut `opacity` (0–1 ou 0–100) et `bearing_deg`, ainsi que `enabled` (TRUE/FALSE).
+  - Pour les plans PDF (`media_type=application/pdf`), l’API télécharge le fichier sur Drive et convertit automatiquement la première page en PNG (rendu haute résolution via pypdfium2).
+  - Le fichier Drive référencé doit être partagé en lecture avec le Service Account utilisé par l’API.
 - Récupérer l’ID du sheet (dans l’URL), par exemple `1AbC...XYZ`.
 - En local (ADC via votre compte), aucun partage spécifique requis.
 
@@ -127,6 +132,9 @@ Astuce: uvicorn occupe le terminal. Vous pouvez soit ouvrir un 2e terminal (et `
   - `curl -s "http://127.0.0.1:8080/api/graph?source=sheet&sheet_id=$SHEET_ID_DEFAULT" -o graph.json`
   - `curl -s -X POST "http://127.0.0.1:8080/api/graph?source=sheet&sheet_id=$SHEET_ID_DEFAULT" -H "Content-Type: application/json" --data-binary @graph.json`
   - Relecture pour vérifier: idem GET ci‑dessus
+- Plan overlay (si configuré):
+  - Config JSON: `curl "http://127.0.0.1:8080/api/plan-overlay/config?source=sheet&sheet_id=$SHEET_ID_DEFAULT"`
+  - Image brute: `curl -s "http://127.0.0.1:8080/api/plan-overlay/media?source=sheet&sheet_id=$SHEET_ID_DEFAULT" -o plan.png`
 
 ## 8) Tester l’embed (iframe, CSP, clé `k`)
 - Test HTTP direct (vérifie CSP et 200):

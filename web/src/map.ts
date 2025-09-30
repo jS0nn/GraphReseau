@@ -1,5 +1,7 @@
 import { L } from './vendor.ts'
 import { subscribe, state } from './state/index.ts'
+import type { PlanOverlayBounds } from './types/plan-overlay.ts'
+import { createRotatedImageOverlay, type RotatedOverlayCorners } from './leaflet-rotated-image.ts'
 import { setGeoCenter, setGeoScale, setGeoScaleXY } from './geo.ts'
 
 type GlobalWithMap = typeof window & {
@@ -32,6 +34,189 @@ function consumeAutoFitSuppression(): boolean {
 
 let map: ReturnType<typeof L.map> | null = null
 let tilesLayer: ReturnType<typeof L.tileLayer> | null = null
+
+type PlanOverlayOptions = {
+  url: string
+  bounds: PlanOverlayBounds
+  opacity: number
+  rotationDeg: number
+}
+
+type PlanOverlayLayerState = {
+  layer: ReturnType<typeof createRotatedImageOverlay>
+  options: PlanOverlayOptions
+}
+
+let planOverlayState: PlanOverlayLayerState | null = null
+let pendingPlanOverlay: PlanOverlayOptions | null = null
+
+const EARTH_RADIUS = 6378137
+
+const clampLat = (lat: number): number => {
+  if(lat > 89.5) return 89.5
+  if(lat < -89.5) return -89.5
+  return lat
+}
+
+type MercPoint = { x: number; y: number }
+
+function projectLatLon(lat: number, lon: number): MercPoint {
+  const rad = Math.PI / 180
+  const latClamped = clampLat(lat)
+  const x = lon * rad * EARTH_RADIUS
+  const y = Math.log(Math.tan(Math.PI / 4 + (latClamped * rad) / 2)) * EARTH_RADIUS
+  return { x, y }
+}
+
+function unprojectToLatLon(pt: MercPoint): { lat: number; lon: number } {
+  const lon = (pt.x / EARTH_RADIUS) * (180 / Math.PI)
+  const lat = (2 * Math.atan(Math.exp(pt.y / EARTH_RADIUS)) - Math.PI / 2) * (180 / Math.PI)
+  return { lat, lon }
+}
+
+function rotatePoint(point: MercPoint, center: MercPoint, angleRad: number): MercPoint {
+  const cos = Math.cos(angleRad)
+  const sin = Math.sin(angleRad)
+  const dx = point.x - center.x
+  const dy = point.y - center.y
+  const rx = dx * cos - dy * sin
+  const ry = dx * sin + dy * cos
+  return { x: center.x + rx, y: center.y + ry }
+}
+
+function computeRotatedCorners(bounds: PlanOverlayBounds, rotationDeg: number): RotatedOverlayCorners {
+  const nw = projectLatLon(bounds.nw.lat, bounds.nw.lon)
+  const ne = projectLatLon(bounds.ne.lat, bounds.ne.lon)
+  const sw = projectLatLon(bounds.sw.lat, bounds.sw.lon)
+  const se = projectLatLon(bounds.se.lat, bounds.se.lon)
+  const points = [nw, ne, sw, se]
+  const center = {
+    x: points.reduce((acc, pt) => acc + pt.x, 0) / points.length,
+    y: points.reduce((acc, pt) => acc + pt.y, 0) / points.length,
+  }
+  const angleRad = (rotationDeg || 0) * Math.PI / 180
+  if(Math.abs(angleRad) < 1e-8){
+    return {
+      nw: { lat: bounds.nw.lat, lon: bounds.nw.lon },
+      ne: { lat: bounds.ne.lat, lon: bounds.ne.lon },
+      sw: { lat: bounds.sw.lat, lon: bounds.sw.lon },
+      se: { lat: bounds.se.lat, lon: bounds.se.lon },
+    }
+  }
+  const rotatedNw = unprojectToLatLon(rotatePoint(nw, center, angleRad))
+  const rotatedNe = unprojectToLatLon(rotatePoint(ne, center, angleRad))
+  const rotatedSw = unprojectToLatLon(rotatePoint(sw, center, angleRad))
+  const rotatedSe = unprojectToLatLon(rotatePoint(se, center, angleRad))
+  return {
+    nw: rotatedNw,
+    ne: rotatedNe,
+    sw: rotatedSw,
+    se: rotatedSe,
+  }
+}
+
+function syncPlanOverlayLayer(): void {
+  if(!map){
+    return
+  }
+  if(!planOverlayState){
+    if(pendingPlanOverlay){
+      const corners = computeRotatedCorners(pendingPlanOverlay.bounds, pendingPlanOverlay.rotationDeg)
+      const layer = createRotatedImageOverlay(pendingPlanOverlay.url, corners, {
+        opacity: pendingPlanOverlay.opacity,
+        interactive: false,
+        pane: 'overlayPane',
+      })
+      layer.addTo(map)
+      planOverlayState = {
+        layer,
+        options: { ...pendingPlanOverlay },
+      }
+      pendingPlanOverlay = null
+      layer.bringToFront?.()
+    }
+    return
+  }
+  const { options } = planOverlayState
+  const corners = computeRotatedCorners(options.bounds, options.rotationDeg)
+  planOverlayState.layer.setCorners(corners)
+  planOverlayState.layer.setOpacity(options.opacity)
+  if(planOverlayState.layer.setUrl){
+    planOverlayState.layer.setUrl(options.url)
+  }
+  if(map && !map.hasLayer(planOverlayState.layer)){
+    planOverlayState.layer.addTo(map)
+  }
+  planOverlayState.layer.bringToFront?.()
+}
+
+function clearPlanOverlayLayer(): void {
+  if(map && planOverlayState){
+    map.removeLayer(planOverlayState.layer)
+  }
+  planOverlayState = null
+}
+
+export function applyPlanOverlay(options: PlanOverlayOptions | null): void {
+  if(!options){
+    pendingPlanOverlay = null
+    clearPlanOverlayLayer()
+    return
+  }
+  const normalized: PlanOverlayOptions = {
+    url: options.url,
+    bounds: options.bounds,
+    opacity: Math.max(0, Math.min(1, options.opacity)),
+    rotationDeg: options.rotationDeg,
+  }
+  pendingPlanOverlay = { ...normalized }
+  if(!map){
+    return
+  }
+  if(!planOverlayState){
+    const corners = computeRotatedCorners(normalized.bounds, normalized.rotationDeg)
+    const layer = createRotatedImageOverlay(normalized.url, corners, {
+      opacity: normalized.opacity,
+      interactive: false,
+      pane: 'overlayPane',
+    })
+    layer.addTo(map)
+    planOverlayState = { layer, options: { ...normalized } }
+    layer.bringToFront?.()
+    return
+  }
+  planOverlayState.options = { ...normalized }
+  if(planOverlayState.layer.setUrl){
+    planOverlayState.layer.setUrl(normalized.url)
+  }
+  planOverlayState.layer.setCorners(computeRotatedCorners(normalized.bounds, normalized.rotationDeg))
+  planOverlayState.layer.setOpacity(normalized.opacity)
+  if(!map.hasLayer(planOverlayState.layer)){
+    planOverlayState.layer.addTo(map)
+  }
+  planOverlayState.layer.bringToFront?.()
+}
+
+export function updatePlanOverlayOpacity(opacity: number): void {
+  const clamped = Math.max(0, Math.min(1, opacity))
+  if(planOverlayState){
+    planOverlayState.options.opacity = clamped
+    planOverlayState.layer.setOpacity(clamped)
+  }
+  if(pendingPlanOverlay){
+    pendingPlanOverlay = { ...pendingPlanOverlay, opacity: clamped }
+  }
+}
+
+export function updatePlanOverlayRotation(rotationDeg: number): void {
+  if(planOverlayState){
+    planOverlayState.options.rotationDeg = rotationDeg
+    planOverlayState.layer.setCorners(computeRotatedCorners(planOverlayState.options.bounds, rotationDeg))
+  }
+  if(pendingPlanOverlay){
+    pendingPlanOverlay = { ...pendingPlanOverlay, rotationDeg }
+  }
+}
 
 function computeCanvasOverlayPadding(): CanvasPadding {
   const container = typeof document !== 'undefined' ? document.getElementById('canvas') : null
@@ -152,6 +337,7 @@ export function initMap(): ReturnType<typeof L.map> | null {
     map.on('moveend zoomend', onView)
     syncGeoProjection()
     notifyViewChanged()
+    syncPlanOverlayLayer()
     return map
   }catch(err){
     console.warn('Leaflet init failed', err)

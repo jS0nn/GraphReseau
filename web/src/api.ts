@@ -3,6 +3,7 @@
 import { sanitizeGraphPayload } from './shared/graph-transform.ts'
 import type { GraphInput } from './shared/graph-transform.ts'
 import type { Graph, Node } from './types/graph'
+import type { PlanOverlayConfig } from './types/plan-overlay.ts'
 
 type ParsedQuery = {
   source?: string | null
@@ -134,4 +135,35 @@ export async function recomputeBranches(graph: Graph): Promise<unknown> {
 export const __internals = {
   parseSearch,
   buildParamsForSource,
+}
+
+export async function getPlanOverlayConfig(): Promise<PlanOverlayConfig | null> {
+  const q = parseSearch()
+  const params = buildParamsForSource(q)
+  const res = await fetch(`/api/plan-overlay/config?${params.toString()}`)
+  if(res.status === 404) return null
+  if(!res.ok){
+    const txt = await res.text().catch(() => '')
+    throw new Error(`GET /api/plan-overlay/config ${res.status} ${txt}`)
+  }
+  return res.json() as Promise<PlanOverlayConfig>
+}
+
+export async function fetchPlanOverlayMedia(options: { transparent?: boolean } = {}): Promise<{ blob: Blob; mime: string }> {
+  const q = parseSearch()
+  const params = buildParamsForSource(q)
+  if(options.transparent === false){
+    params.set('transparent', '0')
+  }
+  const res = await fetch(`/api/plan-overlay/media?${params.toString()}`)
+  if(res.status === 404){
+    throw new Error('plan overlay media not found')
+  }
+  if(!res.ok){
+    const txt = await res.text().catch(() => '')
+    throw new Error(`GET /api/plan-overlay/media ${res.status} ${txt}`)
+  }
+  const blob = await res.blob()
+  const mime = res.headers.get('Content-Type') || blob.type || 'application/octet-stream'
+  return { blob, mime }
 }

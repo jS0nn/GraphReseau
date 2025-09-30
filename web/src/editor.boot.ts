@@ -1,5 +1,5 @@
 import { d3 } from './vendor.ts'
-import { getGraph, saveGraph, getMode } from './api.ts'
+import { getGraph, saveGraph, getMode, getPlanOverlayConfig, fetchPlanOverlayMedia } from './api.ts'
 import { toJSON } from './exports.ts'
 import { $$ } from './utils.ts'
 import { initCanvas } from './render/canvas.ts'
@@ -12,8 +12,8 @@ import { initLogsUI, log, wireStateLogs, initDevErrorHooks } from './ui/logs.ts'
 import { initForms } from './ui/forms.ts'
 import { showModeHelp } from './ui/mode-help.ts'
 import { initModesUI } from './modes.ts'
-import { initMap, fitMapToNodes, syncGeoProjection, getMap } from './map.ts'
-import { state, setGraph, getGraph as getStateGraph, subscribe, selectNodeById, selectEdgeById, copySelection, pasteClipboard, removeEdge, removeNodes, removeNode, addNode, setMode, setViewMode, getViewMode } from './state/index.ts'
+import { initMap, fitMapToNodes, syncGeoProjection, getMap, applyPlanOverlay, updatePlanOverlayOpacity as mapSetPlanOpacity, updatePlanOverlayRotation as mapSetPlanRotation } from './map.ts'
+import { state, setGraph, getGraph as getStateGraph, subscribe, selectNodeById, selectEdgeById, copySelection, pasteClipboard, removeEdge, removeNodes, removeNode, addNode, setMode, setViewMode, getViewMode, setPlanOverlayData, setPlanOverlayLoading, setPlanOverlayError, setPlanOverlayEnabled, setPlanOverlayOpacity, setPlanOverlayRotation, setPlanOverlayUseTransparent, getPlanOverlayState } from './state/index.ts'
 import { createHistory } from './state/history.ts'
 import { attachNodeDrag } from './interactions/drag.ts'
 import { attachSelection } from './interactions/selection.ts'
@@ -28,6 +28,49 @@ type CanvasHandles = ReturnType<typeof initCanvas>
 type GraphSnapshot = Graph
 
 const DEV_BUILD = (typeof __DEV__ !== 'undefined' && __DEV__ === true)
+const PLAN_ROTATION_STEP = 5
+
+let planTransparentObjectUrl: string | null = null
+let planOriginalObjectUrl: string | null = null
+const restoredPlanPrefs = new Set<string>()
+let isRestoringPlanPrefs = false
+
+let planControlsEl: HTMLElement | null = null
+let planToolsEl: HTMLElement | null = null
+let planToggleBtn: HTMLButtonElement | null = null
+let planOpacityRange: HTMLInputElement | null = null
+let planOpacityValue: HTMLElement | null = null
+let planRotationRange: HTMLInputElement | null = null
+let planRotationValue: HTMLElement | null = null
+let planRotateLeftBtn: HTMLButtonElement | null = null
+let planRotateRightBtn: HTMLButtonElement | null = null
+let planRotateResetBtn: HTMLButtonElement | null = null
+let planStatusEl: HTMLElement | null = null
+let planWhiteToggleBtn: HTMLButtonElement | null = null
+
+const getPlanState = getPlanOverlayState
+
+function activePlanUrl(plan = getPlanOverlayState()): string | null {
+  const transparent = plan.imageTransparentUrl
+  const original = plan.imageOriginalUrl
+  if(plan.useTransparent){
+    return transparent || original
+  }
+  return original || transparent
+}
+
+if(typeof window !== 'undefined'){
+  window.addEventListener('beforeunload', () => {
+    if(planTransparentObjectUrl){
+      try{ URL.revokeObjectURL(planTransparentObjectUrl) }catch{}
+      planTransparentObjectUrl = null
+    }
+    if(planOriginalObjectUrl){
+      try{ URL.revokeObjectURL(planOriginalObjectUrl) }catch{}
+      planOriginalObjectUrl = null
+    }
+  })
+}
 
 function ensureHUD(): HTMLDivElement | null {
   if(!DEV_BUILD) return null
@@ -58,6 +101,219 @@ function updateHUD(): void {
 function setStatus(msg: string | null | undefined): void {
   const el = document.getElementById('status')
   if(el) el.textContent = msg || ''
+}
+
+async function loadPlanOverlayAssets(): Promise<void> {
+  setPlanOverlayLoading(true)
+  setPlanOverlayError(null)
+  try{
+    const config = await getPlanOverlayConfig()
+    if(!config){
+      const prevTransparent = planTransparentObjectUrl
+      const prevOriginal = planOriginalObjectUrl
+      planTransparentObjectUrl = null
+      planOriginalObjectUrl = null
+      setPlanOverlayData(null)
+      if(prevTransparent){ try{ URL.revokeObjectURL(prevTransparent) }catch{} }
+      if(prevOriginal){ try{ URL.revokeObjectURL(prevOriginal) }catch{} }
+      return
+    }
+
+    const [transparentMedia, originalMedia] = await Promise.all([
+      fetchPlanOverlayMedia({ transparent: true }).catch((err) => {
+        console.warn('[plan] transparent fetch failed', err)
+        return null
+      }),
+      fetchPlanOverlayMedia({ transparent: false }).catch((err) => {
+        console.warn('[plan] original fetch failed', err)
+        return null
+      }),
+    ])
+
+    const nextTransparentUrl = transparentMedia ? URL.createObjectURL(transparentMedia.blob) : null
+    const nextOriginalUrl = originalMedia ? URL.createObjectURL(originalMedia.blob) : null
+
+    if(!nextTransparentUrl && !nextOriginalUrl){
+      throw new Error('Plan indisponible pour ce site')
+    }
+
+    const prevTransparent = planTransparentObjectUrl
+    const prevOriginal = planOriginalObjectUrl
+
+    planTransparentObjectUrl = nextTransparentUrl
+    planOriginalObjectUrl = nextOriginalUrl
+
+    if(prevTransparent && prevTransparent !== nextTransparentUrl){
+      try{ URL.revokeObjectURL(prevTransparent) }catch{}
+    }
+    if(prevOriginal && prevOriginal !== nextOriginalUrl){
+      try{ URL.revokeObjectURL(prevOriginal) }catch{}
+    }
+
+    setPlanOverlayData(config, { transparentUrl: nextTransparentUrl, originalUrl: nextOriginalUrl })
+  }catch(err){
+    console.error('[plan] load failed', err)
+    const message = err instanceof Error ? err.message : String(err)
+    setPlanOverlayError(message)
+    setPlanOverlayData(null)
+    if(planTransparentObjectUrl){
+      try{ URL.revokeObjectURL(planTransparentObjectUrl) }catch{}
+      planTransparentObjectUrl = null
+    }
+    if(planOriginalObjectUrl){
+      try{ URL.revokeObjectURL(planOriginalObjectUrl) }catch{}
+      planOriginalObjectUrl = null
+    }
+  }finally{
+    setPlanOverlayLoading(false)
+  }
+}
+
+function planStoragePrefix(): string | null {
+  const plan = getPlanOverlayState()
+  const planId = plan.planId
+  if(!planId) return null
+  return `planOverlay:${planId}:`
+}
+
+function savePlanOverlayPreferences(): void {
+  if(isRestoringPlanPrefs) return
+  const prefix = planStoragePrefix()
+  if(!prefix) return
+  const plan = getPlanState()
+  try{
+    localStorage.setItem(`${prefix}opacity`, plan.opacity.toString())
+    localStorage.setItem(`${prefix}rotation`, plan.rotationDeg.toString())
+    localStorage.setItem(`${prefix}enabled`, plan.enabled ? '1' : '0')
+    localStorage.setItem(`${prefix}mode`, plan.useTransparent ? '1' : '0')
+  }catch{}
+}
+
+function restorePlanOverlayPreferences(): void {
+  const plan = getPlanState()
+  const planId = plan.planId
+  if(!planId || restoredPlanPrefs.has(planId)) return
+  const prefix = planStoragePrefix()
+  if(!prefix) return
+  isRestoringPlanPrefs = true
+  try{
+    const storedOpacity = localStorage.getItem(`${prefix}opacity`)
+    if(storedOpacity !== null){
+      const value = Number(storedOpacity)
+      if(Number.isFinite(value)) setPlanOverlayOpacity(value)
+    }
+    const storedRotation = localStorage.getItem(`${prefix}rotation`)
+    if(storedRotation !== null){
+      const value = Number(storedRotation)
+      if(Number.isFinite(value)) setPlanOverlayRotation(value)
+    }
+    const storedEnabled = localStorage.getItem(`${prefix}enabled`)
+    if(storedEnabled !== null){
+      setPlanOverlayEnabled(storedEnabled === '1')
+    }
+    const storedMode = localStorage.getItem(`${prefix}mode`)
+    if(storedMode !== null){
+      setPlanOverlayUseTransparent(storedMode !== '0')
+    }
+  }catch{}
+  isRestoringPlanPrefs = false
+  restoredPlanPrefs.add(planId)
+}
+
+function syncPlanOverlayWithMap(): void {
+  const plan = getPlanOverlayState()
+  const url = activePlanUrl(plan)
+  if(!plan.config || !url || !plan.enabled){
+    applyPlanOverlay(null)
+    return
+  }
+  applyPlanOverlay({
+    url,
+    bounds: plan.config.bounds,
+    opacity: plan.opacity,
+    rotationDeg: plan.rotationDeg,
+  })
+}
+
+function updatePlanControlsUI(): void {
+  if(!planControlsEl) return
+  const plan = getPlanOverlayState()
+  const activeUrl = activePlanUrl(plan)
+  const hasMedia = !!plan.config && !!(plan.imageTransparentUrl || plan.imageOriginalUrl)
+  const hasConfig = !!plan.config && !!activeUrl && hasMedia
+  const showContainer = hasConfig || plan.loading || !!plan.error
+  planControlsEl.hidden = !showContainer
+  planControlsEl.classList.toggle('loading', plan.loading)
+
+  if(planToggleBtn){
+    planToggleBtn.disabled = !hasConfig || plan.loading
+    planToggleBtn.classList.toggle('active', !!plan.enabled)
+    planToggleBtn.setAttribute('aria-pressed', plan.enabled ? 'true' : 'false')
+    planToggleBtn.title = hasConfig ? (plan.enabled ? 'Masquer le plan' : 'Afficher le plan') : 'Aucun plan configuré'
+  }
+
+  const toolsVisible = !!(hasConfig && plan.enabled && !plan.loading && !plan.error)
+  if(planToolsEl){
+    planToolsEl.hidden = !toolsVisible
+  }
+
+  const opacityValue = Math.round(plan.opacity * 100)
+  const rotationValue = Math.round(plan.rotationDeg)
+
+  if(planOpacityRange){
+    planOpacityRange.disabled = !toolsVisible
+    planOpacityRange.value = String(opacityValue)
+  }
+  if(planOpacityValue){
+    planOpacityValue.textContent = `${opacityValue}%`
+  }
+  if(planRotationRange){
+    planRotationRange.disabled = !toolsVisible
+    planRotationRange.value = String(rotationValue)
+  }
+  if(planRotationValue){
+    planRotationValue.textContent = `${rotationValue}°`
+  }
+  if(planRotateLeftBtn) planRotateLeftBtn.disabled = !toolsVisible
+  if(planRotateRightBtn) planRotateRightBtn.disabled = !toolsVisible
+  if(planRotateResetBtn){
+    const defaultRotation = Number(plan.config?.defaults?.bearing_deg ?? 0)
+    planRotateResetBtn.disabled = !toolsVisible
+    planRotateResetBtn.title = toolsVisible ? `Réinitialiser (${Math.round(defaultRotation)}°)` : 'Réinitialiser l’orientation du plan'
+  }
+
+  if(planWhiteToggleBtn){
+    const hasTransparent = !!plan.imageTransparentUrl
+    const hasOriginal = !!plan.imageOriginalUrl
+    const canToggleWhite = toolsVisible && hasTransparent && hasOriginal
+    const btnVisible = toolsVisible && (hasTransparent || hasOriginal)
+    planWhiteToggleBtn.hidden = !btnVisible
+    planWhiteToggleBtn.disabled = !canToggleWhite
+    const showActive = btnVisible && !plan.useTransparent
+    planWhiteToggleBtn.classList.toggle('active', showActive)
+    planWhiteToggleBtn.setAttribute('aria-pressed', showActive ? 'true' : 'false')
+    planWhiteToggleBtn.title = canToggleWhite
+      ? (plan.useTransparent ? 'Afficher le fond blanc' : 'Masquer le fond blanc')
+      : 'Fond blanc indisponible'
+  }
+
+  if(planStatusEl){
+    if(plan.loading){
+      planStatusEl.textContent = 'Chargement du plan…'
+    }else if(plan.error){
+      planStatusEl.textContent = plan.error
+    }else if(!hasConfig){
+      planStatusEl.textContent = ''
+    }else if(!plan.enabled){
+      const name = plan.config?.display_name || 'Plan'
+      planStatusEl.textContent = `${name} (masqué)`
+    }else{
+      const name = plan.config?.display_name || 'Plan actif'
+      const hasToggle = !!plan.imageTransparentUrl && !!plan.imageOriginalUrl
+      const suffix = hasToggle ? (plan.useTransparent ? ' — fond blanc masqué' : ' — fond blanc affiché') : ''
+      planStatusEl.textContent = `${name}${suffix}`
+    }
+  }
 }
 
 function computeCanvasSafeArea(containerEl: HTMLElement | null): { left: number; right: number } {
@@ -223,6 +479,54 @@ function bindToolbar(canvas: CanvasHandles): { updateGraphBtn: () => void } {
       renderAll(canvas)
     })
   }
+  planControlsEl = document.getElementById('planControls')
+  planToolsEl = document.getElementById('planTools')
+  planToggleBtn = byId('planToggleBtn') as HTMLButtonElement | null
+  planOpacityRange = byId('planOpacityRange') as HTMLInputElement | null
+  planOpacityValue = byId('planOpacityValue')
+  planRotationRange = byId('planRotationRange') as HTMLInputElement | null
+  planRotationValue = byId('planRotationValue')
+  planRotateLeftBtn = byId('planRotateLeftBtn') as HTMLButtonElement | null
+  planRotateRightBtn = byId('planRotateRightBtn') as HTMLButtonElement | null
+  planRotateResetBtn = byId('planRotateResetBtn') as HTMLButtonElement | null
+  planStatusEl = byId('planStatus')
+  planWhiteToggleBtn = byId('planWhiteToggleBtn') as HTMLButtonElement | null
+  planToggleBtn?.addEventListener('click', () => {
+    if(planToggleBtn?.disabled) return
+    const plan = getPlanOverlayState()
+    setPlanOverlayEnabled(!plan.enabled)
+  })
+  planOpacityRange?.addEventListener('input', (event) => {
+    if(planOpacityRange?.disabled) return
+    const value = Number((event.target as HTMLInputElement).value)
+    if(Number.isFinite(value)) setPlanOverlayOpacity(value / 100)
+  })
+  planRotationRange?.addEventListener('input', (event) => {
+    if(planRotationRange?.disabled) return
+    const value = Number((event.target as HTMLInputElement).value)
+    if(Number.isFinite(value)) setPlanOverlayRotation(value)
+  })
+  planRotateLeftBtn?.addEventListener('click', () => {
+    if(planRotateLeftBtn?.disabled) return
+    const plan = getPlanOverlayState()
+    setPlanOverlayRotation(plan.rotationDeg - PLAN_ROTATION_STEP)
+  })
+  planRotateRightBtn?.addEventListener('click', () => {
+    if(planRotateRightBtn?.disabled) return
+    const plan = getPlanOverlayState()
+    setPlanOverlayRotation(plan.rotationDeg + PLAN_ROTATION_STEP)
+  })
+  planRotateResetBtn?.addEventListener('click', () => {
+    if(planRotateResetBtn?.disabled) return
+    const plan = getPlanOverlayState()
+    const defaultRotation = Number(plan.config?.defaults?.bearing_deg ?? 0)
+    setPlanOverlayRotation(defaultRotation)
+  })
+  planWhiteToggleBtn?.addEventListener('click', () => {
+    if(planWhiteToggleBtn?.disabled) return
+    const plan = getPlanOverlayState()
+    setPlanOverlayUseTransparent(!plan.useTransparent)
+  })
   let graphBtn: HTMLButtonElement | null = null
   function updateGraphBtn(): void {
     if(!graphBtn) return
@@ -248,11 +552,13 @@ function bindToolbar(canvas: CanvasHandles): { updateGraphBtn: () => void } {
     })
     updateGraphBtn()
   }
+  updatePlanControlsUI()
   byId('loadBtn')?.addEventListener('click', async ()=>{
     try{
       setStatus('Chargement…')
       const g = await getGraph()
       setGraph(g)
+      await loadPlanOverlayAssets()
       setStatus('Chargé')
     }catch(err){
       console.error('[dev] load failed', err)
@@ -492,6 +798,36 @@ export async function boot(): Promise<void> {
     if(evt === 'view:set' && typeof payload === 'string'){
       applyViewMode(payload)
     }
+    if(evt === 'plan:set'){
+      const plan = getPlanOverlayState()
+      if(!plan.config){
+        restoredPlanPrefs.clear()
+      }
+      restorePlanOverlayPreferences()
+      syncPlanOverlayWithMap()
+      updatePlanControlsUI()
+      savePlanOverlayPreferences()
+    }else if(evt === 'plan:toggle'){
+      syncPlanOverlayWithMap()
+      updatePlanControlsUI()
+      savePlanOverlayPreferences()
+    }else if(evt === 'plan:opacity'){
+      const plan = getPlanOverlayState()
+      mapSetPlanOpacity(plan.opacity)
+      updatePlanControlsUI()
+      savePlanOverlayPreferences()
+    }else if(evt === 'plan:rotation'){
+      const plan = getPlanOverlayState()
+      mapSetPlanRotation(plan.rotationDeg)
+      updatePlanControlsUI()
+      savePlanOverlayPreferences()
+    }else if(evt === 'plan:mode'){
+      syncPlanOverlayWithMap()
+      updatePlanControlsUI()
+      savePlanOverlayPreferences()
+    }else if(evt === 'plan:loading' || evt === 'plan:error'){
+      updatePlanControlsUI()
+    }
   })
   try{ document.addEventListener('map:view', ()=> { renderAll(canvas) }) }catch{}
 
@@ -500,6 +836,7 @@ export async function boot(): Promise<void> {
     return { nodes: [], edges: [] } as Graph
   })
   setGraph(graph)
+  await loadPlanOverlayAssets().catch(()=>{})
   document.body.classList.remove('prop-collapsed')
   try{ initMap(); fitMapToNodes(); syncGeoProjection() }catch{}
   applyViewMode(getViewMode())

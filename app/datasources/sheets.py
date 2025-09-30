@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import HTTPException
 
 from ..config import settings
-from ..models import Graph
+from ..models import Graph, PlanOverlayConfig
 from .. import sheets as sheets_mod
 
 
@@ -57,4 +57,15 @@ def save_sheet(
     )
 
 
-__all__ = ["load_sheet", "save_sheet"]
+def load_plan_overlay_config(
+    sheet_id: Optional[str] = None,
+    *,
+    site_id: Optional[str] = None,
+) -> Optional[PlanOverlayConfig]:
+    sid = _clean_sheet_id(sheet_id or settings.sheet_id_default)
+    if not sid:
+        raise HTTPException(status_code=400, detail="sheet_id required")
+    return sheets_mod.read_plan_overlay_config(sid, site_id=site_id)
+
+
+__all__ = ["load_sheet", "save_sheet", "load_plan_overlay_config"]

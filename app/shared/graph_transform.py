@@ -38,7 +38,17 @@ NODE_TYPE_SYNONYMS = {
 UI_PREFIXES = ("ui_",)
 EPHEMERAL_KEYS = {"site_effective", "site_effective_is_fallback"}
 OFFSET_TOLERANCE_M = 0.05
-GRAPH_ALLOWED_TOP_LEVEL = {"version", "site_id", "generated_at", "style_meta", "nodes", "edges", "crs", "branches"}
+GRAPH_ALLOWED_TOP_LEVEL = {
+    "version",
+    "site_id",
+    "generated_at",
+    "style_meta",
+    "nodes",
+    "edges",
+    "crs",
+    "branches",
+    "plan_overlay",
+}
 EDGE_FORBIDDEN_FIELDS = {"ui_diameter_mm"}
 ISO_8601_UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$")
 

@@ -6,6 +6,7 @@ import type { MutableNode, MutableEdge } from './normalize.ts'
 import { enforceEdgeOnlyNodeType } from './graph-rules.ts'
 import { recomputeBranches } from '../api.ts'
 import type { Graph } from '../types/graph'
+import type { PlanOverlayConfig } from '../types/plan-overlay.ts'
 import { d3 } from '../vendor.ts'
 
 export { setGeoScale, setGeoCenter } from '../geo.ts'
@@ -43,6 +44,19 @@ type GraphMetaState = {
   style_meta: BranchStyleMeta
 }
 
+export type PlanOverlayState = {
+  config: PlanOverlayConfig | null
+  planId: string | null
+  imageTransparentUrl: string | null
+  imageOriginalUrl: string | null
+  useTransparent: boolean
+  enabled: boolean
+  opacity: number
+  rotationDeg: number
+  loading: boolean
+  error: string | null
+}
+
 type ClipboardPayload = {
   nodes: MutableNode[]
   edges: Array<Partial<MutableEdge>>
@@ -71,6 +85,7 @@ export type EditorState = {
   _spawnIndex: number
   edgeVarWidth: boolean
   crs: { code: string; projected_for_lengths: string }
+  planOverlay: PlanOverlayState
 }
 
 export const state: EditorState = {
@@ -95,6 +110,18 @@ export const state: EditorState = {
   _spawnIndex: 0,
   edgeVarWidth: true,
   crs: { code: 'EPSG:4326', projected_for_lengths: 'EPSG:2154' },
+  planOverlay: {
+    config: null,
+    planId: null,
+    imageTransparentUrl: null,
+    imageOriginalUrl: null,
+    useTransparent: true,
+    enabled: false,
+    opacity: 0.7,
+    rotationDeg: 0,
+    loading: false,
+    error: null,
+  },
 }
 
 const GLOBAL_BRANCH_KEY = '__global__'
@@ -115,6 +142,52 @@ const DEFAULT_CRS: EditorState['crs'] = { code: 'EPSG:4326', projected_for_lengt
 
 const NODE_BRANCH_FIELDS = ['branch_id', 'branchId', 'type'] as const
 const EDGE_BRANCH_FIELDS = ['branch_id', 'branchId', 'from_id', 'to_id', 'source', 'target', 'geometry'] as const
+
+const PLAN_OPACITY_MIN = 0
+const PLAN_OPACITY_MAX = 1
+const PLAN_ROTATION_MIN = -180
+const PLAN_ROTATION_MAX = 180
+
+const clamp = (value: number, min: number, max: number): number => {
+  if(!Number.isFinite(value)) return min
+  if(value < min) return min
+  if(value > max) return max
+  return value
+}
+
+const planIdFromConfig = (config: PlanOverlayConfig | null): string | null => {
+  if(!config) return null
+  const media = config.media || { type: '', source: '' }
+  const driveId = (media.drive_file_id ?? '').toString().trim()
+  if(driveId) return `drive:${driveId}`
+  const url = (media.url ?? '').toString().trim()
+  if(url) return `url:${url}`
+  return null
+}
+
+const activeImageUrl = (plan: PlanOverlayState): string | null => {
+  const transparentUrl = plan.imageTransparentUrl
+  const originalUrl = plan.imageOriginalUrl
+  if(plan.useTransparent){
+    return transparentUrl || originalUrl
+  }
+  return originalUrl || transparentUrl
+}
+
+const defaultPlanOpacity = (config: PlanOverlayConfig | null): number => {
+  if(!config) return 0.7
+  const raw = Number(config.defaults?.opacity ?? 0.7)
+  if(Number.isNaN(raw)) return 0.7
+  if(raw > 1 && raw <= 100) return clamp(raw / 100, PLAN_OPACITY_MIN, PLAN_OPACITY_MAX)
+  return clamp(raw, PLAN_OPACITY_MIN, PLAN_OPACITY_MAX)
+}
+
+const defaultPlanRotation = (config: PlanOverlayConfig | null): number => {
+  if(!config) return 0
+  const raw = Number(config.defaults?.bearing_deg ?? 0)
+  if(Number.isNaN(raw)) return 0
+  return clamp(raw, PLAN_ROTATION_MIN, PLAN_ROTATION_MAX)
+}
 
 const canonBranchId = (value: unknown): string | null => {
   const txt = (value == null) ? '' : String(value).trim()
@@ -405,6 +478,130 @@ type Listener = (event: string, payload: unknown, state: EditorState) => void
 const listeners = new Set<Listener>()
 export function subscribe(fn: Listener){ listeners.add(fn); return () => listeners.delete(fn) }
 function notify(event: string, payload: unknown = undefined){ for(const fn of listeners) fn(event, payload, state) }
+
+export function getPlanOverlayState(): PlanOverlayState {
+  return state.planOverlay
+}
+
+export function setPlanOverlayLoading(flag: boolean): void {
+  const next = !!flag
+  if(state.planOverlay.loading === next) return
+  state.planOverlay.loading = next
+  notify('plan:loading', { loading: next })
+}
+
+export function setPlanOverlayError(message: string | null): void {
+  const next = message ? String(message) : null
+  if(state.planOverlay.error === next) return
+  state.planOverlay.error = next
+  notify('plan:error', { error: next })
+}
+
+export function setPlanOverlayData(
+  config: PlanOverlayConfig | null,
+  options?: { transparentUrl?: string | null; originalUrl?: string | null }
+): void {
+  const prev = { ...state.planOverlay }
+  const prevActive = activeImageUrl(prev)
+  const newPlanId = planIdFromConfig(config)
+  const samePlan = prev.planId !== null && newPlanId !== null && prev.planId === newPlanId
+  const transparentProvided = Object.prototype.hasOwnProperty.call(options || {}, 'transparentUrl')
+  const originalProvided = Object.prototype.hasOwnProperty.call(options || {}, 'originalUrl')
+  const nextTransparentUrl = transparentProvided ? (options?.transparentUrl ?? null) : (samePlan ? prev.imageTransparentUrl : null)
+  const nextOriginalUrl = originalProvided ? (options?.originalUrl ?? null) : (samePlan ? prev.imageOriginalUrl : null)
+
+  state.planOverlay.config = config
+  state.planOverlay.planId = newPlanId
+  state.planOverlay.imageTransparentUrl = nextTransparentUrl
+  state.planOverlay.imageOriginalUrl = nextOriginalUrl
+  state.planOverlay.error = null
+
+  if(!config){
+    state.planOverlay.opacity = defaultPlanOpacity(null)
+    state.planOverlay.rotationDeg = 0
+    state.planOverlay.enabled = false
+    state.planOverlay.useTransparent = true
+  }else if(samePlan){
+    state.planOverlay.opacity = clamp(prev.opacity, PLAN_OPACITY_MIN, PLAN_OPACITY_MAX)
+    state.planOverlay.rotationDeg = clamp(prev.rotationDeg, PLAN_ROTATION_MIN, PLAN_ROTATION_MAX)
+  }else{
+    state.planOverlay.opacity = defaultPlanOpacity(config)
+    state.planOverlay.rotationDeg = defaultPlanRotation(config)
+    state.planOverlay.enabled = !!config.enabled
+    state.planOverlay.useTransparent = nextTransparentUrl != null || nextOriginalUrl == null
+  }
+
+  if(state.planOverlay.useTransparent && !state.planOverlay.imageTransparentUrl && state.planOverlay.imageOriginalUrl){
+    state.planOverlay.useTransparent = false
+  }
+  if(!state.planOverlay.useTransparent && !state.planOverlay.imageOriginalUrl && state.planOverlay.imageTransparentUrl){
+    state.planOverlay.useTransparent = true
+  }
+
+  const activeUrl = activeImageUrl(state.planOverlay)
+  if(!activeUrl){
+    state.planOverlay.enabled = false
+  }
+
+  const configChanged = prev.planId !== state.planOverlay.planId || prev.config !== state.planOverlay.config || prevActive !== activeUrl
+  if(configChanged){
+    notify('plan:set', { config: state.planOverlay.config, urlTransparent: state.planOverlay.imageTransparentUrl, urlOriginal: state.planOverlay.imageOriginalUrl })
+  }
+  if(prev.enabled !== state.planOverlay.enabled){
+    notify('plan:toggle', { enabled: state.planOverlay.enabled })
+  }
+  if(prev.opacity !== state.planOverlay.opacity){
+    notify('plan:opacity', { opacity: state.planOverlay.opacity })
+  }
+  if(prev.rotationDeg !== state.planOverlay.rotationDeg){
+    notify('plan:rotation', { rotation: state.planOverlay.rotationDeg })
+  }
+  if(prev.useTransparent !== state.planOverlay.useTransparent){
+    notify('plan:mode', { useTransparent: state.planOverlay.useTransparent })
+  }
+}
+
+export function setPlanOverlayEnabled(enabled: boolean): void {
+  const hasImage = !!activeImageUrl(state.planOverlay)
+  const next = !!enabled && !!state.planOverlay.config && hasImage
+  if(state.planOverlay.enabled === next) return
+  state.planOverlay.enabled = next
+  notify('plan:toggle', { enabled: state.planOverlay.enabled })
+}
+
+export function setPlanOverlayOpacity(value: number): void {
+  const next = clamp(value, PLAN_OPACITY_MIN, PLAN_OPACITY_MAX)
+  if(!Number.isFinite(next)) return
+  if(state.planOverlay.opacity === next) return
+  state.planOverlay.opacity = next
+  notify('plan:opacity', { opacity: next })
+}
+
+export function setPlanOverlayRotation(value: number): void {
+  const next = clamp(value, PLAN_ROTATION_MIN, PLAN_ROTATION_MAX)
+  if(state.planOverlay.rotationDeg === next) return
+  state.planOverlay.rotationDeg = next
+  notify('plan:rotation', { rotation: next })
+}
+
+export function setPlanOverlayUseTransparent(flag: boolean): void {
+  const desired = !!flag
+  let next = desired
+  const hasTransparent = !!state.planOverlay.imageTransparentUrl
+  const hasOriginal = !!state.planOverlay.imageOriginalUrl
+  if(desired && !hasTransparent && hasOriginal){
+    next = false
+  }else if(!desired && !hasOriginal && hasTransparent){
+    next = true
+  }
+  if(state.planOverlay.useTransparent === next) return
+  state.planOverlay.useTransparent = next
+  if(!activeImageUrl(state.planOverlay)){
+    state.planOverlay.enabled = false
+    notify('plan:toggle', { enabled: state.planOverlay.enabled })
+  }
+  notify('plan:mode', { useTransparent: state.planOverlay.useTransparent })
+}
 
 const REMOVABLE_NODE_TYPES = new Set(['JONCTION', 'JUNCTION'])
 let isPruningOrphans = false

@@ -44,6 +44,33 @@
         <button id="zoomFitBtn" class="ghost" title="Adapter"><i class="uil uil-expand-alt"></i></button>
       </div>
       <button class="btn" id="mapToggleBtn" title="Fond orthophoto"><i class="uil uil-image"></i> Fond</button>
+      <div class="plan-controls" id="planControls" hidden>
+        <button class="btn" id="planToggleBtn" type="button" title="Afficher/Masquer le plan"><i class="uil uil-layer-group"></i> Plan</button>
+        <div class="plan-tools" id="planTools">
+          <label class="plan-field" id="planOpacityGroup" title="Opacité du plan">
+            <span>Opacité</span>
+            <input id="planOpacityRange" type="range" min="0" max="100" step="1" value="70" aria-label="Opacité du plan (pourcentage)">
+            <span class="plan-value" id="planOpacityValue">70%</span>
+          </label>
+        <div class="plan-field plan-rotation" id="planRotationGroup" title="Rotation du plan">
+          <button class="btn ghost" id="planRotateLeftBtn" type="button" aria-label="Tourner le plan vers la gauche">
+            <i class="uil uil-undo"></i>
+          </button>
+          <input id="planRotationRange" type="range" min="-180" max="180" step="1" value="0" aria-label="Rotation du plan (degrés)">
+          <span class="plan-value" id="planRotationValue">0°</span>
+          <button class="btn ghost" id="planRotateRightBtn" type="button" aria-label="Tourner le plan vers la droite">
+            <i class="uil uil-redo"></i>
+          </button>
+          <button class="btn ghost" id="planRotateResetBtn" type="button" aria-label="Réinitialiser l’orientation du plan">
+            <i class="uil uil-compass"></i>
+          </button>
+        </div>
+        <button class="btn ghost" id="planWhiteToggleBtn" type="button" title="Afficher/Masquer le fond blanc">
+          <i class="uil uil-square"></i> Fond blanc
+        </button>
+      </div>
+      <div class="plan-status" id="planStatus" aria-live="polite"></div>
+    </div>
       <button class="btn" id="thicknessBtn" title="Épaisseur des arêtes (Ø)"><i class="uil uil-line-alt"></i> Épaisseur</button>
       <button class="btn" id="exportBtn"><i class="uil uil-export"></i> Export JSON</button>
       <div class="spacer"></div>

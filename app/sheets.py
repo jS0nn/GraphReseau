@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 import json
 import re
 import unicodedata
@@ -8,7 +8,19 @@ import unicodedata
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from .models import Edge, Graph, Node, BranchInfo, CRSInfo, _compute_length_from_geometry
+from .models import (
+    Edge,
+    Graph,
+    Node,
+    BranchInfo,
+    CRSInfo,
+    PlanOverlayConfig,
+    PlanOverlayBounds,
+    PlanOverlayMedia,
+    PlanOverlayDefaults,
+    LatLon,
+    _compute_length_from_geometry,
+)
 from .gcp_auth import get_credentials
 from googleapiclient.errors import HttpError
 from .shared.graph_transform import ensure_created_at_string
@@ -242,6 +254,244 @@ EXTRA_SHEET_HEADERS = [
 ]
 
 STYLE_META_SHEET = "STYLE_META"
+PLAN_OVERLAY_SHEET = "PlanOverlay"
+_DRIVE_URL_RE = re.compile(r"/(?:d|folders)/([A-Za-z0-9_-]{10,})")
+
+
+def _extract_drive_file_id(raw: Any) -> Optional[str]:
+    if raw in (None, ""):
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    if "drive.google." in text:
+        match = _DRIVE_URL_RE.search(text)
+        if match:
+            return match.group(1)
+        if "id=" in text:
+            try:
+                from urllib.parse import parse_qs, urlparse
+
+                query = urlparse(text).query
+                params = parse_qs(query)
+                candidates = params.get("id") or params.get("file_id")
+                if candidates:
+                    return candidates[0]
+            except Exception:
+                pass
+    return text
+
+
+def _first_nonempty(mapping: Dict[str, Any], keys: List[str]) -> Any:
+    for key in keys:
+        if key in mapping:
+            value = mapping[key]
+            if value not in (None, ""):
+                return value
+    return None
+
+
+def _normalise_site_token(value: Any) -> str:
+    if value in (None, ""):
+        return ""
+    return str(value).strip().lower()
+
+
+def _normalise_plan_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    normalised: Dict[str, Any] = {}
+    for key, value in row.items():
+        if key in (None, ""):
+            continue
+        try:
+            label = str(key).strip().lower()
+        except Exception:
+            continue
+        if not label:
+            continue
+        normalised[label] = value
+    return normalised
+
+
+def _corner_from_row(row: Dict[str, Any], prefix: str) -> Optional[LatLon]:
+    lat_value = _first_nonempty(
+        row,
+        [
+            f"corner_{prefix}_lat",
+            f"{prefix}_lat",
+            f"{prefix}lat",
+            f"{prefix}_latitude",
+            f"{prefix}latitude",
+        ],
+    )
+    lon_value = _first_nonempty(
+        row,
+        [
+            f"corner_{prefix}_lon",
+            f"{prefix}_lon",
+            f"{prefix}lon",
+            f"{prefix}_longitude",
+            f"{prefix}longitude",
+        ],
+    )
+    lat = _num(lat_value)
+    lon = _num(lon_value)
+    if lat is None or lon is None:
+        return None
+    try:
+        return LatLon(lat=lat, lon=lon)
+    except ValueError:
+        return None
+
+
+def _read_plan_overlay_sheet(
+    svc,
+    sheet_id: str,
+    site_id: Optional[str],
+) -> Optional[PlanOverlayConfig]:
+    try:
+        resp = (
+            svc.spreadsheets()
+            .values()
+            .get(spreadsheetId=sheet_id, range=f"{PLAN_OVERLAY_SHEET}!A:ZZZ")
+            .execute()
+        )
+    except HttpError as exc:
+        if exc.resp.status == 400 and "Unable to parse range" in str(exc):
+            return None
+        return None
+    except Exception:
+        return None
+
+    values = resp.get("values", [])
+    if not values:
+        return None
+    header_raw = values[0]
+    if not header_raw:
+        return None
+    rows_raw = _values_to_dicts(values[1:], header_raw)
+    if not rows_raw:
+        return None
+
+    target_site = _normalise_site_token(site_id)
+    selected_row: Optional[Dict[str, Any]] = None
+
+    for row in rows_raw:
+        normalised = _normalise_plan_row(row)
+        if not normalised:
+            continue
+        row_site = _first_nonempty(
+            normalised,
+            ["site_id", "site", "id_site", "siteid", "idsite1", "site_id1"],
+        )
+        if target_site:
+            if _normalise_site_token(row_site) == target_site:
+                selected_row = normalised
+                break
+            if selected_row is None:
+                selected_row = normalised
+        else:
+            selected_row = normalised
+            break
+
+    if not selected_row:
+        return None
+
+    sw = _corner_from_row(selected_row, "sw")
+    se = _corner_from_row(selected_row, "se")
+    nw = _corner_from_row(selected_row, "nw")
+    ne = _corner_from_row(selected_row, "ne")
+    if not (sw and se and nw and ne):
+        return None
+
+    drive_file_id = _extract_drive_file_id(
+        _first_nonempty(
+            selected_row,
+            [
+                "drive_file_id",
+                "file_id",
+                "drive_id",
+                "media_id",
+                "resource_id",
+            ],
+        )
+    )
+    media_url_raw = _first_nonempty(
+        selected_row,
+        ["url", "media_url", "public_url", "signed_url", "uri", "gcs_uri"],
+    )
+    media_type_raw = _first_nonempty(
+        selected_row,
+        ["media_type", "mime_type", "content_type"],
+    )
+    media_source_raw = _first_nonempty(
+        selected_row,
+        ["media_source", "source"],
+    )
+
+    opacity_raw = _first_nonempty(
+        selected_row,
+        ["opacity", "default_opacity", "opacity_default"],
+    )
+    bearing_raw = _first_nonempty(
+        selected_row,
+        ["bearing_deg", "rotation_deg", "bearing", "rotation"],
+    )
+    cache_ttl_raw = _first_nonempty(
+        selected_row,
+        ["cache_max_age_s", "cache_ttl_s", "cache_ttl"],
+    )
+
+    if not drive_file_id and media_url_raw in (None, ""):
+        return None
+
+    try:
+        opacity_value = _num(opacity_raw)
+    except Exception:
+        opacity_value = None
+    if opacity_value is not None and opacity_value > 1.0:
+        opacity_value = opacity_value / 100.0 if opacity_value <= 100.0 else opacity_value
+
+    bearing_value = None
+    try:
+        bearing_value = _num(bearing_raw)
+    except Exception:
+        bearing_value = None
+
+    defaults = PlanOverlayDefaults(
+        opacity=opacity_value if opacity_value is not None else 0.7,
+        bearing_deg=bearing_value if bearing_value is not None else 0.0,
+    )
+
+    media = PlanOverlayMedia(
+        type=(str(media_type_raw).strip() if media_type_raw not in (None, "") else "image/png"),
+        source=(str(media_source_raw).strip() if media_source_raw not in (None, "") else "drive"),
+        drive_file_id=drive_file_id,
+        url=(str(media_url_raw).strip() if media_url_raw not in (None, "") else None),
+        cache_max_age_s=_int(cache_ttl_raw),
+    )
+
+    display_name_raw = _first_nonempty(
+        selected_row,
+        ["display_name", "label", "name", "title"],
+    )
+
+    site_value = _first_nonempty(
+        selected_row,
+        ["site_id", "site", "id_site", "siteid", "idsite1", "site_id1"],
+    )
+
+    enabled_value = _first_nonempty(selected_row, ["enabled", "active", "is_enabled"])
+
+    bounds = PlanOverlayBounds(sw=sw, se=se, nw=nw, ne=ne)
+
+    return PlanOverlayConfig(
+        enabled=_bool(enabled_value, default=True),
+        display_name=display_name_raw,
+        media=media,
+        bounds=bounds,
+        defaults=defaults,
+        site_id=str(site_value).strip() if site_value not in (None, "") else site_id,
+    )
 
 
 def _detect_header(header: List[str], candidates: List[List[str]]) -> List[str]:
@@ -634,6 +884,7 @@ def read_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, *, site_id: 
     style_meta = _read_style_meta_sheet(svc, sheet_id)
     branches = _read_branches_sheet(svc, sheet_id)
     config_map = _read_config_sheet(svc, sheet_id)
+    plan_overlay = _read_plan_overlay_sheet(svc, sheet_id, site_id)
     crs = _normalise_crs_from_config(config_map)
     if not branches:
         fallback: Dict[str, BranchInfo] = {}
@@ -649,7 +900,15 @@ def read_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, *, site_id: 
             )
         branches = list(fallback.values())
 
-    return Graph(site_id=site_id, nodes=nodes, edges=edges, style_meta=style_meta, crs=crs, branches=branches)
+    return Graph(
+        site_id=site_id,
+        nodes=nodes,
+        edges=edges,
+        style_meta=style_meta,
+        crs=crs,
+        branches=branches,
+        plan_overlay=plan_overlay,
+    )
 
 
 def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Graph, *, site_id: str | None = None) -> None:
@@ -834,3 +1093,8 @@ def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Grap
     ).execute()
 
     _write_style_meta_sheet(svc, sheet_id, graph.style_meta or {})
+
+
+def read_plan_overlay_config(sheet_id: str, *, site_id: str | None = None) -> Optional[PlanOverlayConfig]:
+    svc = _client()
+    return _read_plan_overlay_sheet(svc, sheet_id, site_id)

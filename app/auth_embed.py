@@ -8,7 +8,7 @@ from .config import settings
 def build_csp() -> str:
     ancestors = settings.allowed_frame_ancestors
     # Allow map tile host if configured (for orthophoto)
-    img_src = ["'self'", "data:"]
+    img_src = ["'self'", "data:", "blob:"]
     connect_src = ["'self'"]
     try:
         tiles_url = (settings.map_tiles_url or "").strip()

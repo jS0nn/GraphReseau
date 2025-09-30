@@ -56,6 +56,122 @@ class BranchInfo(BaseModel):
         return self
 
 
+class LatLon(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    lat: float
+    lon: float
+
+    @model_validator(mode="after")
+    def _clean(self) -> "LatLon":
+        try:
+            self.lat = float(self.lat)
+        except Exception:
+            raise ValueError("lat must be a number")
+        try:
+            self.lon = float(self.lon)
+        except Exception:
+            raise ValueError("lon must be a number")
+        return self
+
+
+class PlanOverlayBounds(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    sw: LatLon
+    se: LatLon
+    nw: LatLon
+    ne: LatLon
+
+
+class PlanOverlayMedia(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    type: str = "image/png"
+    source: str = "drive"
+    drive_file_id: Optional[str] = None
+    url: Optional[str] = None
+    cache_max_age_s: Optional[int] = None
+
+    @model_validator(mode="after")
+    def _normalise(self) -> "PlanOverlayMedia":
+        try:
+            if self.drive_file_id is not None:
+                text = str(self.drive_file_id).strip()
+                self.drive_file_id = text or None
+        except Exception:
+            self.drive_file_id = None
+        try:
+            if self.url is not None:
+                self.url = str(self.url).strip() or None
+        except Exception:
+            self.url = None
+        try:
+            if self.type:
+                self.type = str(self.type).strip() or "image/png"
+        except Exception:
+            self.type = "image/png"
+        try:
+            if self.source:
+                self.source = str(self.source).strip() or "drive"
+        except Exception:
+            self.source = "drive"
+        if self.cache_max_age_s is not None:
+            try:
+                self.cache_max_age_s = max(0, int(self.cache_max_age_s))
+            except Exception:
+                self.cache_max_age_s = None
+        return self
+
+
+class PlanOverlayDefaults(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    opacity: float = 0.7
+    bearing_deg: float = 0.0
+
+    @model_validator(mode="after")
+    def _normalise(self) -> "PlanOverlayDefaults":
+        try:
+            val = float(self.opacity)
+        except Exception:
+            val = 0.7
+        if val > 1.0:
+            val = val / 100.0 if val <= 100.0 else val
+        self.opacity = max(0.0, min(1.0, val))
+        try:
+            self.bearing_deg = float(self.bearing_deg)
+        except Exception:
+            self.bearing_deg = 0.0
+        return self
+
+
+class PlanOverlayConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    enabled: bool = True
+    display_name: Optional[str] = None
+    media: PlanOverlayMedia
+    bounds: PlanOverlayBounds
+    defaults: PlanOverlayDefaults = Field(default_factory=PlanOverlayDefaults)
+    site_id: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _tidy(self) -> "PlanOverlayConfig":
+        try:
+            self.enabled = bool(self.enabled)
+        except Exception:
+            self.enabled = True
+        if self.display_name is not None:
+            try:
+                txt = str(self.display_name).strip()
+                self.display_name = txt or None
+            except Exception:
+                self.display_name = None
+        if self.site_id is not None:
+            try:
+                txt = str(self.site_id).strip()
+                self.site_id = txt or None
+            except Exception:
+                self.site_id = None
+        return self
+
+
 class Node(BaseModel):
     model_config = ConfigDict(extra="allow")
     id: str
@@ -190,6 +306,7 @@ class Graph(BaseModel):
     style_meta: Dict[str, Any] = Field(default_factory=dict)
     crs: CRSInfo = Field(default_factory=CRSInfo)
     branches: List[BranchInfo] = Field(default_factory=list)
+    plan_overlay: Optional[PlanOverlayConfig] = None
 
     nodes: List[Node] = Field(default_factory=list)
     edges: List[Edge] = Field(default_factory=list)

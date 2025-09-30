@@ -7,9 +7,9 @@ from typing import Any, Optional
 from fastapi import HTTPException
 
 from ..config import settings
-from ..models import Graph
+from ..models import Graph, PlanOverlayConfig
 from ..services.graph_sanitizer import sanitize_graph_for_write
-from .sheets import load_sheet, save_sheet
+from .sheets import load_sheet, save_sheet, load_plan_overlay_config as load_sheet_plan_config
 from .gcs_json import load_json, save_json
 from .bigquery import load_bigquery, save_bigquery
 
@@ -77,4 +77,20 @@ def save_graph(source: Optional[str] = None, graph: Graph | None = None, **kwarg
     raise HTTPException(status_code=400, detail=f"unknown data source: {kind}")
 
 
-__all__ = ["load_graph", "save_graph"]
+def load_plan_overlay_config(source: Optional[str] = None, **kwargs: Any) -> Optional[PlanOverlayConfig]:
+    kind = _normalise_source(source)
+    if kind in {"sheet", "sheets", "google_sheets"}:
+        site = kwargs.get("site_id") or settings.site_id_filter_default or None
+        if settings.require_site_id and not site:
+            raise HTTPException(
+                status_code=400,
+                detail="site_id required (set query param site_id or SITE_ID_FILTER_DEFAULT)",
+            )
+        return load_sheet_plan_config(
+            sheet_id=kwargs.get("sheet_id"),
+            site_id=site,
+        )
+    raise HTTPException(status_code=400, detail=f"plan overlay unsupported for data source: {kind}")
+
+
+__all__ = ["load_graph", "save_graph", "load_plan_overlay_config"]

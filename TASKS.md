@@ -7,6 +7,17 @@ Statut: à cocher au fur et à mesure. Cible: V1 fonctionnelle (embed RO), sourc
 - [x] UI « élément général »: permettre l’ajout de CANALISATIONS (uniquement; pas de POINTS_DE_MESURE ni de VANNES), en réutilisant le même modèle/flux que l’ajout depuis les propriétés de canalisation.
 - [x] Persistance des notes: les notes saisies dans l’UI doivent être lues/écrites dans Google Sheets (mapping colonnes + POST Sheets).
 
+## Plan overlay (surcouche PDF/PNG)
+- [x] Google Sheets: ajouter l’onglet `PlanOverlay` (`site_id`, `drive_file_id`, coins GPS, opacité, rotation, enabled, etc.).
+- [x] Backend configuration: parser l’onglet et exposer un bloc `plan_overlay` dans les réponses `GET /api/graph`.
+- [x] Téléchargement média: implémenter un fetch Drive (avec cache) et prévoir l’abstraction pour passage futur à Cloud Storage.
+- [x] Nouvelles routes API: `GET /api/plan-overlay/config` et `GET /api/plan-overlay/media` (auth, erreurs 404/502, limites de taille).
+- [x] CSP & settings: autoriser le domaine des médias dans `img-src`/`connect-src`, nouvelles variables d’env si besoin.
+- [x] Frontend Leaflet: créer la couche overlay (ImageOverlay ou plugin rotation) et la piloter via les coins fournis.
+- [x] Contrôles UI: toggle plan, slider d’opacité, réglage de rotation (±, reset), persistance locale.
+- [x] Intégration avec le bouton « Fond » existant (orthophoto activable indépendamment du plan).
+- [ ] Tests et validation: unités parsing/cache, recette d’alignement, scénarios d’erreur, plan non configuré.
+
 ## Frontend (UI/UX)
 - [x] Rendu SVG D3: nœuds/arêtes, couleurs par branche, markers
 - [x] Modes: sélection / connecter / supprimer (nœud)
