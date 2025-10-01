@@ -30,6 +30,17 @@ export function initCanvas(): CanvasHandles {
   const gNodes = root.select<SVGGElement>('.nodes')
   const gOverlay = root.select<SVGGElement>('.overlay')
 
+const DEV_BUILD = typeof __DEV__ !== 'undefined' && __DEV__ === true
+
+const debugCanvas = DEV_BUILD
+  ? (...args: unknown[]): void => {
+      try{
+        if(typeof console === 'undefined') return
+        console.debug('[plan:canvas]', ...args)
+      }catch{}
+    }
+  : () => {}
+
 let spacePan = false
 const zoomStep = 1.25
 const logZoomStep = Math.log(zoomStep)
@@ -72,7 +83,7 @@ let panGuardActive = false
       const source = e.sourceEvent as Event | undefined
       const target = (source && 'target' in source) ? (source as { target?: EventTarget }).target : undefined
       const element = target instanceof Element ? target : null
-      try{ console.debug('[plan:canvas] zoom start', { target: element?.tagName, classList: element ? Array.from(element.classList) : null }) }catch{}
+      debugCanvas('zoom start', { target: element?.tagName, classList: element ? Array.from(element.classList) : null })
       if(element && element.closest('g.node, g.edge')){
         panGuardActive = true
       }else{
@@ -88,7 +99,7 @@ let panGuardActive = false
         }
         panGuardActive = false
       }
-      try{ console.debug('[plan:canvas] zoom step', { dx: e.transform.x - lastZoomTransform.x, dy: e.transform.y - lastZoomTransform.y, k: e.transform.k }) }catch{}
+      debugCanvas('zoom step', { dx: e.transform.x - lastZoomTransform.x, dy: e.transform.y - lastZoomTransform.y, k: e.transform.k })
       const map = getMap && getMap()
       if(isMapActive && isMapActive() && map){
         // Forward pan/zoom deltas to Leaflet; keep SVG root at identity
@@ -116,7 +127,7 @@ let panGuardActive = false
       lastZoomTransform = e.transform
     })
     .on('end', () => {
-      try{ console.debug('[plan:canvas] zoom end') }catch{}
+      debugCanvas('zoom end')
       panGuardActive = false
     })
   svg.call(zoom)

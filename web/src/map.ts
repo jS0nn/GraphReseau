@@ -66,14 +66,18 @@ let planHandleDragArmed = false
 let altKeyDown = false
 let planHandleActiveKey: HandleKey | null = null
 
-const debugPlan = (...args: unknown[]): void => {
-  try{
-    if(typeof console === 'undefined') return
-    const g = typeof window !== 'undefined' ? (window as GlobalWithMap & { __PLAN_DEBUG?: boolean }) : null
-    if(g && g.__PLAN_DEBUG === false) return
-    console.debug('[plan]', ...args)
-  }catch{}
-}
+const DEV_BUILD = typeof __DEV__ !== 'undefined' && __DEV__ === true
+
+const debugPlan = DEV_BUILD
+  ? (...args: unknown[]): void => {
+      try{
+        if(typeof console === 'undefined') return
+        const g = typeof window !== 'undefined' ? (window as GlobalWithMap & { __PLAN_DEBUG?: boolean }) : null
+        if(g && g.__PLAN_DEBUG === false) return
+        console.debug('[plan]', ...args)
+      }catch{}
+    }
+  : () => {}
 
 const isAltKey = (key: string | undefined | null): boolean => key === 'Alt' || key === 'AltGraph'
 

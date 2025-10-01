@@ -11,12 +11,16 @@ import { d3 } from '../vendor.ts'
 
 export { setGeoScale, setGeoCenter } from '../geo.ts'
 
-const debugPlanState = (...args: unknown[]): void => {
-  try{
-    if(typeof console === 'undefined') return
-    console.debug('[plan:state]', ...args)
-  }catch{}
-}
+const DEV_BUILD = typeof __DEV__ !== 'undefined' && __DEV__ === true
+
+const debugPlanState = DEV_BUILD
+  ? (...args: unknown[]): void => {
+      try{
+        if(typeof console === 'undefined') return
+        console.debug('[plan:state]', ...args)
+      }catch{}
+    }
+  : () => {}
 
 type BranchMeta = {
   id: string

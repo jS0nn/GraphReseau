@@ -56,12 +56,14 @@ const getPlanState = getPlanOverlayState
 const PLAN_SCALE_MIN = 25
 const PLAN_SCALE_MAX = 200
 
-const debugPlanUi = (...args: unknown[]): void => {
-  try{
-    if(typeof console === 'undefined') return
-    console.debug('[plan:ui]', ...args)
-  }catch{}
-}
+const debugPlanUi = DEV_BUILD
+  ? (...args: unknown[]): void => {
+      try{
+        if(typeof console === 'undefined') return
+        console.debug('[plan:ui]', ...args)
+      }catch{}
+    }
+  : () => {}
 
 function activePlanUrl(plan = getPlanOverlayState()): string | null {
   const transparent = plan.imageTransparentUrl
