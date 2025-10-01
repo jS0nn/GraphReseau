@@ -60,6 +60,8 @@ const debugPlanUi = DEV_BUILD
   ? (...args: unknown[]): void => {
       try{
         if(typeof console === 'undefined') return
+        const g = typeof window !== 'undefined' ? (window as { __PLAN_DEBUG?: boolean }) : null
+        if(g && g.__PLAN_DEBUG !== true) return
         console.debug('[plan:ui]', ...args)
       }catch{}
     }

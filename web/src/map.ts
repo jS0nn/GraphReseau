@@ -73,7 +73,7 @@ const debugPlan = DEV_BUILD
       try{
         if(typeof console === 'undefined') return
         const g = typeof window !== 'undefined' ? (window as GlobalWithMap & { __PLAN_DEBUG?: boolean }) : null
-        if(g && g.__PLAN_DEBUG === false) return
+        if(g && g.__PLAN_DEBUG !== true) return
         console.debug('[plan]', ...args)
       }catch{}
     }

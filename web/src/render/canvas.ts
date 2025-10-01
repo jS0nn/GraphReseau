@@ -36,6 +36,9 @@ const debugCanvas = DEV_BUILD
   ? (...args: unknown[]): void => {
       try{
         if(typeof console === 'undefined') return
+        const g = typeof window !== 'undefined' ? (window as { __PLAN_DEBUG?: boolean; __PLAN_CANVAS_DEBUG?: boolean }) : null
+        const enabled = g && (g.__PLAN_CANVAS_DEBUG === true || g.__PLAN_DEBUG === true)
+        if(!enabled) return
         console.debug('[plan:canvas]', ...args)
       }catch{}
     }
