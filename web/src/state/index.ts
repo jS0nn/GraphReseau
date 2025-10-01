@@ -6,10 +6,17 @@ import type { MutableNode, MutableEdge } from './normalize.ts'
 import { enforceEdgeOnlyNodeType } from './graph-rules.ts'
 import { recomputeBranches } from '../api.ts'
 import type { Graph } from '../types/graph'
-import type { PlanOverlayConfig } from '../types/plan-overlay.ts'
+import type { PlanOverlayConfig, PlanOverlayBounds, LatLon } from '../types/plan-overlay.ts'
 import { d3 } from '../vendor.ts'
 
 export { setGeoScale, setGeoCenter } from '../geo.ts'
+
+const debugPlanState = (...args: unknown[]): void => {
+  try{
+    if(typeof console === 'undefined') return
+    console.debug('[plan:state]', ...args)
+  }catch{}
+}
 
 type BranchMeta = {
   id: string
@@ -53,6 +60,12 @@ export type PlanOverlayState = {
   enabled: boolean
   opacity: number
   rotationDeg: number
+   scalePercent: number
+  editable: boolean
+  originalBounds: PlanOverlayBounds | null
+  currentBounds: PlanOverlayBounds | null
+  dirty: boolean
+  saving: boolean
   loading: boolean
   error: string | null
 }
@@ -119,6 +132,12 @@ export const state: EditorState = {
     enabled: false,
     opacity: 0.7,
     rotationDeg: 0,
+    scalePercent: 100,
+    editable: false,
+    originalBounds: null,
+    currentBounds: null,
+    dirty: false,
+    saving: false,
     loading: false,
     error: null,
   },
@@ -147,6 +166,63 @@ const PLAN_OPACITY_MIN = 0
 const PLAN_OPACITY_MAX = 1
 const PLAN_ROTATION_MIN = -180
 const PLAN_ROTATION_MAX = 180
+const PLAN_DIRTY_TOLERANCE = 1e-9
+const PLAN_SCALE_PERCENT_MIN = 25
+const PLAN_SCALE_PERCENT_MAX = 200
+
+const PLAN_CORNER_KEYS = ['sw', 'se', 'nw', 'ne'] as const
+type PlanCornerKey = typeof PLAN_CORNER_KEYS[number]
+
+const cloneLatLon = (value: LatLon | null | undefined): LatLon | null => {
+  if(!value) return null
+  try{
+    const lat = Number(value.lat)
+    const lon = Number(value.lon)
+    if(!Number.isFinite(lat) || !Number.isFinite(lon)) return null
+    return { lat, lon }
+  }catch{
+    return null
+  }
+}
+
+const cloneBounds = (bounds: PlanOverlayBounds | null | undefined): PlanOverlayBounds | null => {
+  if(!bounds) return null
+  const entries: Partial<Record<PlanCornerKey, LatLon>> = {}
+  let ok = true
+  for(const key of PLAN_CORNER_KEYS){
+    const cloned = cloneLatLon(bounds[key])
+    if(!cloned){
+      ok = false
+      break
+    }
+    entries[key] = cloned
+  }
+  if(!ok){
+    return null
+  }
+  return {
+    sw: entries.sw!,
+    se: entries.se!,
+    nw: entries.nw!,
+    ne: entries.ne!,
+  }
+}
+
+const boundsEqual = (
+  a: PlanOverlayBounds | null | undefined,
+  b: PlanOverlayBounds | null | undefined,
+  tolerance = PLAN_DIRTY_TOLERANCE,
+): boolean => {
+  if(!a || !b) return a == null && b == null
+  for(const key of PLAN_CORNER_KEYS){
+    const pa = a[key]
+    const pb = b[key]
+    if(!pa || !pb) return false
+    if(Math.abs(pa.lat - pb.lat) > tolerance) return false
+    if(Math.abs(pa.lon - pb.lon) > tolerance) return false
+  }
+  return true
+}
 
 const clamp = (value: number, min: number, max: number): number => {
   if(!Number.isFinite(value)) return min
@@ -510,13 +586,26 @@ export function setPlanOverlayData(
   const nextTransparentUrl = transparentProvided ? (options?.transparentUrl ?? null) : (samePlan ? prev.imageTransparentUrl : null)
   const nextOriginalUrl = originalProvided ? (options?.originalUrl ?? null) : (samePlan ? prev.imageOriginalUrl : null)
 
-  state.planOverlay.config = config
+  let configClone: PlanOverlayConfig | null = null
+  let initialBounds: PlanOverlayBounds | null = null
+  if(config){
+    const clonedBounds = cloneBounds(config.bounds) ?? cloneBounds(prev.currentBounds)
+    configClone = { ...config, bounds: clonedBounds ?? config.bounds }
+    initialBounds = cloneBounds(configClone.bounds)
+  }
+
+  state.planOverlay.config = configClone
   state.planOverlay.planId = newPlanId
   state.planOverlay.imageTransparentUrl = nextTransparentUrl
   state.planOverlay.imageOriginalUrl = nextOriginalUrl
   state.planOverlay.error = null
+  state.planOverlay.originalBounds = initialBounds ? cloneBounds(initialBounds) : null
+  state.planOverlay.currentBounds = initialBounds ? cloneBounds(initialBounds) : null
+  state.planOverlay.dirty = false
+  state.planOverlay.saving = false
+  state.planOverlay.scalePercent = 100
 
-  if(!config){
+  if(!configClone){
     state.planOverlay.opacity = defaultPlanOpacity(null)
     state.planOverlay.rotationDeg = 0
     state.planOverlay.enabled = false
@@ -525,9 +614,9 @@ export function setPlanOverlayData(
     state.planOverlay.opacity = clamp(prev.opacity, PLAN_OPACITY_MIN, PLAN_OPACITY_MAX)
     state.planOverlay.rotationDeg = clamp(prev.rotationDeg, PLAN_ROTATION_MIN, PLAN_ROTATION_MAX)
   }else{
-    state.planOverlay.opacity = defaultPlanOpacity(config)
-    state.planOverlay.rotationDeg = defaultPlanRotation(config)
-    state.planOverlay.enabled = !!config.enabled
+    state.planOverlay.opacity = defaultPlanOpacity(configClone)
+    state.planOverlay.rotationDeg = defaultPlanRotation(configClone)
+    state.planOverlay.enabled = !!configClone.enabled
     state.planOverlay.useTransparent = nextTransparentUrl != null || nextOriginalUrl == null
   }
 
@@ -601,6 +690,79 @@ export function setPlanOverlayUseTransparent(flag: boolean): void {
     notify('plan:toggle', { enabled: state.planOverlay.enabled })
   }
   notify('plan:mode', { useTransparent: state.planOverlay.useTransparent })
+}
+
+export function setPlanOverlayScalePercent(percent: number): void {
+  const raw = Number(percent)
+  if(!Number.isFinite(raw)) return
+  const clamped = clamp(raw, PLAN_SCALE_PERCENT_MIN, PLAN_SCALE_PERCENT_MAX)
+  if(state.planOverlay.scalePercent === clamped) return
+  state.planOverlay.scalePercent = clamped
+  notify('plan:scale', { scalePercent: clamped })
+}
+
+export function setPlanOverlayEditable(flag: boolean): void {
+  const next = !!flag
+  if(state.planOverlay.editable === next) return
+  state.planOverlay.editable = next
+  notify('plan:editable', { editable: next })
+}
+
+export function setPlanOverlayBounds(bounds: PlanOverlayBounds | null): void {
+  const config = state.planOverlay.config
+  if(!config || !bounds){
+    debugPlanState('setPlanOverlayBounds skipped', { hasConfig: !!config, boundsProvided: !!bounds })
+    return
+  }
+  const nextBounds = cloneBounds(bounds)
+  if(!nextBounds){
+    debugPlanState('setPlanOverlayBounds invalid clone', bounds)
+    return
+  }
+  const current = state.planOverlay.currentBounds
+  if(boundsEqual(current, nextBounds)){
+    debugPlanState('setPlanOverlayBounds no-op', nextBounds)
+    return
+  }
+  debugPlanState('setPlanOverlayBounds apply', nextBounds)
+  state.planOverlay.currentBounds = nextBounds
+  state.planOverlay.config = { ...config, bounds: nextBounds }
+  const dirty = !boundsEqual(state.planOverlay.originalBounds, nextBounds)
+  if(state.planOverlay.dirty !== dirty){
+    state.planOverlay.dirty = dirty
+    notify('plan:dirty', { dirty })
+  }else{
+    notify('plan:dirty', { dirty })
+  }
+  notify('plan:bounds', { bounds: nextBounds })
+}
+
+export function resetPlanOverlayBounds(): void {
+  const original = state.planOverlay.originalBounds
+  if(!original) return
+  setPlanOverlayBounds(original)
+}
+
+export function setPlanOverlaySaving(flag: boolean): void {
+  const next = !!flag
+  if(state.planOverlay.saving === next) return
+  state.planOverlay.saving = next
+  notify('plan:saving', { saving: next })
+}
+
+export function markPlanOverlaySaved(bounds?: PlanOverlayBounds | null): void {
+  const source = bounds ?? state.planOverlay.currentBounds
+  const nextOriginal = source ? cloneBounds(source) : null
+  debugPlanState('markPlanOverlaySaved', nextOriginal)
+  state.planOverlay.originalBounds = nextOriginal
+  state.planOverlay.scalePercent = 100
+  const dirty = !boundsEqual(nextOriginal, state.planOverlay.currentBounds)
+  if(state.planOverlay.dirty !== dirty){
+    state.planOverlay.dirty = dirty
+    notify('plan:dirty', { dirty })
+  }else{
+    notify('plan:dirty', { dirty })
+  }
 }
 
 const REMOVABLE_NODE_TYPES = new Set(['JONCTION', 'JUNCTION'])

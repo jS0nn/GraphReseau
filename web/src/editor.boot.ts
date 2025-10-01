@@ -1,5 +1,5 @@
 import { d3 } from './vendor.ts'
-import { getGraph, saveGraph, getMode, getPlanOverlayConfig, fetchPlanOverlayMedia } from './api.ts'
+import { getGraph, saveGraph, getMode, getPlanOverlayConfig, fetchPlanOverlayMedia, savePlanOverlayConfig } from './api.ts'
 import { toJSON } from './exports.ts'
 import { $$ } from './utils.ts'
 import { initCanvas } from './render/canvas.ts'
@@ -12,8 +12,8 @@ import { initLogsUI, log, wireStateLogs, initDevErrorHooks } from './ui/logs.ts'
 import { initForms } from './ui/forms.ts'
 import { showModeHelp } from './ui/mode-help.ts'
 import { initModesUI } from './modes.ts'
-import { initMap, fitMapToNodes, syncGeoProjection, getMap, applyPlanOverlay, updatePlanOverlayOpacity as mapSetPlanOpacity, updatePlanOverlayRotation as mapSetPlanRotation } from './map.ts'
-import { state, setGraph, getGraph as getStateGraph, subscribe, selectNodeById, selectEdgeById, copySelection, pasteClipboard, removeEdge, removeNodes, removeNode, addNode, setMode, setViewMode, getViewMode, setPlanOverlayData, setPlanOverlayLoading, setPlanOverlayError, setPlanOverlayEnabled, setPlanOverlayOpacity, setPlanOverlayRotation, setPlanOverlayUseTransparent, getPlanOverlayState } from './state/index.ts'
+import { initMap, fitMapToNodes, syncGeoProjection, getMap, applyPlanOverlay, updatePlanOverlayOpacity as mapSetPlanOpacity, updatePlanOverlayRotation as mapSetPlanRotation, scalePlanOverlayBy } from './map.ts'
+import { state, setGraph, getGraph as getStateGraph, subscribe, selectNodeById, selectEdgeById, copySelection, pasteClipboard, removeEdge, removeNodes, removeNode, addNode, setMode, setViewMode, getViewMode, setPlanOverlayData, setPlanOverlayLoading, setPlanOverlayError, setPlanOverlayEnabled, setPlanOverlayOpacity, setPlanOverlayRotation, setPlanOverlayUseTransparent, setPlanOverlayEditable, setPlanOverlaySaving, markPlanOverlaySaved, setPlanOverlayScalePercent, getPlanOverlayState } from './state/index.ts'
 import { createHistory } from './state/history.ts'
 import { attachNodeDrag } from './interactions/drag.ts'
 import { attachSelection } from './interactions/selection.ts'
@@ -23,6 +23,7 @@ import { attachEditGeometry } from './interactions/edit-geometry.ts'
 import { attachJunction } from './interactions/junction.ts'
 import type { Graph } from './types/graph'
 import type { MutableNode } from './state/normalize.ts'
+import type { PlanOverlayBounds } from './types/plan-overlay.ts'
 
 type CanvasHandles = ReturnType<typeof initCanvas>
 type GraphSnapshot = Graph
@@ -40,15 +41,27 @@ let planToolsEl: HTMLElement | null = null
 let planToggleBtn: HTMLButtonElement | null = null
 let planOpacityRange: HTMLInputElement | null = null
 let planOpacityValue: HTMLElement | null = null
+let planScaleRange: HTMLInputElement | null = null
+let planScaleValue: HTMLElement | null = null
 let planRotationRange: HTMLInputElement | null = null
-let planRotationValue: HTMLElement | null = null
+let planRotationInput: HTMLInputElement | null = null
 let planRotateLeftBtn: HTMLButtonElement | null = null
 let planRotateRightBtn: HTMLButtonElement | null = null
 let planRotateResetBtn: HTMLButtonElement | null = null
 let planStatusEl: HTMLElement | null = null
 let planWhiteToggleBtn: HTMLButtonElement | null = null
+let planSaveBoundsBtn: HTMLButtonElement | null = null
 
 const getPlanState = getPlanOverlayState
+const PLAN_SCALE_MIN = 25
+const PLAN_SCALE_MAX = 200
+
+const debugPlanUi = (...args: unknown[]): void => {
+  try{
+    if(typeof console === 'undefined') return
+    console.debug('[plan:ui]', ...args)
+  }catch{}
+}
 
 function activePlanUrl(plan = getPlanOverlayState()): string | null {
   const transparent = plan.imageTransparentUrl
@@ -169,6 +182,42 @@ async function loadPlanOverlayAssets(): Promise<void> {
   }
 }
 
+async function saveCurrentPlanBounds(): Promise<void> {
+  const plan = getPlanOverlayState()
+  if(plan.saving) return
+  if(!plan.config || !plan.currentBounds){
+    if(planStatusEl){
+      planStatusEl.textContent = 'Aucun plan à enregistrer'
+    }
+    return
+  }
+  const boundsPayload = JSON.parse(JSON.stringify(plan.currentBounds)) as PlanOverlayBounds
+  setPlanOverlaySaving(true)
+  updatePlanControlsUI()
+  let statusMessage: string | null = null
+  try{
+    const updated = await savePlanOverlayConfig({
+      bounds: boundsPayload,
+      rotation_deg: plan.rotationDeg,
+    })
+    const transparentUrl = plan.imageTransparentUrl
+    const originalUrl = plan.imageOriginalUrl
+    setPlanOverlayData(updated, { transparentUrl, originalUrl })
+    markPlanOverlaySaved(updated.bounds)
+    statusMessage = 'Plan enregistré'
+  }catch(err){
+    console.error('[plan] save failed', err)
+    const message = err instanceof Error ? err.message : String(err)
+    statusMessage = `Erreur sauvegarde plan: ${message}`
+  }finally{
+    setPlanOverlaySaving(false)
+    updatePlanControlsUI()
+    if(statusMessage && planStatusEl){
+      planStatusEl.textContent = statusMessage
+    }
+  }
+}
+
 function planStoragePrefix(): string | null {
   const plan = getPlanOverlayState()
   const planId = plan.planId
@@ -223,6 +272,7 @@ function restorePlanOverlayPreferences(): void {
 function syncPlanOverlayWithMap(): void {
   const plan = getPlanOverlayState()
   const url = activePlanUrl(plan)
+  debugPlanUi('syncPlanOverlayWithMap', { hasConfig: !!plan.config, enabled: plan.enabled, url })
   if(!plan.config || !url || !plan.enabled){
     applyPlanOverlay(null)
     return
@@ -238,12 +288,17 @@ function syncPlanOverlayWithMap(): void {
 function updatePlanControlsUI(): void {
   if(!planControlsEl) return
   const plan = getPlanOverlayState()
+  const canEditPlan = !!plan.editable
+  const dirty = !!plan.dirty
+  const saving = !!plan.saving
   const activeUrl = activePlanUrl(plan)
   const hasMedia = !!plan.config && !!(plan.imageTransparentUrl || plan.imageOriginalUrl)
   const hasConfig = !!plan.config && !!activeUrl && hasMedia
   const showContainer = hasConfig || plan.loading || !!plan.error
   planControlsEl.hidden = !showContainer
   planControlsEl.classList.toggle('loading', plan.loading)
+  planControlsEl.classList.toggle('readonly', !canEditPlan)
+  planControlsEl.classList.toggle('saving', saving)
 
   if(planToggleBtn){
     planToggleBtn.disabled = !hasConfig || plan.loading
@@ -259,6 +314,7 @@ function updatePlanControlsUI(): void {
 
   const opacityValue = Math.round(plan.opacity * 100)
   const rotationValue = Math.round(plan.rotationDeg)
+  const scaleValue = Math.round(plan.scalePercent || 100)
 
   if(planOpacityRange){
     planOpacityRange.disabled = !toolsVisible
@@ -267,12 +323,20 @@ function updatePlanControlsUI(): void {
   if(planOpacityValue){
     planOpacityValue.textContent = `${opacityValue}%`
   }
+  if(planScaleRange){
+    planScaleRange.disabled = !toolsVisible
+    planScaleRange.value = String(Math.max(PLAN_SCALE_MIN, Math.min(PLAN_SCALE_MAX, scaleValue)))
+  }
+  if(planScaleValue){
+    planScaleValue.textContent = `${scaleValue}%`
+  }
   if(planRotationRange){
     planRotationRange.disabled = !toolsVisible
     planRotationRange.value = String(rotationValue)
   }
-  if(planRotationValue){
-    planRotationValue.textContent = `${rotationValue}°`
+  if(planRotationInput){
+    planRotationInput.disabled = !toolsVisible
+    planRotationInput.value = plan.rotationDeg.toFixed(1)
   }
   if(planRotateLeftBtn) planRotateLeftBtn.disabled = !toolsVisible
   if(planRotateRightBtn) planRotateRightBtn.disabled = !toolsVisible
@@ -297,22 +361,47 @@ function updatePlanControlsUI(): void {
       : 'Fond blanc indisponible'
   }
 
+  if(planSaveBoundsBtn){
+    const showSave = canEditPlan && hasConfig
+    planSaveBoundsBtn.hidden = !showSave
+    const disableSave = !showSave || !dirty || plan.loading || saving || !!plan.error
+    planSaveBoundsBtn.disabled = disableSave
+    planSaveBoundsBtn.classList.toggle('loading', saving)
+    if(showSave){
+      planSaveBoundsBtn.title = saving
+        ? 'Sauvegarde du plan en cours…'
+        : (dirty ? 'Enregistrer les coins du plan dans Sheets' : 'Aucune modification à enregistrer')
+    }else{
+      planSaveBoundsBtn.title = hasConfig ? 'Enregistrement indisponible en lecture seule' : 'Aucun plan configuré'
+    }
+  }
+
   if(planStatusEl){
+    let statusText = ''
     if(plan.loading){
-      planStatusEl.textContent = 'Chargement du plan…'
+      statusText = 'Chargement du plan…'
     }else if(plan.error){
-      planStatusEl.textContent = plan.error
+      statusText = plan.error
     }else if(!hasConfig){
-      planStatusEl.textContent = ''
+      statusText = ''
+    }else if(saving){
+      statusText = 'Sauvegarde du plan…'
     }else if(!plan.enabled){
       const name = plan.config?.display_name || 'Plan'
-      planStatusEl.textContent = `${name} (masqué)`
+      statusText = `${name} (masqué)`
+    }else if(dirty){
+      const name = plan.config?.display_name || 'Plan'
+      statusText = `${name} (modifications non sauvegardées)`
     }else{
       const name = plan.config?.display_name || 'Plan actif'
       const hasToggle = !!plan.imageTransparentUrl && !!plan.imageOriginalUrl
       const suffix = hasToggle ? (plan.useTransparent ? ' — fond blanc masqué' : ' — fond blanc affiché') : ''
-      planStatusEl.textContent = `${name}${suffix}`
+      statusText = `${name}${suffix}`
     }
+    if(statusText && !canEditPlan && !plan.loading && !plan.error){
+      statusText += ' (lecture seule)'
+    }
+    planStatusEl.textContent = statusText
   }
 }
 
@@ -484,13 +573,16 @@ function bindToolbar(canvas: CanvasHandles): { updateGraphBtn: () => void } {
   planToggleBtn = byId('planToggleBtn') as HTMLButtonElement | null
   planOpacityRange = byId('planOpacityRange') as HTMLInputElement | null
   planOpacityValue = byId('planOpacityValue')
+  planScaleRange = byId('planScaleRange') as HTMLInputElement | null
+  planScaleValue = byId('planScaleValue')
   planRotationRange = byId('planRotationRange') as HTMLInputElement | null
-  planRotationValue = byId('planRotationValue')
+  planRotationInput = byId('planRotationInput') as HTMLInputElement | null
   planRotateLeftBtn = byId('planRotateLeftBtn') as HTMLButtonElement | null
   planRotateRightBtn = byId('planRotateRightBtn') as HTMLButtonElement | null
   planRotateResetBtn = byId('planRotateResetBtn') as HTMLButtonElement | null
   planStatusEl = byId('planStatus')
   planWhiteToggleBtn = byId('planWhiteToggleBtn') as HTMLButtonElement | null
+  planSaveBoundsBtn = byId('planSaveBoundsBtn') as HTMLButtonElement | null
   planToggleBtn?.addEventListener('click', () => {
     if(planToggleBtn?.disabled) return
     const plan = getPlanOverlayState()
@@ -501,10 +593,43 @@ function bindToolbar(canvas: CanvasHandles): { updateGraphBtn: () => void } {
     const value = Number((event.target as HTMLInputElement).value)
     if(Number.isFinite(value)) setPlanOverlayOpacity(value / 100)
   })
+  planScaleRange?.addEventListener('input', (event) => {
+    if(planScaleRange?.disabled) return
+    const value = Number((event.target as HTMLInputElement).value)
+    if(!Number.isFinite(value)) return
+    const clamped = Math.max(PLAN_SCALE_MIN, Math.min(PLAN_SCALE_MAX, value))
+    const plan = getPlanOverlayState()
+    if(!plan.config) return
+    const prev = plan.scalePercent || 100
+    if(Math.abs(clamped - prev) < 0.01) return
+    const ratio = clamped / (prev || 1)
+    if(!Number.isFinite(ratio) || ratio <= 0) return
+    scalePlanOverlayBy(ratio)
+    setPlanOverlayScalePercent(clamped)
+    planScaleRange.value = String(Math.round(clamped))
+    if(planScaleValue){
+      planScaleValue.textContent = `${Math.round(clamped)}%`
+    }
+  })
   planRotationRange?.addEventListener('input', (event) => {
     if(planRotationRange?.disabled) return
     const value = Number((event.target as HTMLInputElement).value)
     if(Number.isFinite(value)) setPlanOverlayRotation(value)
+    if(planRotationInput){
+      planRotationInput.value = String(value)
+    }
+  })
+  planRotationInput?.addEventListener('change', (event) => {
+    if(planRotationInput?.disabled) return
+    const value = Number((event.target as HTMLInputElement).value)
+    if(Number.isFinite(value)){
+      const bounded = Math.max(PLAN_ROTATION_MIN, Math.min(PLAN_ROTATION_MAX, value))
+      setPlanOverlayRotation(bounded)
+      if(planRotationRange){
+        planRotationRange.value = String(Math.round(bounded))
+      }
+      planRotationInput.value = bounded.toFixed(1)
+    }
   })
   planRotateLeftBtn?.addEventListener('click', () => {
     if(planRotateLeftBtn?.disabled) return
@@ -526,6 +651,10 @@ function bindToolbar(canvas: CanvasHandles): { updateGraphBtn: () => void } {
     if(planWhiteToggleBtn?.disabled) return
     const plan = getPlanOverlayState()
     setPlanOverlayUseTransparent(!plan.useTransparent)
+  })
+  planSaveBoundsBtn?.addEventListener('click', () => {
+    if(planSaveBoundsBtn?.disabled) return
+    void saveCurrentPlanBounds()
   })
   let graphBtn: HTMLButtonElement | null = null
   function updateGraphBtn(): void {
@@ -792,6 +921,9 @@ export async function boot(): Promise<void> {
   adjustWrapTop(); window.addEventListener('resize', adjustWrapTop)
 
   subscribe((evt, payload)=>{
+    if(evt.startsWith('plan:')){
+      debugPlanUi('event', evt, payload)
+    }
     if(evt==='graph:set' || evt.startsWith('node:') || evt.startsWith('edge:') || evt.startsWith('selection:') || evt==='branch:update'){
       renderAll(canvas)
     }
@@ -825,10 +957,19 @@ export async function boot(): Promise<void> {
       syncPlanOverlayWithMap()
       updatePlanControlsUI()
       savePlanOverlayPreferences()
+    }else if(evt === 'plan:bounds'){
+      syncPlanOverlayWithMap()
+      updatePlanControlsUI()
+    }else if(evt === 'plan:scale'){
+      updatePlanControlsUI()
+    }else if(evt === 'plan:dirty' || evt === 'plan:saving' || evt === 'plan:editable'){
+      updatePlanControlsUI()
     }else if(evt === 'plan:loading' || evt === 'plan:error'){
       updatePlanControlsUI()
     }
   })
+  const mode = getMode()
+  setPlanOverlayEditable(mode !== 'ro')
   try{ document.addEventListener('map:view', ()=> { renderAll(canvas) }) }catch{}
 
   const graph = await getGraph().catch<Graph>(err=>{

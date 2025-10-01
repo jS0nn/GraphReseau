@@ -49,11 +49,23 @@ body[data-theme="light"] header.appbar{background:linear-gradient(180deg, #fff, 
 .plan-controls .plan-field{display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted)}
 .plan-controls .plan-field span{white-space:nowrap}
 .plan-controls .plan-field input[type="range"]{width:110px; accent-color:var(--accent)}
+.plan-controls .plan-field#planScaleGroup input[type="range"]{width:140px}
 .plan-controls .plan-rotation input[type="range"]{width:140px}
 .plan-controls .plan-rotation .btn{padding:6px 8px}
 .plan-controls .plan-value{font-variant-numeric:tabular-nums; min-width:36px; text-align:right; color:var(--muted)}
+.plan-rotation-input{width:70px; padding:4px 6px; border-radius:6px; border:1px solid var(--btn-bd); background:var(--panel); color:var(--text); font-size:12px}
+body[data-theme="light"] .plan-rotation-input{background:#fff; border-color:#c7d7f5; color:#1d2433}
 .plan-controls .plan-status{font-size:12px; color:var(--muted)}
 .plan-controls.loading .plan-status{color:var(--text)}
+.plan-controls .btn.loading{opacity:.65; pointer-events:none}
+.plan-controls .btn.loading i{display:inline-block; animation:spin 1s linear infinite}
+
+.plan-handle{position:relative; width:20px; height:20px; border-radius:5px; background:rgba(255,255,255,.95); border:2px solid var(--accent,#2563eb); box-shadow:0 0 6px rgba(0,0,0,.3); box-sizing:border-box}
+.plan-handle::after{content:''; position:absolute; inset:4px; border:1px solid rgba(0,0,0,.25); border-radius:3px}
+.plan-handle.plan-handle-center{background:rgba(37,99,235,0.9); border-color:#fff}
+.plan-handle.plan-handle-center::after{border-color:rgba(255,255,255,0.8)}
+
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
 .seg{display:inline-flex;border:1px solid var(--btn-bd);border-radius:10px;overflow:hidden}
 .seg button{background:var(--btn-bg);border:0;padding:8px 12px;color:var(--btn-fg);cursor:pointer}
 .seg button.active, .seg button:hover{background:var(--btn-bg-hover)}
@@ -61,7 +73,8 @@ body[data-theme="light"] .seg{border-color:var(--btn-bd)}
 #wrap{position:absolute; left:0; right:0; bottom:0; top: var(--appbar-height, 70px); display:grid; grid-template-columns:1fr var(--prop-width)}
 body.prop-collapsed #wrap{ grid-template-columns:1fr 0 }
 #canvas{position:relative; overflow:hidden; background: linear-gradient(0deg, transparent 24%, var(--grid) 25%, var(--grid) 26%, transparent 27%, transparent 74%, var(--grid) 75%, var(--grid) 76%, transparent 77%), linear-gradient(90deg, transparent 24%, var(--grid) 25%, var(--grid) 26%, transparent 27%, transparent 74%, var(--grid) 75%, var(--grid) 76%, transparent 77%); background-size:32px 32px,32px 32px}
-#map{ position:absolute; inset:0; z-index:0; pointer-events:none }
+#map{ position:absolute; inset:0; z-index:0; pointer-events:auto }
+body.plan-alt-active svg{ pointer-events:none }
 body.map-hidden #map{ display:none }
 body.graph-view #map{ display:none !important }
 body.graph-view #canvas{ background: radial-gradient(circle at 20% 20%, rgba(106,168,255,0.08), transparent 55%), radial-gradient(circle at 80% 30%, rgba(148,187,233,0.08), transparent 60%), linear-gradient(0deg, transparent 24%, var(--grid) 25%, var(--grid) 26%, transparent 27%, transparent 74%, var(--grid) 75%, var(--grid) 76%, transparent 77%), linear-gradient(90deg, transparent 24%, var(--grid) 25%, var(--grid) 26%, transparent 27%, transparent 74%, var(--grid) 75%, var(--grid) 76%, transparent 77%); background-size:32px 32px,32px 32px,32px 32px,32px 32px }

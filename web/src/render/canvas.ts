@@ -30,11 +30,14 @@ export function initCanvas(): CanvasHandles {
   const gNodes = root.select<SVGGElement>('.nodes')
   const gOverlay = root.select<SVGGElement>('.overlay')
 
-  let spacePan = false
-  const zoomStep = 1.25
-  const logZoomStep = Math.log(zoomStep)
-  let lastZoomTransform = d3.zoomIdentity
+let spacePan = false
+const zoomStep = 1.25
+const logZoomStep = Math.log(zoomStep)
+let lastZoomTransform = d3.zoomIdentity
+const PAN_GUARD_THRESHOLD_PX = 6
+let panGuardActive = false
   const zoom = d3.zoom<SVGSVGElement, unknown>()
+    .clickDistance(6)
     .filter((event)=> {
       const isWheel = event.type === 'wheel'
       const isDbl = event.type === 'dblclick'
@@ -46,20 +49,10 @@ export function initCanvas(): CanvasHandles {
       }
       // Disable double‑click zoom to avoid interfering with draw finish
       if(isDbl) return false
-      // For drag pan: allow when not starting on nodes/edges and not using Ctrl/Cmd (reserved for marquee)
-      if(isPointerDown && (isMapActive && isMapActive())){
-        // Still let d3 capture pointerdown to compute dx/dy, but block when starting on a node/edge
-        if(event.ctrlKey||event.metaKey||event.shiftKey) return false
-        if(event.button === 2) return false
-        const trg = event.target
-        return !(trg && trg.closest && trg.closest('g.node, g.edge'))
-      }
       if(isPointerDown){
         if(event.ctrlKey||event.metaKey||event.shiftKey) return false
         if(event.button === 2) return false
-        const trg = event.target
-        // Disallow pan when grabbing nodes/edges; allow on background/overlay
-        return !(trg && trg.closest && trg.closest('g.node, g.edge'))
+        return true
       }
       // Other events: default allow
       return true
@@ -75,7 +68,27 @@ export function initCanvas(): CanvasHandles {
     // Allow wider zoom range so zoom-fit can always include all elements
     // Increase max from 5 -> 10 to enable 2x closer zoom
     .scaleExtent([0.02, 10])
+    .on('start', (e) => {
+      const source = e.sourceEvent as Event | undefined
+      const target = (source && 'target' in source) ? (source as { target?: EventTarget }).target : undefined
+      const element = target instanceof Element ? target : null
+      try{ console.debug('[plan:canvas] zoom start', { target: element?.tagName, classList: element ? Array.from(element.classList) : null }) }catch{}
+      if(element && element.closest('g.node, g.edge')){
+        panGuardActive = true
+      }else{
+        panGuardActive = false
+      }
+    })
     .on('zoom', (e)=> {
+      if(panGuardActive){
+        const dxGuard = e.transform.x - lastZoomTransform.x
+        const dyGuard = e.transform.y - lastZoomTransform.y
+        if(Math.hypot(dxGuard, dyGuard) < PAN_GUARD_THRESHOLD_PX){
+          return
+        }
+        panGuardActive = false
+      }
+      try{ console.debug('[plan:canvas] zoom step', { dx: e.transform.x - lastZoomTransform.x, dy: e.transform.y - lastZoomTransform.y, k: e.transform.k }) }catch{}
       const map = getMap && getMap()
       if(isMapActive && isMapActive() && map){
         // Forward pan/zoom deltas to Leaflet; keep SVG root at identity
@@ -101,6 +114,10 @@ export function initCanvas(): CanvasHandles {
       }
       root.attr('transform', e.transform)
       lastZoomTransform = e.transform
+    })
+    .on('end', () => {
+      try{ console.debug('[plan:canvas] zoom end') }catch{}
+      panGuardActive = false
     })
   svg.call(zoom)
 
