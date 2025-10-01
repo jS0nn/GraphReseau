@@ -17,4 +17,4 @@
 - Export CSV/GeoJSON.
 - Gestion multi-sites (filtre `site_id` obligatoire).
 
-⚠️ TODO : prioriser ces sujets dans `TASKS.md` et assigner des responsables.
+⚠️ TODO : prioriser ces sujets dans `docs/roadmap/roadmap-v1.md` et assigner des responsables.

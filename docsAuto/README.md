@@ -38,6 +38,6 @@ Bienvenue dans la base de connaissances de l’Éditeur Réseau. Ce projet rempl
 > Attention : ne jamais commiter de secrets (`.env`, clés d’embed, tokens ADC). Utiliser Google Secret Manager sur Cloud Run et vérifier les rôles IAM (`README.md`, `NOTICE_IMPLEMENTATION.md`).
 
 ## Support & suivi
-- Feuille de route : `TASKS.md`.
+- Feuille de route : `docs/roadmap/roadmap-v1.md`.
 - Plan de tests manuel : `TEST_PLAN.md`.
 - ⚠️ TODO: Documenter le canal de support (Slack/Email) et le responsable produit pour la phase V2.

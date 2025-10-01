@@ -1,4 +1,4 @@
-# taskDiagramme
+# Notes diagramme
 
 ## Progression compréhension
 - [x] Cartographie des routes FastAPI (`/api/graph`, `/api/graph/branch-recalc`, `/embed/editor`)

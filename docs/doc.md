@@ -85,7 +85,7 @@ Bienvenue dans la base de connaissances de l’Éditeur Réseau. Ce projet rempl
 > Attention : ne jamais commiter de secrets (`.env`, clés d’embed, tokens ADC). Utiliser Google Secret Manager sur Cloud Run et vérifier les rôles IAM (`README.md`, `NOTICE_IMPLEMENTATION.md`).
 
 ## Support & suivi
-- Feuille de route : `TASKS.md`.
+- Feuille de route : `docs/roadmap/roadmap-v1.md`.
 - Plan de tests manuel : `TEST_PLAN.md`.
 - ⚠️ TODO: Documenter le canal de support (Slack/Email) et le responsable produit pour la phase V2.
 \=== END FILE
@@ -156,7 +156,7 @@ L’Éditeur Réseau est une application Cloud Run composée d’un backend Fast
 3. **Recalcul branche** : `POST /api/graph/branch-recalc` (strict=False) → diagnostics, renvoyés au client.
 4. **Embed** : `GET /embed/editor?k=...` → contrôle clé + Referer + CSP → template `index.html`.
 
-⚠️ TODO: ajouter un mécanisme de signature courte durée pour les liens d’embed (roadmap V2, `AGENTS.md`).
+⚠️ TODO: ajouter un mécanisme de signature courte durée pour les liens d’embed (roadmap V2, `docs/handbook/agents.md`).
 \=== END FILE
 
 \=== BEGIN FILE: docs/overview/processes.md
@@ -1848,13 +1848,13 @@ gcloud run deploy editeur-reseau-api \
 - **Processus d’incident** non documenté (astreinte, rollback).
 
 ## Travaux planifiés (V2)
-- Liens signés court terme + RBAC (cf. `AGENTS.md`).
+- Liens signés court terme + RBAC (cf. `docs/handbook/agents.md`).
 - Automatisation de la rotation des secrets (Secret Manager).
 - Ajout d’un pipeline CI (tests + build).
 - Export CSV/GeoJSON pour SIG.
 - Normalisation multi-sites (filtrage `site_id` obligatoire).
 
-⚠️ TODO : prioriser ces sujets dans la roadmap (`TASKS.md`) et affecter les responsables.
+⚠️ TODO : prioriser ces sujets dans la roadmap (`docs/roadmap/roadmap-v1.md`) et affecter les responsables.
 \=== END FILE
 
 \=== BEGIN FILE: docs/diagrams/c4-context.md
@@ -2222,7 +2222,7 @@ https://<host>/embed/editor?k=abcdef123456&sheet_id=1AbCdEf&mode=ro
 | docs/explanations/architecture-decisions.md | app/main.py:13-39; app/datasources/__init__.py:21-77; app/shared/graph_transform.py:942-1318; build.mjs:1-88 | tests/test_api_contract.py:12-110 | ADR condensé |
 | docs/explanations/security-model.md | app/auth_embed.py:8-49; app/gcp_auth.py:8-44; app/config.py:38-75 | tests/test_datasource_dispatch.py:12-63 | Sécurité |
 | docs/explanations/performance-scalability.md | app/shared/graph_transform.py:1012-1272; app/datasources/bigquery.py:37-146; build.mjs:1-88 | tests/test_graph_sanitizer.py:20-168 | Performance |
-| docs/explanations/limitations-future-work.md | app/datasources/bigquery.py:148-149; AGENTS.md; TASKS.md | (N/A) | Roadmap |
+| docs/explanations/limitations-future-work.md | app/datasources/bigquery.py:148-149; docs/handbook/agents.md; docs/roadmap/roadmap-v1.md | (N/A) | Roadmap |
 | docs/diagrams/c4-context.md | app/main.py:24-39; app/datasources/__init__.py:21-77 | tests/test_api_contract.py:12-110 | Diagramme L1 |
 | docs/diagrams/c4-container.md | app/routers/*; app/services/graph_sanitizer.py:12-165; web/src/editor.boot.ts:1-200 | tests/test_datasource_dispatch.py:12-63 | Diagramme L2 |
 | docs/diagrams/c4-component.md | app/routers/*; app/shared/graph_transform.py:942-1318; web/src/state/index.js:1-200 | tests/test_api_contract.py:12-110 | Diagramme L3 |

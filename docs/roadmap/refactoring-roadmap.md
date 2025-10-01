@@ -42,10 +42,10 @@ Cette feuille de route structure le chantier de nettoyage post‑migration (Apps
 
 ## Phase 5 — Nettoyage final & documentation
 - [x] **Supprimer dossiers/artefacts legacy**: vérifier `frontend/`, scripts non utilisés, anciennes pages.
-- [x] **Mettre à jour la doc** (`AGENTS.md`, `README`, `TEST_PLAN.md`) avec la nouvelle architecture et les scripts.
+- [x] **Mettre à jour la doc** (`docs/handbook/agents.md`, `README`, `TEST_PLAN.md`) avec la nouvelle architecture et les scripts.
 - [x] **Préparer changelog** et plan de migration (checklist pour production, re-déploiement Cloud Run, communication aux utilisateurs).
 
 ## Suivi & gouvernance
-- **Tableau de bord**: reporter l’avancement dans `TASKS.md` (section Refactoring) et/ou un board project.
+- **Tableau de bord**: reporter l’avancement dans `docs/roadmap/roadmap-v1.md` (section Refactoring) et/ou un board project.
 - **Revue hebdo**: point rapide avec l’équipe pour débloquer dépendances et valider les incréments.
 - **Critères de sortie**: tests verts (backend/frontend), QA validée, documentation à jour, absence de code heritage « canalisations = nœuds » détecté via `rg`.

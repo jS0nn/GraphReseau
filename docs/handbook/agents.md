@@ -149,7 +149,7 @@ Vérifications utiles
 - `.env.example` / `.env.dev`: variables d’environnement (exemple / dev local)
 - `requirements.txt`: dépendances Python runtime
 - `package.json`: dépendances Node (runtime et dev), scripts de build
-- `README.md`, `NOTICE_IMPLEMENTATION.md`, `TEST_PLAN.md`, `TASKS.md`: documentation principale, notice détaillée, plan de test, feuille de route
+- `README.md`, `NOTICE_IMPLEMENTATION.md`, `TEST_PLAN.md`, `docs/roadmap/roadmap-v1.md`: documentation principale, notice détaillée, plan de test, feuille de route
 - `agent.config.yaml`: modèle de cadrage « agent » (peut référencer un layout antérieur — privilégier la structure `app/` telle qu’implémentée ici)
 
 
@@ -215,7 +215,7 @@ Vérifications utiles
 - Démarrage rapide et détails complémentaires: `README.md`
 - Notice pas‑à‑pas (auth, Docker, tests manuels): `NOTICE_IMPLEMENTATION.md`
 - Plan de tests manuels: `TEST_PLAN.md`
-- Feuille de route: `TASKS.md`
+- Feuille de route: `docs/roadmap/roadmap-v1.md`
 - Configuration « agent »: `agent.config.yaml` (attention: certaines sections reflètent un layout antérieur; se référer à la structure `app/` actuelle)
 - Note de contexte exhaustive (architecture + flux): [`docs/contexte-global-editeur-reseau.md`](docs/contexte-global-editeur-reseau.md)
 

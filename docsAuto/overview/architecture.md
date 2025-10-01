@@ -63,4 +63,4 @@ L’Éditeur Réseau est une application Cloud Run composée d’un backend Fast
 3. **Recalcul branche** : `POST /api/graph/branch-recalc` (strict=False) → diagnostics, renvoyés au client.
 4. **Embed** : `GET /embed/editor?k=...` → contrôle clé + Referer + CSP → template `index.html`.
 
-⚠️ TODO: ajouter un mécanisme de signature courte durée pour les liens d’embed (roadmap V2, `AGENTS.md`).
+⚠️ TODO: ajouter un mécanisme de signature courte durée pour les liens d’embed (roadmap V2, `docs/handbook/agents.md`).

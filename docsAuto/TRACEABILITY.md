@@ -23,7 +23,7 @@
 | explanations/architecture-decisions.md | app/main.py; app/datasources/__init__.py; app/shared/graph_transform.py; build.mjs | tests/test_api_contract.py | Décisions |
 | explanations/security-model.md | app/auth_embed.py; app/gcp_auth.py; app/config.py | tests/test_datasource_dispatch.py | Sécurité |
 | explanations/performance-scalability.md | app/shared/graph_transform.py; app/datasources/bigquery.py; build.mjs | tests/test_graph_sanitizer.py | Performance |
-| explanations/limitations-future-work.md | app/datasources/bigquery.py; AGENTS.md; TASKS.md | — | Roadmap |
+| explanations/limitations-future-work.md | app/datasources/bigquery.py; docs/handbook/agents.md; docs/roadmap/roadmap-v1.md | — | Roadmap |
 | diagrams/* | app/main.py; app/routers/*; web/src state/render | tests/test_api_contract.py; tests/test_datasource_dispatch.py | Diagrammes |
 | data-contracts/data-catalog.md | app/models.py; app/routers/api.py; app/routers/branch.py; web/src/shared/graph-transform.ts | tests/test_api_contract.py | DTO |
 | observability/logging-audit-map.md | app/routers/api.py; app/datasources/__init__.py; app/auth_embed.py | ⚠️ TODO tests observabilité | Logging |

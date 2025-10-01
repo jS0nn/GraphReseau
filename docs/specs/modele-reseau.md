@@ -37,7 +37,7 @@
 ## 4. Suivi d’avancement
 | Item | Description | Statut | Notes |
 |------|-------------|--------|-------|
-| DOC | Création du cahier des charges révisé (`taskModeleReseau.md`). | ✅ Terminé | Point de référence pour l’équipe. |
+| DOC | Création du cahier des charges révisé (`docs/specs/modele-reseau.md`). | ✅ Terminé | Point de référence pour l’équipe. |
 | BE-1 | Mise à jour des modèles / sanitisation (`crs`, `branches`, retrait `sdr` nœuds, GPS only). | ✅ Terminé | |
 | BE-2 | Lecture/écriture Sheets avec `BRANCHES`, `CONFIG`, `geometry.tson`, `length_m`. | ✅ Terminé | Compat rétro NODES/EDGES à vérifier. |
 | BE-3 | Persistable payload & API : conserver longueurs pré-calculées, propager `crs`/`branches`. | ✅ Terminé | |

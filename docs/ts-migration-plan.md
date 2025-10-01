@@ -42,7 +42,7 @@
 - Fournir un shim DOM minimal pour exécuter les tests dépendant de Leaflet côté Node (`web/tests/test-setup.ts`).
 
 ## Suivi et critères de done
-- Chaque module migré doit être consigné dans `TS_MIGRATION_TRACKING.md` (statut, PR/commit, notes).
+- Chaque module migré doit être consigné dans `docs/roadmap/ts-migration-tracking.md` (statut, PR/commit, notes).
 - Builds `npm run build` et `npm test` doivent passer après chaque lot.
 - Documentation mise à jour au fur et à mesure des étapes clés.
 
@@ -54,6 +54,6 @@
 ## Prochaines étapes
 - Retirer les blocs `// @ts-nocheck` en introduisant des types précis sur les UI complexes (`ui/forms.ts`, `style/pipes.ts`).
 - Activer `noImplicitAny` (puis le mode `strict`) pour renforcer la couverture de types.
-  - Premier essai réalisé : expose des dépendances d3 non typées et plusieurs callbacks en `render/*` / `shared/graph-transform`. Voir `TS_MIGRATION_TRACKING.md` pour la liste.
+  - Premier essai réalisé : expose des dépendances d3 non typées et plusieurs callbacks en `render/*` / `shared/graph-transform`. Voir `docs/roadmap/ts-migration-tracking.md` pour la liste.
   - `noImplicitAny` est maintenant activé ; poursuivre avec des options plus strictes (`strictNullChecks`, etc.) selon la roadmap.
 - Convertir les tests restants en `.ts` si nécessaire et compléter la documentation CI.
