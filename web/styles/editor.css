@@ -74,7 +74,8 @@ body[data-theme="light"] .seg{border-color:var(--btn-bd)}
 body.prop-collapsed #wrap{ grid-template-columns:1fr 0 }
 #canvas{position:relative; overflow:hidden; background: linear-gradient(0deg, transparent 24%, var(--grid) 25%, var(--grid) 26%, transparent 27%, transparent 74%, var(--grid) 75%, var(--grid) 76%, transparent 77%), linear-gradient(90deg, transparent 24%, var(--grid) 25%, var(--grid) 26%, transparent 27%, transparent 74%, var(--grid) 75%, var(--grid) 76%, transparent 77%); background-size:32px 32px,32px 32px}
 #map{ position:absolute; inset:0; z-index:0; pointer-events:auto }
-body.plan-alt-active svg{ pointer-events:none }
+body.plan-alt-active svg,
+body.plan-alt-active svg *{ pointer-events:none !important }
 body.map-hidden #map{ display:none }
 body.graph-view #map{ display:none !important }
 body.graph-view #canvas{ background: radial-gradient(circle at 20% 20%, rgba(106,168,255,0.08), transparent 55%), radial-gradient(circle at 80% 30%, rgba(148,187,233,0.08), transparent 60%), linear-gradient(0deg, transparent 24%, var(--grid) 25%, var(--grid) 26%, transparent 27%, transparent 74%, var(--grid) 75%, var(--grid) 76%, transparent 77%), linear-gradient(90deg, transparent 24%, var(--grid) 25%, var(--grid) 26%, transparent 27%, transparent 74%, var(--grid) 75%, var(--grid) 76%, transparent 77%); background-size:32px 32px,32px 32px,32px 32px,32px 32px }

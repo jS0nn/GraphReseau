@@ -10,6 +10,12 @@ export interface PlanOverlayBounds {
   ne: LatLon
 }
 
+export interface PlanOverlayUpdatePayload {
+  bounds: PlanOverlayBounds
+  rotation_deg?: number
+  opacity?: number
+}
+
 export interface PlanOverlayMedia {
   type: string
   source: string

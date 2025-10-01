@@ -172,6 +172,32 @@ class PlanOverlayConfig(BaseModel):
         return self
 
 
+class PlanOverlayUpdateRequest(BaseModel):
+    bounds: PlanOverlayBounds
+    rotation_deg: Optional[float] = None
+    opacity: Optional[float] = None
+
+    @model_validator(mode="after")
+    def _normalise(self) -> "PlanOverlayUpdateRequest":
+        if self.rotation_deg is not None:
+            try:
+                self.rotation_deg = float(self.rotation_deg)
+            except Exception:
+                self.rotation_deg = None
+        if self.opacity is not None:
+            try:
+                val = float(self.opacity)
+            except Exception:
+                val = None
+            if val is not None:
+                if val > 1.0 and val <= 100.0:
+                    val = val / 100.0
+                self.opacity = max(0.0, min(1.0, val))
+            else:
+                self.opacity = None
+        return self
+
+
 class Node(BaseModel):
     model_config = ConfigDict(extra="allow")
     id: str

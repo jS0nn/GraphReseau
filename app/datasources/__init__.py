@@ -7,9 +7,9 @@ from typing import Any, Optional
 from fastapi import HTTPException
 
 from ..config import settings
-from ..models import Graph, PlanOverlayConfig
+from ..models import Graph, PlanOverlayConfig, PlanOverlayUpdateRequest
 from ..services.graph_sanitizer import sanitize_graph_for_write
-from .sheets import load_sheet, save_sheet, load_plan_overlay_config as load_sheet_plan_config
+from .sheets import load_sheet, save_sheet, load_plan_overlay_config as load_sheet_plan_config, save_plan_overlay_bounds as save_sheet_plan_bounds
 from .gcs_json import load_json, save_json
 from .bigquery import load_bigquery, save_bigquery
 
@@ -93,4 +93,29 @@ def load_plan_overlay_config(source: Optional[str] = None, **kwargs: Any) -> Opt
     raise HTTPException(status_code=400, detail=f"plan overlay unsupported for data source: {kind}")
 
 
-__all__ = ["load_graph", "save_graph", "load_plan_overlay_config"]
+def save_plan_overlay_bounds(
+    *,
+    source: Optional[str] = None,
+    payload: PlanOverlayUpdateRequest,
+    **kwargs: Any,
+) -> PlanOverlayConfig:
+    kind = _normalise_source(source)
+    if kind in {"sheet", "sheets", "google_sheets"}:
+        site = kwargs.get("site_id") or settings.site_id_filter_default or None
+        if settings.require_site_id and not site:
+            raise HTTPException(
+                status_code=400,
+                detail="site_id required (set query param site_id or SITE_ID_FILTER_DEFAULT)",
+            )
+        sheet_id = kwargs.get("sheet_id")
+        if not sheet_id:
+            raise HTTPException(status_code=400, detail="sheet_id required for plan overlay save")
+        return save_sheet_plan_bounds(
+            sheet_id=sheet_id,
+            site_id=site,
+            payload=payload,
+        )
+    raise HTTPException(status_code=400, detail=f"plan overlay unsupported for data source: {kind}")
+
+
+__all__ = ["load_graph", "save_graph", "load_plan_overlay_config", "save_plan_overlay_bounds"]

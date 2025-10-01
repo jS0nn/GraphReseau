@@ -343,6 +343,31 @@ def _corner_from_row(row: Dict[str, Any], prefix: str) -> Optional[LatLon]:
         return None
 
 
+def _normalise_header_value(value: Any) -> str:
+    if value in (None, ""):
+        return ""
+    try:
+        return str(value).strip().lower()
+    except Exception:
+        return ""
+
+
+def _find_column_index(header: List[Any], candidates: List[str]) -> Optional[int]:
+    if not header:
+        return None
+    lookup = { idx: _normalise_header_value(col) for idx, col in enumerate(header) }
+    for candidate in candidates:
+        key = candidate.strip().lower()
+        for idx, label in lookup.items():
+            if label == key:
+                return idx
+    return None
+
+
+def _format_coord(value: float) -> str:
+    return f"{float(value):.8f}"
+
+
 def _read_plan_overlay_sheet(
     svc,
     sheet_id: str,
@@ -1098,3 +1123,125 @@ def write_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, graph: Grap
 def read_plan_overlay_config(sheet_id: str, *, site_id: str | None = None) -> Optional[PlanOverlayConfig]:
     svc = _client()
     return _read_plan_overlay_sheet(svc, sheet_id, site_id)
+
+
+def write_plan_overlay_bounds(
+    sheet_id: str,
+    *,
+    bounds: PlanOverlayBounds,
+    rotation_deg: float | None = None,
+    opacity: float | None = None,
+    site_id: str | None = None,
+) -> PlanOverlayConfig:
+    svc = _client()
+    try:
+        resp = (
+            svc.spreadsheets()
+            .values()
+            .get(spreadsheetId=sheet_id, range=f"{PLAN_OVERLAY_SHEET}!A:ZZZ")
+            .execute()
+        )
+    except HttpError as exc:
+        if exc.resp.status == 400 and "Unable to parse range" in str(exc):
+            raise HTTPException(status_code=404, detail="plan_overlay_not_found") from exc
+        raise HTTPException(status_code=502, detail=f"plan_overlay_sheet_error: {exc}") from exc
+    except Exception as exc:  # pragma: no cover - network/auth errors
+        raise HTTPException(status_code=502, detail=f"plan_overlay_sheet_error: {exc}") from exc
+
+    values = resp.get("values", [])
+    if not values:
+        raise HTTPException(status_code=404, detail="plan_overlay_not_found")
+    header_row = values[0]
+    data_rows = values[1:]
+    if not header_row or not data_rows:
+        raise HTTPException(status_code=404, detail="plan_overlay_not_found")
+
+    rows_dicts = _values_to_dicts(data_rows, header_row)
+    target_site = _normalise_site_token(site_id)
+    target_index: Optional[int] = None
+    fallback_index: Optional[int] = None
+
+    for idx, row_dict in enumerate(rows_dicts):
+        normalised = _normalise_plan_row(row_dict)
+        if not normalised:
+            continue
+        row_site = _first_nonempty(
+            normalised,
+            ["site_id", "site", "id_site", "siteid", "idsite1", "site_id1"],
+        )
+        if target_site:
+            if _normalise_site_token(row_site) == target_site:
+                target_index = idx
+                break
+            if fallback_index is None:
+                fallback_index = idx
+        else:
+            target_index = idx
+            break
+
+    if target_index is None:
+        target_index = fallback_index
+    if target_index is None or target_index >= len(data_rows):
+        raise HTTPException(status_code=404, detail="plan_overlay_not_found")
+
+    row_values = data_rows[target_index]
+    while len(row_values) < len(header_row):
+        row_values.append("")
+
+    corner_candidates = {
+        "sw": {
+            "lat": ["corner_sw_lat", "sw_lat", "swlat", "sw_latitude", "swlatitude"],
+            "lon": ["corner_sw_lon", "sw_lon", "swlon", "sw_longitude", "swlongitude"],
+        },
+        "se": {
+            "lat": ["corner_se_lat", "se_lat", "selat", "se_latitude", "selatitude"],
+            "lon": ["corner_se_lon", "se_lon", "selon", "se_longitude", "selongitude"],
+        },
+        "nw": {
+            "lat": ["corner_nw_lat", "nw_lat", "nwlat", "nw_latitude", "nwlatitude"],
+            "lon": ["corner_nw_lon", "nw_lon", "nwlon", "nw_longitude", "nwlongitude"],
+        },
+        "ne": {
+            "lat": ["corner_ne_lat", "ne_lat", "nelat", "ne_latitude", "nelatitude"],
+            "lon": ["corner_ne_lon", "ne_lon", "nelon", "ne_longitude", "nelongitude"],
+        },
+    }
+
+    corner_values = {
+        "sw": bounds.sw,
+        "se": bounds.se,
+        "nw": bounds.nw,
+        "ne": bounds.ne,
+    }
+
+    for key, coord in corner_values.items():
+        lat_idx = _find_column_index(header_row, corner_candidates[key]["lat"])
+        lon_idx = _find_column_index(header_row, corner_candidates[key]["lon"])
+        if lat_idx is None or lon_idx is None:
+            raise HTTPException(status_code=400, detail="plan_overlay_sheet_missing_corner_columns")
+        row_values[lat_idx] = _format_coord(coord.lat)
+        row_values[lon_idx] = _format_coord(coord.lon)
+
+    if rotation_deg is not None:
+        rot_idx = _find_column_index(header_row, ["bearing_deg", "rotation_deg", "bearing", "rotation"])
+        if rot_idx is not None:
+            row_values[rot_idx] = f"{float(rotation_deg):.6f}"
+
+    if opacity is not None:
+        op_idx = _find_column_index(header_row, ["opacity", "default_opacity", "opacity_default"])
+        if op_idx is not None:
+            row_values[op_idx] = f"{float(opacity):.4f}"
+
+    row_number = target_index + 2  # header is row 1
+    update_range = f"{PLAN_OVERLAY_SHEET}!A{row_number}"
+    svc.spreadsheets().values().update(
+        spreadsheetId=sheet_id,
+        range=update_range,
+        valueInputOption="RAW",
+        body={"values": [row_values]},
+    ).execute()
+
+    updated = _read_plan_overlay_sheet(svc, sheet_id, site_id)
+    if updated is None:
+        raise HTTPException(status_code=500, detail="plan_overlay_refresh_failed")
+    return updated

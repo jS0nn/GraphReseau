@@ -33,6 +33,18 @@ Dans le classeur Google Sheets principal (ex. `10y5y_3H-3qKzQmY8lx9wevIXXbkWfIU-
 - `corner_sw_lat`, `corner_sw_lon`, `corner_se_lat`, `corner_se_lon`, `corner_nw_lat`, `corner_nw_lon`, `corner_ne_lat`, `corner_ne_lon` — coordonnées GPS.
 - `enabled` — booléen pour activer/désactiver le plan.
 
+## 15) Édition interactive depuis l’UI
+
+- L’onglet plan apparaît dans la barre d’outils dès qu’un plan actif est détecté (mode `rw`).
+- Cliquer sur `Plan` pour afficher le plan, puis maintenir `Alt` enfoncé tout en faisant glisser la poignée centrale pour déplacer l’image sans déplacer la carte.
+- Les quatre poignées d’angle (avec `Alt` maintenu) redimensionnent maintenant le plan de manière uniforme (pas de déformation). Les interactions sont indisponibles en mode lecture (`mode=ro`) ou si le plan est masqué.
+- Utiliser le curseur d’échelle (25 % → 200 %) pour ajuster la taille globale du plan ; les valeurs sont rappelées tant que la session n’est pas rechargée.
+- La rotation peut être saisie au dixième de degré via le champ numérique (le slider reste disponible pour un réglage rapide).
+- Un indicateur “modifications non sauvegardées” apparaît tant que les coins n’ont pas été enregistrés.
+- Le bouton `Sauver plan` persiste les nouvelles coordonnées (colonnes `corner_*_lat` / `corner_*_lon`) et la rotation (`bearing_deg`) dans l’onglet Google Sheets.
+- Le bouton reste actif même si le plan est temporairement masqué, tant qu’il y a des modifications en attente.
+- En cas d’erreur Sheets, le message s’affiche dans la barre de statut du plan sans bloquer les autres contrôles.
+
 Exemple de ligne pour le plan fourni (`drive_file_id = 1L8UeFzpk2exb3PW4dk9mKQq76V5j2rk2`) :
 
 | site_id | display_name | drive_file_id | media_type | opacity | bearing_deg | corner_nw_lat | corner_nw_lon | corner_ne_lat | corner_ne_lon | corner_sw_lat | corner_sw_lon | corner_se_lat | corner_se_lon | enabled |

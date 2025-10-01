@@ -3,7 +3,7 @@
 import { sanitizeGraphPayload } from './shared/graph-transform.ts'
 import type { GraphInput } from './shared/graph-transform.ts'
 import type { Graph, Node } from './types/graph'
-import type { PlanOverlayConfig } from './types/plan-overlay.ts'
+import type { PlanOverlayConfig, PlanOverlayUpdatePayload } from './types/plan-overlay.ts'
 
 type ParsedQuery = {
   source?: string | null
@@ -119,7 +119,9 @@ export async function recomputeBranches(graph: Graph): Promise<unknown> {
     // Tests or non-browser environments: skip network recompute and pretend it succeeded.
     return { ok: true }
   }
-  const url = new URL('/api/graph/branch-recalc', window.location.origin).toString()
+  const q = parseSearch()
+  const params = buildParamsForSource(q)
+  const url = new URL(`/api/graph/branch-recalc?${params.toString()}`, window.location.origin).toString()
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -166,4 +168,19 @@ export async function fetchPlanOverlayMedia(options: { transparent?: boolean } =
   const blob = await res.blob()
   const mime = res.headers.get('Content-Type') || blob.type || 'application/octet-stream'
   return { blob, mime }
+}
+
+export async function savePlanOverlayConfig(update: PlanOverlayUpdatePayload): Promise<PlanOverlayConfig> {
+  const q = parseSearch()
+  const params = buildParamsForSource(q)
+  const res = await fetch(`/api/plan-overlay/config?${params.toString()}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(update),
+  })
+  if(!res.ok){
+    const txt = await res.text().catch(() => '')
+    throw new Error(`POST /api/plan-overlay/config ${res.status} ${txt}`)
+  }
+  return res.json() as Promise<PlanOverlayConfig>
 }

@@ -3,8 +3,8 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from ..datasources import load_plan_overlay_config
-from ..models import PlanOverlayConfig
+from ..datasources import load_plan_overlay_config, save_plan_overlay_bounds
+from ..models import PlanOverlayConfig, PlanOverlayUpdateRequest
 from ..services.plan_overlay import ensure_plan_media, media_service
 
 router = APIRouter(prefix="/api/plan-overlay", tags=["plan-overlay"])
@@ -44,3 +44,18 @@ def get_plan_overlay_media(
         "Cache-Control": f"public, max-age={ttl}",
     }
     return StreamingResponse(iter([payload]), media_type=mime_type, headers=headers)
+
+
+@router.post("/config", response_model=PlanOverlayConfig)
+def update_plan_overlay_config(
+    payload: PlanOverlayUpdateRequest,
+    source: Optional[str] = Query(None, description="sheet only"),
+    sheet_id: Optional[str] = Query(None),
+    site_id: Optional[str] = Query(None),
+):
+    return save_plan_overlay_bounds(
+        source=source,
+        sheet_id=sheet_id,
+        site_id=site_id,
+        payload=payload,
+    )

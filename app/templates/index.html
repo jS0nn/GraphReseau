@@ -52,12 +52,17 @@
             <input id="planOpacityRange" type="range" min="0" max="100" step="1" value="70" aria-label="Opacité du plan (pourcentage)">
             <span class="plan-value" id="planOpacityValue">70%</span>
           </label>
+        <label class="plan-field" id="planScaleGroup" title="Échelle du plan">
+          <span>Échelle</span>
+          <input id="planScaleRange" type="range" min="25" max="200" step="1" value="100" aria-label="Échelle du plan (pourcentage)">
+          <span class="plan-value" id="planScaleValue">100%</span>
+        </label>
         <div class="plan-field plan-rotation" id="planRotationGroup" title="Rotation du plan">
           <button class="btn ghost" id="planRotateLeftBtn" type="button" aria-label="Tourner le plan vers la gauche">
             <i class="uil uil-undo"></i>
           </button>
           <input id="planRotationRange" type="range" min="-180" max="180" step="1" value="0" aria-label="Rotation du plan (degrés)">
-          <span class="plan-value" id="planRotationValue">0°</span>
+          <input id="planRotationInput" type="number" step="0.1" min="-180" max="180" value="0" aria-label="Rotation du plan (degrés)" class="plan-rotation-input">
           <button class="btn ghost" id="planRotateRightBtn" type="button" aria-label="Tourner le plan vers la droite">
             <i class="uil uil-redo"></i>
           </button>
@@ -67,6 +72,9 @@
         </div>
         <button class="btn ghost" id="planWhiteToggleBtn" type="button" title="Afficher/Masquer le fond blanc">
           <i class="uil uil-square"></i> Fond blanc
+        </button>
+        <button class="btn" id="planSaveBoundsBtn" type="button" title="Enregistrer les coins du plan dans Google Sheets">
+          <i class="uil uil-save"></i> Sauver plan
         </button>
       </div>
       <div class="plan-status" id="planStatus" aria-live="polite"></div>

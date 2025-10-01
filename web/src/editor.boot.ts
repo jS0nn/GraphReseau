@@ -981,10 +981,26 @@ export async function boot(): Promise<void> {
     return { nodes: [], edges: [] } as Graph
   })
   setGraph(graph)
-  await loadPlanOverlayAssets().catch(()=>{})
   document.body.classList.remove('prop-collapsed')
   try{ initMap(); fitMapToNodes(); syncGeoProjection() }catch{}
   applyViewMode(getViewMode())
+
+  const schedulePlanOverlayLoad = (): void => {
+    const start = (): void => { void loadPlanOverlayAssets() }
+    try{
+      if(typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function'){
+        window.requestAnimationFrame(()=> start())
+      }else if(typeof window !== 'undefined'){
+        window.setTimeout(start, 0)
+      }else{
+        start()
+      }
+    }catch{
+      start()
+    }
+  }
+
+  schedulePlanOverlayLoad()
 
   const history = createHistory<GraphSnapshot>(
     () => JSON.parse(JSON.stringify(getStateGraph())) as unknown as GraphSnapshot,
