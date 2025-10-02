@@ -655,7 +655,8 @@ function bindToolbar(canvas: CanvasHandles): { updateGraphBtn: () => void } {
     }
   })
   planRotationInput?.addEventListener('change', (event) => {
-    if(planRotationInput?.disabled) return
+    const input = planRotationInput
+    if(!input || input.disabled) return
     const value = Number((event.target as HTMLInputElement).value)
     if(Number.isFinite(value)){
       const bounded = Math.max(PLAN_ROTATION_MIN, Math.min(PLAN_ROTATION_MAX, value))
@@ -663,7 +664,7 @@ function bindToolbar(canvas: CanvasHandles): { updateGraphBtn: () => void } {
       if(planRotationRange){
         planRotationRange.value = String(Math.round(bounded))
       }
-      planRotationInput.value = bounded.toFixed(1)
+      input.value = bounded.toFixed(1)
     }
   })
   planRotateLeftBtn?.addEventListener('click', () => {
@@ -766,30 +767,6 @@ function bindToolbar(canvas: CanvasHandles): { updateGraphBtn: () => void } {
       item.addEventListener('click', ()=>{
         addMenu.classList.remove('open')
         const type = (item.getAttribute('data-add') || 'OUVRAGE').toUpperCase()
-        // Compute current view center in canvas coordinates
-        try{
-          const svgEl = document.getElementById('svg')
-          const canEl = document.getElementById('canvas')
-          const d3Instance = window.d3
-          if(!svgEl || !canEl || !d3Instance) throw new Error('missing canvas refs')
-          const t = d3Instance.zoomTransform(svgEl)
-          const svgRect = svgEl.getBoundingClientRect()
-          const canRect = canEl.getBoundingClientRect()
-          // Center of the visible canvas, converted to svg local coords
-          const centerInSvg: [number, number] = [
-            (canRect.left + canRect.width / 2) - svgRect.left,
-            (canRect.top + canRect.height / 2) - svgRect.top,
-          ]
-          const [cx, cy] = t.invert(centerInSvg)
-          const gs = (state?.gridStep||8)
-          // Slightly offset each subsequent add to avoid stacking
-          const pi = (state._spawnIndex = (state._spawnIndex||0) + 1)
-          const extraX = (pi % 7) * (gs)
-          const extraY = (pi % 11) * (gs)
-          const node = addNode({ type, x: Math.round((cx+extraX)/gs)*gs, y: Math.round((cy+extraY)/gs)*gs })
-          selectNodeById(node.id)
-          return
-        }catch{}
         const node = addNode({ type })
         selectNodeById(node.id)
       })

@@ -10,17 +10,25 @@ type PlanImportOptions = {
 }
 
 export function initPlanImportUI(options: PlanImportOptions): void {
-  const dialog = document.getElementById('planImportDialog') as HTMLDialogElement | null
-  const dropZone = document.getElementById('planImportDrop') as HTMLElement | null
-  const fileInput = document.getElementById('planImportFile') as HTMLInputElement | null
-  const detailsEl = document.getElementById('planImportDetails') as HTMLElement | null
-  const statusEl = document.getElementById('planImportStatus') as HTMLElement | null
-  const submitBtn = document.getElementById('planImportSubmit') as HTMLButtonElement | null
-  const closeBtn = document.getElementById('planImportClose') as HTMLButtonElement | null
+  const dialogRaw = document.getElementById('planImportDialog') as HTMLDialogElement | null
+  const dropZoneRaw = document.getElementById('planImportDrop') as HTMLElement | null
+  const fileInputRaw = document.getElementById('planImportFile') as HTMLInputElement | null
+  const detailsRaw = document.getElementById('planImportDetails') as HTMLElement | null
+  const statusRaw = document.getElementById('planImportStatus') as HTMLElement | null
+  const submitBtnRaw = document.getElementById('planImportSubmit') as HTMLButtonElement | null
+  const closeBtnRaw = document.getElementById('planImportClose') as HTMLButtonElement | null
 
-  if(!dialog || !dropZone || !fileInput || !detailsEl || !statusEl || !submitBtn || !closeBtn){
+  if(!dialogRaw || !dropZoneRaw || !fileInputRaw || !detailsRaw || !statusRaw || !submitBtnRaw || !closeBtnRaw){
     return
   }
+
+  const dialog = dialogRaw
+  const dropZone = dropZoneRaw
+  const fileInput = fileInputRaw
+  const detailsEl = detailsRaw
+  const statusEl = statusRaw
+  const submitBtn = submitBtnRaw
+  const closeBtn = closeBtnRaw
 
   let selectedFile: File | null = null
   let busy = false
@@ -88,7 +96,7 @@ export function initPlanImportUI(options: PlanImportOptions): void {
       if(options.onPlanImported){
         await options.onPlanImported()
       }
-      if('close' in dialog){
+      if(typeof dialog.close === 'function'){
         dialog.close()
       }else{
         dialog.removeAttribute('open')
@@ -106,7 +114,7 @@ export function initPlanImportUI(options: PlanImportOptions): void {
   function openDialog(): void {
     reset()
     try{
-      if('showModal' in dialog){
+      if(typeof dialog.showModal === 'function'){
         dialog.showModal()
       }else{
         dialog.setAttribute('open', 'true')
@@ -132,7 +140,7 @@ export function initPlanImportUI(options: PlanImportOptions): void {
   })
 
   closeBtn.addEventListener('click', () => {
-    if('close' in dialog){
+    if(typeof dialog.close === 'function'){
       dialog.close()
     }else{
       dialog.removeAttribute('open')
@@ -142,7 +150,7 @@ export function initPlanImportUI(options: PlanImportOptions): void {
 
   dialog.addEventListener('cancel', () => {
     reset()
-    if('close' in dialog){
+    if(typeof dialog.close === 'function'){
       dialog.close()
     }else{
       dialog.removeAttribute('open')

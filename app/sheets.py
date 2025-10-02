@@ -969,9 +969,15 @@ def read_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, *, site_id: 
 
         # Optional filter by site_id when an extra column like 'idSite1' exists
         site_col_keys = ["idSite1", "idSite"]
+        header_keys = {
+            str(col).strip().lower()
+            for col in node_header_raw
+            if isinstance(col, str) and col.strip()
+        }
+        has_site_column = any(k.lower() in header_keys for k in site_col_keys)
 
         def row_matches_site(full_row: Dict[str, Any]) -> bool:
-            if not site_id:
+            if not site_id or not has_site_column:
                 return True
             target = str(site_id).strip().lower()
             for k in site_col_keys:
@@ -983,23 +989,14 @@ def read_nodes_edges(sheet_id: str, nodes_tab: str, edges_tab: str, *, site_id: 
                     return True
             return False
 
-        matched_any = False
-        buffered: List[Node] = []
         for row_full in node_rows_full:
             if not row_full.get("id"):
                 continue
             try:
                 if row_matches_site(row_full):
                     nodes.append(_row_to_node(row_full, node_header, row_full))
-                    matched_any = True
-                else:
-                    buffered.append(_row_to_node(row_full, node_header, row_full))
             except Exception:
                 continue
-
-        # Dev fallback: if a site filter is provided but nothing matched, return all nodes
-        if site_id and not matched_any and buffered:
-            nodes = buffered
 
     if edges_values:
         edge_header_raw = edges_values[0]

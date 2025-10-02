@@ -8,6 +8,7 @@ import { recomputeBranches } from '../api.ts'
 import type { Graph } from '../types/graph'
 import type { PlanOverlayConfig, PlanOverlayBounds, LatLon } from '../types/plan-overlay.ts'
 import { d3 } from '../vendor.ts'
+import { NODE_SIZE } from '../constants/nodes.ts'
 
 export { setGeoScale, setGeoCenter } from '../geo.ts'
 
@@ -390,26 +391,13 @@ function fetchManualDefaults(branchId: unknown): ManualEdgeDefaults | null {
   return fallback ? { ...fallback } : null
 }
 
-function getViewportCenter(){
-  try{
-    const svg = document.getElementById('svg')
-    const canvas = document.getElementById('canvas')
-    if(!svg || !canvas) return null
-    const rectSvg = svg.getBoundingClientRect()
-    const rectCanvas = canvas.getBoundingClientRect()
-    const px = (rectCanvas.left + rectCanvas.width / 2) - rectSvg.left
-    const py = (rectCanvas.top + rectCanvas.height / 2) - rectSvg.top
-    if(svg instanceof SVGSVGElement){
-      const transform = d3.zoomTransform(svg)
-      if(transform && typeof transform.invert === 'function'){
-        const [cx, cy] = transform.invert([px, py])
-        return { x: snapToGrid(cx, state.gridStep), y: snapToGrid(cy, state.gridStep) }
-      }
-    }
-    return { x: snapToGrid(px, state.gridStep), y: snapToGrid(py, state.gridStep) }
-  }catch{
-    return null
-  }
+type ViewportCenter = { x: number; y: number; rawX?: number; rawY?: number }
+
+function getViewportCenter(): ViewportCenter {
+  const base = 400
+  const x = snapToGrid(base, state.gridStep)
+  const y = snapToGrid(base, state.gridStep)
+  return { x, y, rawX: base, rawY: base }
 }
 
 export function clearManualDiameter(){
@@ -1133,30 +1121,75 @@ export function updateNode(id: string, patch: Partial<MutableNode> | null | unde
 
 type MutableNodePatch = Partial<MutableNode>
 type MutableEdgePatch = Partial<MutableEdge>
+type SpawnResult = { x: number; y: number }
 
 export function addNode(partial: MutableNodePatch = {}): MutableNode {
   const requestedType = typeof partial.type === 'string' ? partial.type : 'OUVRAGE'
   const type = enforceEdgeOnlyNodeType(requestedType)
-  function nextSpawn(): { x: number; y: number } {
+  const isJunction = type === 'JONCTION'
+  const offsetX = isJunction ? 0 : NODE_SIZE.w / 2
+  const offsetY = isJunction ? 0 : NODE_SIZE.h / 2
+  const nudgeStep = Math.max(state.gridStep, 1) * 2
+
+  const tooClose = (x: number, y: number): boolean => state.nodes.some((n) => {
+    const nx = Number(n?.x ?? NaN)
+    const ny = Number(n?.y ?? NaN)
+    if(!Number.isFinite(nx) || !Number.isFinite(ny)) return false
+    return Math.abs(nx - x) < 40 && Math.abs(ny - y) < 40
+  })
+
+  const finaliseSpawn = (topLeftX: number, topLeftY: number): SpawnResult => {
+    const snappedX = snapToGrid(topLeftX, state.gridStep)
+    const snappedY = snapToGrid(topLeftY, state.gridStep)
+    return {
+      x: snappedX,
+      y: snappedY,
+    }
+  }
+
+  function nextSpawn(): SpawnResult {
     const idx = state._spawnIndex++
     const center = getViewportCenter()
-    if(center) return center
+    if(center){
+      const baseCenterX = Number.isFinite(center?.x) ? center.x : 0
+      const baseCenterY = Number.isFinite(center?.y) ? center.y : 0
+      if(Number.isFinite(baseCenterX) && Number.isFinite(baseCenterY)){
+        const baseX = snapToGrid(baseCenterX - offsetX, state.gridStep)
+        const baseY = snapToGrid(baseCenterY - offsetY, state.gridStep)
+        const step = Math.max(nudgeStep, state.gridStep || 8)
+        const maxRadius = 8
+        for(let radius = 0; radius <= maxRadius; radius++){
+          for(let dx = -radius; dx <= radius; dx++){
+            for(let dy = -radius; dy <= radius; dy++){
+              if(Math.max(Math.abs(dx), Math.abs(dy)) !== radius) continue
+              const candidateX = baseX + dx * step
+              const candidateY = baseY + dy * step
+              if(!tooClose(candidateX, candidateY)){
+                return finaliseSpawn(candidateX, candidateY)
+              }
+            }
+          }
+        }
+        return finaliseSpawn(baseX, baseY)
+      }
+    }
     const baseX = 120 + (idx % 8) * 60
     const baseY = 120 + Math.floor(idx / 8) * 80
-    const tooClose = (x: number, y: number): boolean => state.nodes.some((n) => {
-      const nx = Number(n.x ?? 0)
-      const ny = Number(n.y ?? 0)
-      return Math.abs(nx - x) < 40 && Math.abs(ny - y) < 40
-    })
     let x = baseX
     let y = baseY
     let guard = 0
-    while(tooClose(x, y) && guard++ < 64){ x += state.gridStep * 2; y += state.gridStep * 2 }
-    return { x, y }
+    while(tooClose(x, y) && guard++ < 64){
+      x += nudgeStep
+      y += nudgeStep
+    }
+    return finaliseSpawn(x, y)
   }
-  const position = (partial.x == null || partial.y == null)
-    ? nextSpawn()
+
+  const spawn = (partial.x == null || partial.y == null) ? nextSpawn() : null
+  const position = spawn
+    ? { x: spawn.x, y: spawn.y }
     : { x: Number(partial.x), y: Number(partial.y) }
+
   const base: MutableNode = {
     id: genId(type || 'N'),
     type,
@@ -1164,6 +1197,7 @@ export function addNode(partial: MutableNodePatch = {}): MutableNode {
     x: position.x,
     y: position.y,
   } as MutableNode
+
   const node = Object.assign(base, partial || {}) as MutableNode
   node.type = enforceEdgeOnlyNodeType(node.type)
   state.nodes.push(node)

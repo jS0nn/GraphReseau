@@ -37,7 +37,10 @@ class RotatedImageOverlay extends L.ImageOverlay {
   }
 
   _animateZoom(event: L.LeafletEvent & { center: L.LatLng; zoom: number }): void {
-    super._animateZoom?.(event)
+    const baseAnimate = (L.ImageOverlay.prototype as unknown as { _animateZoom?: (evt: typeof event) => void })._animateZoom
+    if(typeof baseAnimate === 'function'){
+      baseAnimate.call(this, event)
+    }
     this._reset()
   }
 
@@ -57,7 +60,7 @@ class RotatedImageOverlay extends L.ImageOverlay {
 
   private _reset(): void {
     const map = this._map
-    const image = this._image as HTMLImageElement | undefined
+    const image = (this as unknown as { _image?: HTMLImageElement })._image
     if(!map || !image) return
 
     const width = image.naturalWidth || image.width

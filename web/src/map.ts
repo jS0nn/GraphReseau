@@ -241,10 +241,10 @@ function computeRotatedCorners(bounds: PlanOverlayBounds, rotationDeg: number): 
   const angleRad = (rotationDeg || 0) * Math.PI / 180
   if(Math.abs(angleRad) < 1e-8){
     return {
-      nw: { lat: bounds.nw.lat, lon: bounds.nw.lon },
-      ne: { lat: bounds.ne.lat, lon: bounds.ne.lon },
-      sw: { lat: bounds.sw.lat, lon: bounds.sw.lon },
-      se: { lat: bounds.se.lat, lon: bounds.se.lon },
+      nw: L.latLng(bounds.nw.lat, bounds.nw.lon),
+      ne: L.latLng(bounds.ne.lat, bounds.ne.lon),
+      sw: L.latLng(bounds.sw.lat, bounds.sw.lon),
+      se: L.latLng(bounds.se.lat, bounds.se.lon),
     }
   }
   const rotatedNw = unprojectToLatLon(rotatePoint(nw, center, angleRad))
@@ -252,10 +252,10 @@ function computeRotatedCorners(bounds: PlanOverlayBounds, rotationDeg: number): 
   const rotatedSw = unprojectToLatLon(rotatePoint(sw, center, angleRad))
   const rotatedSe = unprojectToLatLon(rotatePoint(se, center, angleRad))
   return {
-    nw: rotatedNw,
-    ne: rotatedNe,
-    sw: rotatedSw,
-    se: rotatedSe,
+    nw: L.latLng(rotatedNw.lat, rotatedNw.lon),
+    ne: L.latLng(rotatedNe.lat, rotatedNe.lon),
+    sw: L.latLng(rotatedSw.lat, rotatedSw.lon),
+    se: L.latLng(rotatedSe.lat, rotatedSe.lon),
   }
 }
 
@@ -263,7 +263,8 @@ function applyOverlayBoundsImmediate(bounds: PlanOverlayBounds, rotationDeg: num
   if(planOverlayState){
     planOverlayState.options = { ...planOverlayState.options, bounds }
     planOverlayState.layer.setCorners(computeRotatedCorners(bounds, rotationDeg))
-    planOverlayState.layer.bringToFront?.()
+    const bringToFront = (planOverlayState.layer as unknown as { bringToFront?: () => void }).bringToFront
+    if(typeof bringToFront === 'function') bringToFront.call(planOverlayState.layer)
     debugPlan('applyOverlayBoundsImmediate', { bounds, rotationDeg })
   }
   if(pendingPlanOverlay){
@@ -552,7 +553,9 @@ function updatePlanOverlayHandles(): void {
       marker.addTo(layer)
     }
   }
-  const actualCornerMercs = [actualCorners.nw, actualCorners.ne, actualCorners.sw, actualCorners.se].map(pt => projectLatLon(pt.lat, pt.lon))
+  const actualCornerMercs = [actualCorners.nw, actualCorners.ne, actualCorners.sw, actualCorners.se]
+    .map(latLngToLatLon)
+    .map(pt => projectLatLon(pt.lat, pt.lon))
   const sumCenter = actualCornerMercs.reduce((acc, pt) => ({ x: acc.x + pt.x, y: acc.y + pt.y }), { x: 0, y: 0 })
   const avgCenter = { x: sumCenter.x / actualCornerMercs.length, y: sumCenter.y / actualCornerMercs.length }
   const centerLatLon = unprojectToLatLon(avgCenter)
@@ -642,7 +645,8 @@ function updatePlanOverlayHandles(): void {
   if(centerMarker && !layer.hasLayer(centerMarker)){
     centerMarker.addTo(layer)
   }
-  layer.bringToFront?.()
+  const bringHandlesFront = (layer as unknown as { bringToFront?: () => void }).bringToFront
+  if(typeof bringHandlesFront === 'function') bringHandlesFront.call(layer)
 }
 
 function syncPlanOverlayLayer(): void {
