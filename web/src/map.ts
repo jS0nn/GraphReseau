@@ -53,8 +53,10 @@ let planOverlayState: PlanOverlayLayerState | null = null
 let pendingPlanOverlay: PlanOverlayOptions | null = null
 
 type CornerKey = 'nw' | 'ne' | 'sw' | 'se'
-type HandleKey = CornerKey | 'center'
-const PLAN_HANDLE_KEYS: CornerKey[] = ['nw', 'ne', 'sw', 'se']
+type EdgeKey = 'north' | 'east' | 'south' | 'west'
+type HandleKey = CornerKey | EdgeKey | 'center'
+const PLAN_CORNER_KEYS: CornerKey[] = ['nw', 'ne', 'sw', 'se']
+const PLAN_EDGE_KEYS: EdgeKey[] = ['north', 'east', 'south', 'west']
 const PLAN_CENTER_KEY: 'center' = 'center'
 const PLAN_HANDLE_PANE = 'plan-handle-pane'
 let planHandleLayer: ReturnType<typeof L.layerGroup> | null = null
@@ -153,6 +155,8 @@ if(typeof window !== 'undefined'){
 }
 const SCALE_PERCENT_MIN = 25
 const SCALE_PERCENT_MAX = 200
+const SCALE_FACTOR_MIN = 0.05
+const SCALE_FACTOR_MAX = 10
 
 subscribe((event) => {
   if(event === 'plan:set' || event === 'plan:toggle' || event === 'plan:bounds' || event === 'plan:editable'){
@@ -335,6 +339,8 @@ function stopDomEvent(e?: Event): void {
   }catch{}
 }
 
+const clampScaleFactor = (value: number): number => Math.max(SCALE_FACTOR_MIN, Math.min(SCALE_FACTOR_MAX, value))
+
 function clearPlanOverlayHandles(): void {
   debugPlan('clearPlanOverlayHandles')
   if(planHandleLayer && map){
@@ -342,7 +348,17 @@ function clearPlanOverlayHandles(): void {
     map.removeLayer(planHandleLayer)
   }
   planHandleLayer = null
-  for(const key of PLAN_HANDLE_KEYS){
+  for(const key of PLAN_CORNER_KEYS){
+    const marker = planHandleMarkers[key]
+    if(marker){
+      marker.off('dragstart')
+      marker.off('drag')
+      marker.off('dragend')
+      marker.off('mousedown')
+    }
+    delete planHandleMarkers[key]
+  }
+  for(const key of PLAN_EDGE_KEYS){
     const marker = planHandleMarkers[key]
     if(marker){
       marker.off('dragstart')
@@ -368,7 +384,6 @@ function clearPlanOverlayHandles(): void {
 function handlePlanCornerDrag(key: CornerKey, latLng: L.LatLng): void {
   const plan = getPlanOverlayState()
   if(!plan.config) return
-  debugPlan('handlePlanCenterDrag', { lat: latLng.lat, lon: latLng.lng })
   debugPlan('handlePlanCornerDrag', { key, lat: latLng.lat, lon: latLng.lng })
   const baseBounds = plan.currentBounds ?? plan.config.bounds
   if(!baseBounds) return
@@ -404,12 +419,63 @@ function handlePlanCornerDrag(key: CornerKey, latLng: L.LatLng): void {
   if(!Number.isFinite(targetLen) || targetLen < 1e-6){
     return
   }
-  let factor = targetLen / originalLen
-  factor = Math.max(0.05, Math.min(10, factor))
-  const prevScale = plan.scalePercent || 100
+  const factor = clampScaleFactor(targetLen / originalLen)
   scalePlanOverlayBy(factor)
-  const nextScale = Math.max(SCALE_PERCENT_MIN, Math.min(SCALE_PERCENT_MAX, prevScale * factor))
-  setPlanOverlayScalePercent(nextScale)
+}
+
+function handlePlanEdgeDrag(key: EdgeKey, latLng: L.LatLng): void {
+  const plan = getPlanOverlayState()
+  if(!plan.config) return
+  debugPlan('handlePlanEdgeDrag', { key, lat: latLng.lat, lon: latLng.lng })
+  const baseBounds = plan.currentBounds ?? plan.config.bounds
+  if(!baseBounds) return
+  const rotationRad = (plan.rotationDeg || 0) * Math.PI / 180
+
+  const projectedBase: Record<CornerKey, MercPoint> = {
+    nw: projectLatLon(baseBounds.nw.lat, baseBounds.nw.lon),
+    ne: projectLatLon(baseBounds.ne.lat, baseBounds.ne.lon),
+    sw: projectLatLon(baseBounds.sw.lat, baseBounds.sw.lon),
+    se: projectLatLon(baseBounds.se.lat, baseBounds.se.lon),
+  }
+  const center = {
+    x: (projectedBase.nw.x + projectedBase.ne.x + projectedBase.sw.x + projectedBase.se.x) / 4,
+    y: (projectedBase.nw.y + projectedBase.ne.y + projectedBase.sw.y + projectedBase.se.y) / 4,
+  }
+  const targetProjectedRotated = projectLatLon(latLng.lat, latLng.lng)
+  const targetProjectedBase = rotatePoint(targetProjectedRotated, center, -rotationRad)
+
+  let factorX = 1
+  let factorY = 1
+
+  if(key === 'north' || key === 'south'){
+    const edgeY = key === 'north'
+      ? (projectedBase.nw.y + projectedBase.ne.y) / 2
+      : (projectedBase.sw.y + projectedBase.se.y) / 2
+    const originalHalf = Math.abs(edgeY - center.y)
+    if(!Number.isFinite(originalHalf) || originalHalf < 1e-6){
+      return
+    }
+    const targetHalf = Math.abs(targetProjectedBase.y - center.y)
+    if(!Number.isFinite(targetHalf) || targetHalf < 1e-6){
+      return
+    }
+    factorY = clampScaleFactor(targetHalf / originalHalf)
+  }else{
+    const edgeX = key === 'east'
+      ? (projectedBase.ne.x + projectedBase.se.x) / 2
+      : (projectedBase.nw.x + projectedBase.sw.x) / 2
+    const originalHalf = Math.abs(edgeX - center.x)
+    if(!Number.isFinite(originalHalf) || originalHalf < 1e-6){
+      return
+    }
+    const targetHalf = Math.abs(targetProjectedBase.x - center.x)
+    if(!Number.isFinite(targetHalf) || targetHalf < 1e-6){
+      return
+    }
+    factorX = clampScaleFactor(targetHalf / originalHalf)
+  }
+
+  scalePlanOverlayAxes(factorX, factorY)
 }
 
 function handlePlanCenterDrag(latLng: L.LatLng): void {
@@ -465,8 +531,20 @@ function updatePlanOverlayHandles(): void {
     return
   }
   const actualCorners = computeRotatedCorners(baseBounds, plan.rotationDeg)
-  for(const key of PLAN_HANDLE_KEYS){
-    const corner = latLngToLatLon(actualCorners[key])
+  const actualCornerLatLon: Record<CornerKey, LatLon> = {
+    nw: latLngToLatLon(actualCorners.nw),
+    ne: latLngToLatLon(actualCorners.ne),
+    sw: latLngToLatLon(actualCorners.sw),
+    se: latLngToLatLon(actualCorners.se),
+  }
+  const actualCornerMercs: Record<CornerKey, MercPoint> = {
+    nw: projectLatLon(actualCornerLatLon.nw.lat, actualCornerLatLon.nw.lon),
+    ne: projectLatLon(actualCornerLatLon.ne.lat, actualCornerLatLon.ne.lon),
+    sw: projectLatLon(actualCornerLatLon.sw.lat, actualCornerLatLon.sw.lon),
+    se: projectLatLon(actualCornerLatLon.se.lat, actualCornerLatLon.se.lon),
+  }
+  for(const key of PLAN_CORNER_KEYS){
+    const corner = actualCornerLatLon[key]
     const latLng = L.latLng(corner.lat, corner.lon)
     let marker = planHandleMarkers[key]
     if(!marker){
@@ -553,11 +631,120 @@ function updatePlanOverlayHandles(): void {
       marker.addTo(layer)
     }
   }
-  const actualCornerMercs = [actualCorners.nw, actualCorners.ne, actualCorners.sw, actualCorners.se]
-    .map(latLngToLatLon)
-    .map(pt => projectLatLon(pt.lat, pt.lon))
-  const sumCenter = actualCornerMercs.reduce((acc, pt) => ({ x: acc.x + pt.x, y: acc.y + pt.y }), { x: 0, y: 0 })
-  const avgCenter = { x: sumCenter.x / actualCornerMercs.length, y: sumCenter.y / actualCornerMercs.length }
+  for(const key of PLAN_EDGE_KEYS){
+    let anchorMerc: MercPoint | null = null
+    if(key === 'north'){
+      anchorMerc = {
+        x: (actualCornerMercs.nw.x + actualCornerMercs.ne.x) / 2,
+        y: (actualCornerMercs.nw.y + actualCornerMercs.ne.y) / 2,
+      }
+    }else if(key === 'south'){
+      anchorMerc = {
+        x: (actualCornerMercs.sw.x + actualCornerMercs.se.x) / 2,
+        y: (actualCornerMercs.sw.y + actualCornerMercs.se.y) / 2,
+      }
+    }else if(key === 'east'){
+      anchorMerc = {
+        x: (actualCornerMercs.ne.x + actualCornerMercs.se.x) / 2,
+        y: (actualCornerMercs.ne.y + actualCornerMercs.se.y) / 2,
+      }
+    }else if(key === 'west'){
+      anchorMerc = {
+        x: (actualCornerMercs.nw.x + actualCornerMercs.sw.x) / 2,
+        y: (actualCornerMercs.nw.y + actualCornerMercs.sw.y) / 2,
+      }
+    }
+    if(!anchorMerc) continue
+    const anchorLatLon = unprojectToLatLon(anchorMerc)
+    const anchor = L.latLng(anchorLatLon.lat, anchorLatLon.lon)
+    let marker = planHandleMarkers[key]
+    if(!marker){
+      debugPlan('create edge handle', key, anchor)
+      marker = L.marker(anchor, {
+        pane: PLAN_HANDLE_PANE,
+        draggable: true,
+        zIndexOffset: 1000,
+        icon: L.divIcon({
+          className: 'plan-handle plan-handle-side',
+          iconSize: [14, 14],
+          iconAnchor: [7, 7],
+        }),
+      })
+      let startLatLng: L.LatLng | null = null
+      marker.on('mousedown', (event: LeafletMouseEvent) => {
+        const altHeld = altModifierActive(event.originalEvent)
+        planHandleDragArmed = altHeld
+        planHandleDragActive = altHeld
+        planHandleActiveKey = altHeld ? key : null
+        debugPlan('edge:mousedown', key, { altHeld })
+        if(altHeld){
+          stopDomEvent(event.originalEvent)
+          disableMapInteractions()
+        }else{
+          enableMapInteractions()
+        }
+      })
+      marker.on('dragstart', (event: L.LeafletEvent & { target: L.Marker; originalEvent?: Event }) => {
+        startLatLng = event.target.getLatLng()
+        const altHeld = planHandleDragArmed || altModifierActive(event.originalEvent)
+        planHandleActiveKey = altHeld ? key : null
+        debugPlan('edge:dragstart', key, { altHeld })
+        if(!altHeld){
+          const target = event.target
+          target.setLatLng(startLatLng ?? anchor)
+          planHandleDragActive = false
+          planHandleDragArmed = false
+          enableMapInteractions()
+          return
+        }
+        planHandleDragArmed = true
+        planHandleDragActive = true
+        if(event.originalEvent){
+          stopDomEvent(event.originalEvent)
+        }
+        disableMapInteractions()
+      })
+      marker.on('drag', (event: L.LeafletEvent & { target: L.Marker; originalEvent?: Event }) => {
+        if(!planHandleDragArmed){
+          if(!altModifierActive(event.originalEvent)) return
+          planHandleDragArmed = true
+          planHandleDragActive = true
+          if(event.originalEvent){
+            stopDomEvent(event.originalEvent)
+          }
+          disableMapInteractions()
+        }
+        const target = event.target
+        debugPlan('edge:drag', key, target.getLatLng())
+        handlePlanEdgeDrag(key, target.getLatLng())
+      })
+      marker.on('dragend', (event: L.LeafletEvent & { target: L.Marker; originalEvent?: Event }) => {
+        if(planHandleDragArmed){
+          const target = event.target
+          handlePlanEdgeDrag(key, target.getLatLng())
+          updatePlanOverlayHandles()
+        }else{
+          const target = event.target
+          target.setLatLng(startLatLng ?? anchor)
+        }
+        debugPlan('edge:dragend', key, { armed: planHandleDragArmed })
+        startLatLng = null
+        planHandleActiveKey = null
+        releasePlanHandleDrag()
+      })
+      marker.addTo(layer)
+      planHandleMarkers[key] = marker
+    }
+    if(!planHandleDragActive || planHandleActiveKey !== key){
+      marker.setLatLng(anchor)
+    }
+    if(!layer.hasLayer(marker)){
+      marker.addTo(layer)
+    }
+  }
+  const actualCornerMercList = Object.values(actualCornerMercs)
+  const sumCenter = actualCornerMercList.reduce((acc, pt) => ({ x: acc.x + pt.x, y: acc.y + pt.y }), { x: 0, y: 0 })
+  const avgCenter = { x: sumCenter.x / actualCornerMercList.length, y: sumCenter.y / actualCornerMercList.length }
   const centerLatLon = unprojectToLatLon(avgCenter)
   const centerAnchor = L.latLng(centerLatLon.lat, centerLatLon.lon)
   let centerMarker = planHandleMarkers[PLAN_CENTER_KEY]
@@ -763,11 +950,12 @@ export function updatePlanOverlayRotation(rotationDeg: number): void {
   updatePlanOverlayHandles()
 }
 
-export function scalePlanOverlayBy(factor: number): void {
-  if(!Number.isFinite(factor) || factor <= 0){
+function scalePlanOverlayAxes(factorX: number, factorY: number): void {
+  if(!Number.isFinite(factorX) || !Number.isFinite(factorY) || factorX <= 0 || factorY <= 0){
     return
   }
-  debugPlan('scalePlanOverlayBy', { factor })
+  const clampedX = clampScaleFactor(factorX)
+  const clampedY = clampScaleFactor(factorY)
   const plan = getPlanOverlayState()
   if(!plan.config) return
   const baseBounds = plan.currentBounds ?? plan.config.bounds
@@ -783,15 +971,48 @@ export function scalePlanOverlayBy(factor: number): void {
     x: (projectedBase.nw.x + projectedBase.ne.x + projectedBase.sw.x + projectedBase.se.x) / 4,
     y: (projectedBase.nw.y + projectedBase.ne.y + projectedBase.sw.y + projectedBase.se.y) / 4,
   }
-  const nextBounds: PlanOverlayBounds = {
-    nw: unprojectToLatLon({ x: center.x + (projectedBase.nw.x - center.x) * factor, y: center.y + (projectedBase.nw.y - center.y) * factor }),
-    ne: unprojectToLatLon({ x: center.x + (projectedBase.ne.x - center.x) * factor, y: center.y + (projectedBase.ne.y - center.y) * factor }),
-    sw: unprojectToLatLon({ x: center.x + (projectedBase.sw.x - center.x) * factor, y: center.y + (projectedBase.sw.y - center.y) * factor }),
-    se: unprojectToLatLon({ x: center.x + (projectedBase.se.x - center.x) * factor, y: center.y + (projectedBase.se.y - center.y) * factor }),
+
+  const scalePoint = (point: MercPoint): MercPoint => ({
+    x: center.x + (point.x - center.x) * clampedX,
+    y: center.y + (point.y - center.y) * clampedY,
+  })
+
+  const scaledPoints: Record<CornerKey, MercPoint> = {
+    nw: scalePoint(projectedBase.nw),
+    ne: scalePoint(projectedBase.ne),
+    sw: scalePoint(projectedBase.sw),
+    se: scalePoint(projectedBase.se),
   }
+
+  const nextBounds: PlanOverlayBounds = {
+    nw: unprojectToLatLon(scaledPoints.nw),
+    ne: unprojectToLatLon(scaledPoints.ne),
+    sw: unprojectToLatLon(scaledPoints.sw),
+    se: unprojectToLatLon(scaledPoints.se),
+  }
+
+  const originalVec = {
+    x: projectedBase.nw.x - center.x,
+    y: projectedBase.nw.y - center.y,
+  }
+  const originalDiag = Math.hypot(originalVec.x, originalVec.y)
+  const newDiag = Math.hypot(originalVec.x * clampedX, originalVec.y * clampedY)
+  const ratio = originalDiag > 1e-6 && Number.isFinite(newDiag) && newDiag > 0 ? newDiag / originalDiag : 1
+  const prevScale = plan.scalePercent || 100
+  const nextScale = Math.max(SCALE_PERCENT_MIN, Math.min(SCALE_PERCENT_MAX, prevScale * ratio))
+
   setPlanOverlayBounds(nextBounds)
   applyOverlayBoundsImmediate(nextBounds, plan.rotationDeg || 0)
-  debugPlan('handlePlanCenterDrag:applied', nextBounds)
+  setPlanOverlayScalePercent(nextScale)
+  debugPlan('scalePlanOverlayAxes', { factorX: clampedX, factorY: clampedY, nextBounds })
+}
+
+export function scalePlanOverlayBy(factor: number): void {
+  if(!Number.isFinite(factor) || factor <= 0){
+    return
+  }
+  debugPlan('scalePlanOverlayBy', { factor })
+  scalePlanOverlayAxes(factor, factor)
 }
 
 function computeCanvasOverlayPadding(): CanvasPadding {
