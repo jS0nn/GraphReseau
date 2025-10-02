@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import HTTPException
 
 from ..config import settings
-from ..models import Graph, PlanOverlayConfig, PlanOverlayUpdateRequest
+from ..models import Graph, PlanOverlayConfig, PlanOverlayUpdateRequest, PlanOverlayBounds
 from .. import sheets as sheets_mod
 
 
@@ -86,4 +86,49 @@ def save_plan_overlay_bounds(
     )
 
 
-__all__ = ["load_sheet", "save_sheet", "load_plan_overlay_config", "save_plan_overlay_bounds"]
+def write_plan_overlay_media(
+    sheet_id: Optional[str] = None,
+    *,
+    site_id: Optional[str] = None,
+    display_name: Optional[str] = None,
+    source_drive_file_id: Optional[str] = None,
+    png_original_id: str,
+    png_transparent_id: Optional[str],
+    fallback_bounds: Optional[PlanOverlayBounds] = None,
+) -> PlanOverlayConfig:
+    sid = _clean_sheet_id(sheet_id or settings.sheet_id_default)
+    if not sid:
+        raise HTTPException(status_code=400, detail="sheet_id required")
+    return sheets_mod.write_plan_overlay_media_config(
+        sid,
+        site_id=site_id,
+        display_name=display_name,
+        source_drive_file_id=source_drive_file_id,
+        png_original_id=png_original_id,
+        png_transparent_id=png_transparent_id,
+        fallback_bounds=fallback_bounds,
+    )
+
+
+def clear_plan_overlay_media(
+    sheet_id: Optional[str] = None,
+    *,
+    site_id: Optional[str] = None,
+) -> None:
+    sid = _clean_sheet_id(sheet_id or settings.sheet_id_default)
+    if not sid:
+        raise HTTPException(status_code=400, detail="sheet_id required")
+    sheets_mod.clear_plan_overlay_media_config(
+        sid,
+        site_id=site_id,
+    )
+
+
+__all__ = [
+    "load_sheet",
+    "save_sheet",
+    "load_plan_overlay_config",
+    "save_plan_overlay_bounds",
+    "write_plan_overlay_media",
+    "clear_plan_overlay_media",
+]

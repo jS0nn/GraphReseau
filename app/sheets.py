@@ -257,6 +257,17 @@ STYLE_META_SHEET = "STYLE_META"
 PLAN_OVERLAY_SHEET = "PlanOverlay"
 _DRIVE_URL_RE = re.compile(r"/(?:d|folders)/([A-Za-z0-9_-]{10,})")
 
+PLAN_OVERLAY_MEDIA_COLUMNS = [
+    "drive_file_id",
+    "media_type",
+    "media_source",
+    "url",
+    "cache_max_age_s",
+    "source_drive_file_id",
+    "drive_png_original_id",
+    "drive_png_transparent_id",
+]
+
 
 def _extract_drive_file_id(raw: Any) -> Optional[str]:
     if raw in (None, ""):
@@ -364,6 +375,136 @@ def _find_column_index(header: List[Any], candidates: List[str]) -> Optional[int
     return None
 
 
+def _ensure_plan_overlay_header(svc, sheet_id: str, header_row: List[Any]) -> List[Any]:
+    existing = [_normalise_header_value(cell) for cell in header_row]
+    missing: List[str] = []
+    for column in PLAN_OVERLAY_MEDIA_COLUMNS:
+        if column.strip().lower() not in existing:
+            missing.append(column)
+    if not missing:
+        return header_row
+    updated = list(header_row)
+    updated.extend(missing)
+    svc.spreadsheets().values().update(
+        spreadsheetId=sheet_id,
+        range=f"{PLAN_OVERLAY_SHEET}!A1",
+        valueInputOption="RAW",
+        body={"values": [updated]},
+    ).execute()
+    return updated
+
+
+def _lookup_sheet_id(svc, sheet_id: str, title: str) -> Optional[int]:
+    try:
+        meta = (
+            svc.spreadsheets()
+            .get(
+                spreadsheetId=sheet_id,
+                fields="sheets(properties(sheetId,title))",
+            )
+            .execute()
+        )
+    except Exception:
+        return None
+    for sheet in meta.get("sheets", []):
+        props = sheet.get("properties", {})
+        if props.get("title") == title:
+            return props.get("sheetId")
+    return None
+
+
+def _locate_plan_overlay_row(
+    svc,
+    sheet_id: str,
+    site_id: Optional[str],
+    *,
+    create_if_missing: bool = False,
+):
+    try:
+        resp = (
+            svc.spreadsheets()
+            .values()
+            .get(spreadsheetId=sheet_id, range=f"{PLAN_OVERLAY_SHEET}!A:ZZZ")
+            .execute()
+        )
+    except HttpError as exc:
+        if exc.resp.status == 400 and "Unable to parse range" in str(exc):
+            raise HTTPException(status_code=404, detail="plan_overlay_not_found") from exc
+        raise HTTPException(status_code=502, detail=f"plan_overlay_sheet_error: {exc}") from exc
+    except Exception as exc:  # pragma: no cover - network/auth errors
+        raise HTTPException(status_code=502, detail=f"plan_overlay_sheet_error: {exc}") from exc
+
+    values = resp.get("values", [])
+    if not values:
+        if not create_if_missing:
+            raise HTTPException(status_code=404, detail="plan_overlay_not_found")
+        header_row = _ensure_plan_overlay_header(svc, sheet_id, [])
+        data_rows: List[List[Any]] = []
+    else:
+        header_row = values[0] if values else []
+        data_rows = values[1:]
+        if not header_row:
+            if not create_if_missing:
+                raise HTTPException(status_code=404, detail="plan_overlay_not_found")
+            header_row = _ensure_plan_overlay_header(svc, sheet_id, header_row)
+
+    rows_dicts = _values_to_dicts(data_rows, header_row)
+    target_site = _normalise_site_token(site_id)
+    target_index: Optional[int] = None
+    selected_row: Optional[Dict[str, Any]] = None
+    fallback_index: Optional[int] = None
+
+    for idx, row_dict in enumerate(rows_dicts):
+        normalised = _normalise_plan_row(row_dict)
+        if not normalised:
+            continue
+        row_site = _first_nonempty(
+            normalised,
+            ["site_id", "site", "id_site", "siteid", "idsite1", "site_id1"],
+        )
+        if target_site:
+            if _normalise_site_token(row_site) == target_site:
+                target_index = idx
+                selected_row = normalised
+                break
+            if fallback_index is None:
+                fallback_index = idx
+        else:
+            target_index = idx
+            selected_row = normalised
+            break
+
+    if target_index is None:
+        target_index = fallback_index
+        if target_index is not None:
+            selected_row = _normalise_plan_row(rows_dicts[target_index])
+
+    if target_index is None or target_index >= len(data_rows) or selected_row is None:
+        if not create_if_missing:
+            raise HTTPException(status_code=404, detail="plan_overlay_not_found")
+        header_row = _ensure_plan_overlay_header(svc, sheet_id, header_row)
+        row_values = [""] * len(header_row)
+        site_idx = _find_column_index(header_row, ["site_id", "site", "id_site", "siteid", "idsite1", "site_id1"])
+        if site_idx is not None and site_id:
+            while len(row_values) <= site_idx:
+                row_values.append("")
+            row_values[site_idx] = site_id
+        row_number = len(data_rows) + 2
+        svc.spreadsheets().values().update(
+            spreadsheetId=sheet_id,
+            range=f"{PLAN_OVERLAY_SHEET}!A{row_number}",
+            valueInputOption="RAW",
+            body={"values": [row_values]},
+        ).execute()
+        data_rows.append(list(row_values))
+        selected_row = _normalise_plan_row({header_row[i]: row_values[i] if i < len(row_values) else '' for i in range(len(header_row))})
+        target_index = len(data_rows) - 1
+    else:
+        row_values = list(data_rows[target_index])
+
+    return header_row, data_rows, target_index, row_values, selected_row
+
+
 def _format_coord(value: float) -> str:
     return f"{float(value):.8f}"
 
@@ -374,50 +515,21 @@ def _read_plan_overlay_sheet(
     site_id: Optional[str],
 ) -> Optional[PlanOverlayConfig]:
     try:
-        resp = (
-            svc.spreadsheets()
-            .values()
-            .get(spreadsheetId=sheet_id, range=f"{PLAN_OVERLAY_SHEET}!A:ZZZ")
-            .execute()
+        header_row, data_rows, target_index, row_values, selected_row = _locate_plan_overlay_row(
+            svc,
+            sheet_id,
+            site_id,
         )
-    except HttpError as exc:
-        if exc.resp.status == 400 and "Unable to parse range" in str(exc):
-            return None
+    except HTTPException:
         return None
     except Exception:
         return None
 
-    values = resp.get("values", [])
-    if not values:
-        return None
-    header_raw = values[0]
-    if not header_raw:
-        return None
-    rows_raw = _values_to_dicts(values[1:], header_raw)
-    if not rows_raw:
-        return None
+    header_row = _ensure_plan_overlay_header(svc, sheet_id, header_row)
+    while len(row_values) < len(header_row):
+        row_values.append("")
 
-    target_site = _normalise_site_token(site_id)
-    selected_row: Optional[Dict[str, Any]] = None
-
-    for row in rows_raw:
-        normalised = _normalise_plan_row(row)
-        if not normalised:
-            continue
-        row_site = _first_nonempty(
-            normalised,
-            ["site_id", "site", "id_site", "siteid", "idsite1", "site_id1"],
-        )
-        if target_site:
-            if _normalise_site_token(row_site) == target_site:
-                selected_row = normalised
-                break
-            if selected_row is None:
-                selected_row = normalised
-        else:
-            selected_row = normalised
-            break
-
+    selected_row = _normalise_plan_row(selected_row)
     if not selected_row:
         return None
 
@@ -451,6 +563,14 @@ def _read_plan_overlay_sheet(
     media_source_raw = _first_nonempty(
         selected_row,
         ["media_source", "source"],
+    )
+    drive_png_original_raw = _first_nonempty(
+        selected_row,
+        ["drive_png_original_id", "png_original_id", "plan_png_id"],
+    )
+    drive_png_transparent_raw = _first_nonempty(
+        selected_row,
+        ["drive_png_transparent_id", "png_transparent_id", "plan_png_transparent_id"],
     )
 
     opacity_raw = _first_nonempty(
@@ -491,6 +611,8 @@ def _read_plan_overlay_sheet(
         type=(str(media_type_raw).strip() if media_type_raw not in (None, "") else "image/png"),
         source=(str(media_source_raw).strip() if media_source_raw not in (None, "") else "drive"),
         drive_file_id=drive_file_id,
+        drive_png_original_id=_extract_drive_file_id(drive_png_original_raw),
+        drive_png_transparent_id=_extract_drive_file_id(drive_png_transparent_raw),
         url=(str(media_url_raw).strip() if media_url_raw not in (None, "") else None),
         cache_max_age_s=_int(cache_ttl_raw),
     )
@@ -1134,57 +1256,13 @@ def write_plan_overlay_bounds(
     site_id: str | None = None,
 ) -> PlanOverlayConfig:
     svc = _client()
-    try:
-        resp = (
-            svc.spreadsheets()
-            .values()
-            .get(spreadsheetId=sheet_id, range=f"{PLAN_OVERLAY_SHEET}!A:ZZZ")
-            .execute()
-        )
-    except HttpError as exc:
-        if exc.resp.status == 400 and "Unable to parse range" in str(exc):
-            raise HTTPException(status_code=404, detail="plan_overlay_not_found") from exc
-        raise HTTPException(status_code=502, detail=f"plan_overlay_sheet_error: {exc}") from exc
-    except Exception as exc:  # pragma: no cover - network/auth errors
-        raise HTTPException(status_code=502, detail=f"plan_overlay_sheet_error: {exc}") from exc
-
-    values = resp.get("values", [])
-    if not values:
-        raise HTTPException(status_code=404, detail="plan_overlay_not_found")
-    header_row = values[0]
-    data_rows = values[1:]
-    if not header_row or not data_rows:
-        raise HTTPException(status_code=404, detail="plan_overlay_not_found")
-
-    rows_dicts = _values_to_dicts(data_rows, header_row)
-    target_site = _normalise_site_token(site_id)
-    target_index: Optional[int] = None
-    fallback_index: Optional[int] = None
-
-    for idx, row_dict in enumerate(rows_dicts):
-        normalised = _normalise_plan_row(row_dict)
-        if not normalised:
-            continue
-        row_site = _first_nonempty(
-            normalised,
-            ["site_id", "site", "id_site", "siteid", "idsite1", "site_id1"],
-        )
-        if target_site:
-            if _normalise_site_token(row_site) == target_site:
-                target_index = idx
-                break
-            if fallback_index is None:
-                fallback_index = idx
-        else:
-            target_index = idx
-            break
-
-    if target_index is None:
-        target_index = fallback_index
-    if target_index is None or target_index >= len(data_rows):
-        raise HTTPException(status_code=404, detail="plan_overlay_not_found")
-
-    row_values = data_rows[target_index]
+    header_row, data_rows, target_index, row_values, _ = _locate_plan_overlay_row(
+        svc,
+        sheet_id,
+        site_id,
+        create_if_missing=True,
+    )
+    header_row = _ensure_plan_overlay_header(svc, sheet_id, header_row)
     while len(row_values) < len(header_row):
         row_values.append("")
 
@@ -1237,6 +1315,144 @@ def write_plan_overlay_bounds(
     svc.spreadsheets().values().update(
         spreadsheetId=sheet_id,
         range=update_range,
+        valueInputOption="RAW",
+        body={"values": [row_values]},
+    ).execute()
+
+    updated = _read_plan_overlay_sheet(svc, sheet_id, site_id)
+    if updated is None:
+        raise HTTPException(status_code=500, detail="plan_overlay_refresh_failed")
+    return updated
+
+
+def clear_plan_overlay_media_config(
+    sheet_id: str,
+    *,
+    site_id: str | None = None,
+) -> None:
+    svc = _client()
+    try:
+        header_row, data_rows, target_index, row_values, _ = _locate_plan_overlay_row(
+            svc,
+            sheet_id,
+            site_id,
+        )
+    except HTTPException as exc:
+        if exc.status_code == 404:
+            return
+        raise
+    sheet_gid = _lookup_sheet_id(svc, sheet_id, PLAN_OVERLAY_SHEET)
+    if sheet_gid is None:
+        raise HTTPException(status_code=404, detail="plan_overlay_sheet_missing")
+
+    start_idx = target_index + 1  # skip header row (0-based data rows)
+    svc.spreadsheets().batchUpdate(
+        spreadsheetId=sheet_id,
+        body={
+            "requests": [
+                {
+                    "deleteDimension": {
+                        "range": {
+                            "sheetId": sheet_gid,
+                            "dimension": "ROWS",
+                            "startIndex": start_idx,
+                            "endIndex": start_idx + 1,
+                        }
+                    }
+                }
+            ]
+        },
+    ).execute()
+
+
+def write_plan_overlay_media_config(
+    sheet_id: str,
+    *,
+    site_id: str | None,
+    display_name: str | None,
+    source_drive_file_id: str | None,
+    png_original_id: str,
+    png_transparent_id: str | None,
+    fallback_bounds: PlanOverlayBounds | None = None,
+) -> PlanOverlayConfig:
+    svc = _client()
+    header_row, data_rows, target_index, row_values, _ = _locate_plan_overlay_row(
+        svc,
+        sheet_id,
+        site_id,
+        create_if_missing=True,
+    )
+    header_row = _ensure_plan_overlay_header(svc, sheet_id, header_row)
+    while len(row_values) < len(header_row):
+        row_values.append("")
+
+    def _set_column(candidates: List[str], value: Any) -> None:
+        idx = _find_column_index(header_row, candidates)
+        if idx is not None:
+            while len(row_values) <= idx:
+                row_values.append("")
+            row_values[idx] = value if value is not None else ""
+
+    if display_name is not None:
+        _set_column(["display_name", "label", "name", "title"], display_name)
+
+    if source_drive_file_id:
+        _set_column(["source_drive_file_id", "drive_source_id"], source_drive_file_id)
+
+    _set_column(["drive_file_id", "file_id", "drive_id", "media_id"], png_original_id)
+    _set_column(["drive_png_original_id", "png_original_id"], png_original_id)
+    if png_transparent_id:
+        _set_column(["drive_png_transparent_id", "png_transparent_id"], png_transparent_id)
+    else:
+        _set_column(["drive_png_transparent_id", "png_transparent_id"], "")
+
+    _set_column(["media_type", "mime_type", "content_type"], "image/png")
+    _set_column(["media_source", "source"], "drive")
+    _set_column(["url", "media_url", "public_url", "signed_url", "uri", "gcs_uri"], "")
+
+    enabled_idx = _find_column_index(header_row, ["enabled", "active", "is_enabled"])
+    if enabled_idx is not None:
+        while len(row_values) <= enabled_idx:
+            row_values.append("")
+        row_values[enabled_idx] = "TRUE"
+
+    if fallback_bounds is not None:
+        corner_candidates = {
+            "sw": {
+                "lat": ["corner_sw_lat", "sw_lat", "swlat", "sw_latitude", "swlatitude"],
+                "lon": ["corner_sw_lon", "sw_lon", "swlon", "sw_longitude", "swlongitude"],
+            },
+            "se": {
+                "lat": ["corner_se_lat", "se_lat", "selat", "se_latitude", "selatitude"],
+                "lon": ["corner_se_lon", "se_lon", "selon", "se_longitude", "selongitude"],
+            },
+            "nw": {
+                "lat": ["corner_nw_lat", "nw_lat", "nwlat", "nw_latitude", "nwlatitude"],
+                "lon": ["corner_nw_lon", "nw_lon", "nwlon", "nw_longitude", "nwlongitude"],
+            },
+            "ne": {
+                "lat": ["corner_ne_lat", "ne_lat", "nelat", "ne_latitude", "nelatitude"],
+                "lon": ["corner_ne_lon", "ne_lon", "nelon", "ne_longitude", "nelongitude"],
+            },
+        }
+        for key, candidates in corner_candidates.items():
+            lat_idx = _find_column_index(header_row, candidates["lat"])
+            lon_idx = _find_column_index(header_row, candidates["lon"])
+            if lat_idx is not None:
+                while len(row_values) <= lat_idx:
+                    row_values.append("")
+                if not str(row_values[lat_idx]).strip():
+                    row_values[lat_idx] = _format_coord(getattr(fallback_bounds, key).lat)
+            if lon_idx is not None:
+                while len(row_values) <= lon_idx:
+                    row_values.append("")
+                if not str(row_values[lon_idx]).strip():
+                    row_values[lon_idx] = _format_coord(getattr(fallback_bounds, key).lon)
+
+    row_number = target_index + 2
+    svc.spreadsheets().values().update(
+        spreadsheetId=sheet_id,
+        range=f"{PLAN_OVERLAY_SHEET}!A{row_number}",
         valueInputOption="RAW",
         body={"values": [row_values]},
     ).execute()

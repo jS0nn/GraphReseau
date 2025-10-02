@@ -3,7 +3,21 @@
 import { sanitizeGraphPayload } from './shared/graph-transform.ts'
 import type { GraphInput } from './shared/graph-transform.ts'
 import type { Graph, Node } from './types/graph'
-import type { PlanOverlayConfig, PlanOverlayUpdatePayload } from './types/plan-overlay.ts'
+import type { PlanOverlayConfig, PlanOverlayUpdatePayload, PlanOverlayBounds } from './types/plan-overlay.ts'
+
+export interface DriveFileItem {
+  id: string
+  name: string
+  mime_type?: string | null
+  modified_time?: string | null
+  size?: string | null
+  icon_link?: string | null
+}
+
+export interface DriveFileListResponse {
+  files: DriveFileItem[]
+  next_page_token?: string | null
+}
 
 type ParsedQuery = {
   source?: string | null
@@ -183,4 +197,95 @@ export async function savePlanOverlayConfig(update: PlanOverlayUpdatePayload): P
     throw new Error(`POST /api/plan-overlay/config ${res.status} ${txt}`)
   }
   return res.json() as Promise<PlanOverlayConfig>
+}
+
+export async function listPlanOverlayDriveFiles(options: {
+  query?: string
+  pageSize?: number
+  pageToken?: string | null
+  driveId?: string | null
+  parentId?: string | null
+} = {}): Promise<DriveFileListResponse> {
+  const q = parseSearch()
+  const params = buildParamsForSource(q)
+  if(options.query){
+    params.set('query', options.query)
+  }
+  if(options.pageSize && Number.isFinite(options.pageSize)){
+    params.set('page_size', String(Math.max(1, Math.min(100, options.pageSize || 50))))
+  }
+  if(options.pageToken){
+    params.set('page_token', options.pageToken)
+  }
+  if(options.driveId){
+    params.set('drive_id', options.driveId)
+  }
+  if(options.parentId){
+    params.set('parent_id', options.parentId)
+  }
+  const res = await fetch(`/api/plan-overlay/drive-files?${params.toString()}`)
+  if(!res.ok){
+    const txt = await res.text().catch(() => '')
+    throw new Error(`GET /api/plan-overlay/drive-files ${res.status} ${txt}`)
+  }
+  const data = await res.json()
+  const files = Array.isArray(data?.files) ? data.files : []
+  return {
+    files,
+    next_page_token: data?.next_page_token ?? null,
+  }
+}
+
+export async function importPlanOverlayFromDrive(payload: { driveFileId: string; displayName?: string | null }): Promise<PlanOverlayConfig> {
+  const q = parseSearch()
+  const params = buildParamsForSource(q)
+  const body = {
+    drive_file_id: payload.driveFileId,
+    display_name: payload.displayName ?? null,
+  }
+  const res = await fetch(`/api/plan-overlay/import?${params.toString()}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if(!res.ok){
+    const txt = await res.text().catch(() => '')
+    throw new Error(`POST /api/plan-overlay/import ${res.status} ${txt}`)
+  }
+  return res.json() as Promise<PlanOverlayConfig>
+}
+
+export async function uploadPlanOverlayFile(file: File, options: { displayName?: string | null; bounds?: PlanOverlayBounds } = {}): Promise<PlanOverlayConfig> {
+  const q = parseSearch()
+  const params = buildParamsForSource(q)
+  const formData = new FormData()
+  formData.append('file', file)
+  if(options.displayName != null){
+    formData.append('display_name', options.displayName)
+  }
+  if(options.bounds){
+    formData.append('bounds', JSON.stringify(options.bounds))
+  }
+  const res = await fetch(`/api/plan-overlay/upload?${params.toString()}`, {
+    method: 'POST',
+    body: formData,
+  })
+  if(!res.ok){
+    const txt = await res.text().catch(() => '')
+    throw new Error(`POST /api/plan-overlay/upload ${res.status} ${txt}`)
+  }
+  return res.json() as Promise<PlanOverlayConfig>
+}
+
+export async function deletePlanOverlayConfig(): Promise<{ ok: boolean }> {
+  const q = parseSearch()
+  const params = buildParamsForSource(q)
+  const res = await fetch(`/api/plan-overlay/media?${params.toString()}`, {
+    method: 'DELETE',
+  })
+  if(!res.ok){
+    const txt = await res.text().catch(() => '')
+    throw new Error(`DELETE /api/plan-overlay/media ${res.status} ${txt}`)
+  }
+  return res.json().catch(() => ({ ok: true }))
 }

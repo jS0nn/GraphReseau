@@ -41,6 +41,10 @@ class PlanOverlayMediaService:
 
     def _cache_key(self, media: PlanOverlayMedia, transparent: bool) -> str:
         suffix = ':transparent' if transparent else ':raw'
+        if transparent and getattr(media, 'drive_png_transparent_id', None):
+            return f"drive:{media.drive_png_transparent_id}{suffix}"
+        if not transparent and getattr(media, 'drive_png_original_id', None):
+            return f"drive:{media.drive_png_original_id}{suffix}"
         if media.drive_file_id:
             return f"drive:{media.drive_file_id}{suffix}"
         if media.url:
@@ -59,7 +63,11 @@ class PlanOverlayMediaService:
             scopes = ["https://www.googleapis.com/auth/drive.readonly"]
             creds = get_credentials(scopes)
             service = build("drive", "v3", credentials=creds, cache_discovery=False)
-            metadata = service.files().get(fileId=file_id, fields="mimeType, size").execute()
+            metadata = service.files().get(
+                fileId=file_id,
+                fields="mimeType, size",
+                supportsAllDrives=True,
+            ).execute()
             size_text = metadata.get("size")
             if size_text:
                 try:
@@ -124,8 +132,18 @@ class PlanOverlayMediaService:
                 if entry and entry.expires_at > now:
                     return entry.payload, entry.mime_type, ttl
 
-        if media.drive_file_id:
-            payload, mime_type = self._download_drive(media.drive_file_id, transparent=transparent)
+        preferred_id = None
+        apply_transparency = transparent
+        if transparent and getattr(media, 'drive_png_transparent_id', None):
+            preferred_id = media.drive_png_transparent_id
+            apply_transparency = False
+        elif not transparent and getattr(media, 'drive_png_original_id', None):
+            preferred_id = media.drive_png_original_id
+        elif media.drive_file_id:
+            preferred_id = media.drive_file_id
+
+        if preferred_id:
+            payload, mime_type = self._download_drive(preferred_id, transparent=apply_transparency)
         elif media.url:
             payload, mime_type = self._download_url(media.url, media.type, transparent=transparent)
         else:

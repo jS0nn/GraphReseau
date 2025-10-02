@@ -87,6 +87,8 @@ class PlanOverlayMedia(BaseModel):
     type: str = "image/png"
     source: str = "drive"
     drive_file_id: Optional[str] = None
+    drive_png_original_id: Optional[str] = None
+    drive_png_transparent_id: Optional[str] = None
     url: Optional[str] = None
     cache_max_age_s: Optional[int] = None
 
@@ -98,6 +100,18 @@ class PlanOverlayMedia(BaseModel):
                 self.drive_file_id = text or None
         except Exception:
             self.drive_file_id = None
+        try:
+            if self.drive_png_original_id is not None:
+                text = str(self.drive_png_original_id).strip()
+                self.drive_png_original_id = text or None
+        except Exception:
+            self.drive_png_original_id = None
+        try:
+            if self.drive_png_transparent_id is not None:
+                text = str(self.drive_png_transparent_id).strip()
+                self.drive_png_transparent_id = text or None
+        except Exception:
+            self.drive_png_transparent_id = None
         try:
             if self.url is not None:
                 self.url = str(self.url).strip() or None
@@ -197,6 +211,45 @@ class PlanOverlayUpdateRequest(BaseModel):
                 self.opacity = None
         return self
 
+
+class PlanOverlayImportRequest(BaseModel):
+    drive_file_id: str
+    display_name: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _normalise(self) -> "PlanOverlayImportRequest":
+        try:
+            self.drive_file_id = str(self.drive_file_id).strip()
+        except Exception:
+            self.drive_file_id = ""
+        if not self.drive_file_id:
+            raise ValueError("drive_file_id required")
+        if self.display_name is not None:
+            try:
+                txt = str(self.display_name).strip()
+                self.display_name = txt or None
+            except Exception:
+                self.display_name = None
+        return self
+
+
+class DriveFileItem(BaseModel):
+    id: str
+    name: str
+    mime_type: Optional[str] = Field(default=None, alias="mimeType")
+    modified_time: Optional[str] = Field(default=None, alias="modifiedTime")
+    size: Optional[str] = None
+    icon_link: Optional[str] = Field(default=None, alias="iconLink")
+    parents: Optional[list[str]] = None
+
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+
+class DriveFileListResponse(BaseModel):
+    files: List[DriveFileItem]
+    next_page_token: Optional[str] = Field(default=None, alias="nextPageToken")
+
+    model_config = ConfigDict(populate_by_name=True)
 
 class Node(BaseModel):
     model_config = ConfigDict(extra="allow")

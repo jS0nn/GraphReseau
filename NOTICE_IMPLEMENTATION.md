@@ -135,6 +135,8 @@ Astuce: uvicorn occupe le terminal. Vous pouvez soit ouvrir un 2e terminal (et `
 - Plan overlay (si configuré):
   - Config JSON: `curl "http://127.0.0.1:8080/api/plan-overlay/config?source=sheet&sheet_id=$SHEET_ID_DEFAULT"`
   - Image brute: `curl -s "http://127.0.0.1:8080/api/plan-overlay/media?source=sheet&sheet_id=$SHEET_ID_DEFAULT" -o plan.png`
+  - Depuis l’UI, le bouton « Importer » permet de déposer un fichier local (PDF ou PNG). L’API convertit automatiquement le fichier en PNG (versions opaque & transparente) puis enregistre les médias dans `plans/<site_id>/` sur Drive. Les colonnes nécessaires (`source_drive_file_id`, `drive_png_*`) sont ajoutées à la feuille `PlanOverlay` si besoin.
+  - Le bouton « Supprimer plan » retire ces identifiants et désactive la ligne correspondante, supprimant l’overlay côté front au prochain chargement.
 
 ## 8) Tester l’embed (iframe, CSP, clé `k`)
 - Test HTTP direct (vérifie CSP et 200):

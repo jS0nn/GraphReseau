@@ -46,39 +46,38 @@
       <button class="btn" id="mapToggleBtn" title="Fond orthophoto"><i class="uil uil-image"></i> Fond</button>
       <div class="plan-controls" id="planControls" hidden>
         <button class="btn" id="planToggleBtn" type="button" title="Afficher/Masquer le plan"><i class="uil uil-layer-group"></i> Plan</button>
+        <button class="btn" id="planImportBtn" type="button" title="Importer un plan depuis Google Drive"><i class="uil uil-cloud-upload"></i> Importer</button>
         <div class="plan-tools" id="planTools">
           <label class="plan-field" id="planOpacityGroup" title="Opacité du plan">
             <span>Opacité</span>
             <input id="planOpacityRange" type="range" min="0" max="100" step="1" value="70" aria-label="Opacité du plan (pourcentage)">
             <span class="plan-value" id="planOpacityValue">70%</span>
           </label>
-        <label class="plan-field" id="planScaleGroup" title="Échelle du plan">
-          <span>Échelle</span>
-          <input id="planScaleRange" type="range" min="25" max="200" step="1" value="100" aria-label="Échelle du plan (pourcentage)">
-          <span class="plan-value" id="planScaleValue">100%</span>
-        </label>
-        <div class="plan-field plan-rotation" id="planRotationGroup" title="Rotation du plan">
-          <button class="btn ghost" id="planRotateLeftBtn" type="button" aria-label="Tourner le plan vers la gauche">
-            <i class="uil uil-undo"></i>
+          <div class="plan-field plan-rotation" id="planRotationGroup" title="Rotation du plan">
+            <button class="btn ghost" id="planRotateLeftBtn" type="button" aria-label="Tourner le plan vers la gauche">
+              <i class="uil uil-undo"></i>
+            </button>
+            <input id="planRotationRange" type="range" min="-180" max="180" step="1" value="0" aria-label="Rotation du plan (degrés)">
+            <input id="planRotationInput" type="number" step="0.1" min="-180" max="180" value="0" aria-label="Rotation du plan (degrés)" class="plan-rotation-input">
+            <button class="btn ghost" id="planRotateRightBtn" type="button" aria-label="Tourner le plan vers la droite">
+              <i class="uil uil-redo"></i>
+            </button>
+            <button class="btn ghost" id="planRotateResetBtn" type="button" aria-label="Réinitialiser l’orientation du plan">
+              <i class="uil uil-compass"></i>
+            </button>
+          </div>
+          <button class="btn ghost" id="planWhiteToggleBtn" type="button" title="Afficher/Masquer le fond blanc">
+            <i class="uil uil-square"></i> Fond blanc
           </button>
-          <input id="planRotationRange" type="range" min="-180" max="180" step="1" value="0" aria-label="Rotation du plan (degrés)">
-          <input id="planRotationInput" type="number" step="0.1" min="-180" max="180" value="0" aria-label="Rotation du plan (degrés)" class="plan-rotation-input">
-          <button class="btn ghost" id="planRotateRightBtn" type="button" aria-label="Tourner le plan vers la droite">
-            <i class="uil uil-redo"></i>
-          </button>
-          <button class="btn ghost" id="planRotateResetBtn" type="button" aria-label="Réinitialiser l’orientation du plan">
-            <i class="uil uil-compass"></i>
+          <button class="btn" id="planSaveBoundsBtn" type="button" title="Enregistrer les coins du plan dans Google Sheets">
+            <i class="uil uil-save"></i> Sauver plan
           </button>
         </div>
-        <button class="btn ghost" id="planWhiteToggleBtn" type="button" title="Afficher/Masquer le fond blanc">
-          <i class="uil uil-square"></i> Fond blanc
+        <button class="btn danger" id="planDeleteBtn" type="button" title="Supprimer le plan (efface la configuration)" hidden>
+          <i class="uil uil-trash-alt"></i> Supprimer plan
         </button>
-        <button class="btn" id="planSaveBoundsBtn" type="button" title="Enregistrer les coins du plan dans Google Sheets">
-          <i class="uil uil-save"></i> Sauver plan
-        </button>
+        <div class="plan-status" id="planStatus" aria-live="polite"></div>
       </div>
-      <div class="plan-status" id="planStatus" aria-live="polite"></div>
-    </div>
       <button class="btn" id="thicknessBtn" title="Épaisseur des arêtes (Ø)"><i class="uil uil-line-alt"></i> Épaisseur</button>
       <button class="btn" id="exportBtn"><i class="uil uil-export"></i> Export JSON</button>
       <div class="spacer"></div>
@@ -314,6 +313,27 @@
           <li><b>Raccourcis</b> : V (Sélection), D (Dessiner), E (Éditer), I (Insérer), L (Agencer), Échap (sélection), Ctrl/Cmd+Z (Annuler), Ctrl/Cmd+Y (Rétablir), Ctrl/Cmd+C / Ctrl/Cmd+V (Copier/Coller).</li>
         </ul>
         <footer><button id="helpCloseBtn" class="btn">Fermer</button></footer>
+      </article>
+    </dialog>
+
+    <dialog id="planImportDialog" class="plan-import-dialog">
+      <article>
+        <header><strong>Importer un plan</strong></header>
+        <div class="plan-import-body">
+          <p class="plan-import-help">Sélectionnez un fichier PDF ou PNG. Il sera converti en PNG (avec et sans fond blanc) puis enregistré dans Drive sous <code>plans/&lt;site_id&gt;</code>.</p>
+          <label id="planImportDrop" class="plan-import-drop">
+            <input id="planImportFile" type="file" accept="application/pdf,image/png">
+            <span>Glissez-déposez un fichier ou <b>cliquez pour choisir</b></span>
+          </label>
+          <div id="planImportDetails" class="plan-import-details">Aucun fichier sélectionné.</div>
+          <div id="planImportNotice" class="plan-import-notice">Formats supportés : PDF (la première page sera convertie) ou PNG (le fond blanc peut être rendu transparent automatiquement).</div>
+          <div id="planImportStatus" class="plan-import-status"></div>
+        </div>
+        <footer class="plan-import-footer">
+          <button id="planImportSubmit" class="btn primary" type="button" disabled>Importer</button>
+          <span class="spacer"></span>
+          <button id="planImportClose" class="btn" type="button">Fermer</button>
+        </footer>
       </article>
     </dialog>
 
