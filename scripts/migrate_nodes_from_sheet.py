@@ -8,7 +8,7 @@ Source sheet headers expected (superset):
   diametreInterieur, sdrOuvrage, Lat, Long, x, y, actif, lat, long, dateAjoutligne, ...
 
 Destination format:
-  - First columns match app.sheets.NODE_HEADERS_FR_V9 (alignées avec l'application)
+  - First columns match app.sheets.NODE_HEADERS_FR_V11 (alignées avec l'application)
   - Extra metadata columns correspond to app.sheets.EXTRA_SHEET_HEADERS (kept for filtering/audit).
 
 Usage:
@@ -37,7 +37,7 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 from app.gcp_auth import get_credentials
-from app.sheets import NODE_HEADERS_FR_V9, EXTRA_SHEET_HEADERS
+from app.sheets import NODE_HEADERS_FR_V11, EXTRA_SHEET_HEADERS
 
 
 def _sheets_client():
@@ -96,7 +96,7 @@ def detect_source_tab(svc, sheet_id: str, forced_tab: Optional[str]) -> str:
 
 
 def build_output_rows(src_header: List[str], src_rows: List[Dict[str, Any]], site_filter: Optional[str]) -> List[List[Any]]:
-    header = NODE_HEADERS_FR_V9 + EXTRA_SHEET_HEADERS
+    header = NODE_HEADERS_FR_V11 + EXTRA_SHEET_HEADERS
     out: List[List[Any]] = [header]
 
     def val(d: Dict[str, Any], key: str) -> Any:
@@ -110,6 +110,20 @@ def build_output_rows(src_header: List[str], src_rows: List[Dict[str, Any]], sit
         s = unicodedata.normalize('NFKD', s)
         s = ''.join(ch for ch in s if not unicodedata.combining(ch))
         return s.lower()
+
+    def _boolish(value: Any) -> Any:
+        if value in (None, ""):
+            return ''
+        if isinstance(value, bool):
+            return value
+        txt = str(value).strip().lower()
+        if not txt:
+            return ''
+        if txt in {'true', '1', 'oui', 'yes', 'y'}:
+            return True
+        if txt in {'false', '0', 'non', 'no', 'n'}:
+            return False
+        return ''
 
     for d in src_rows:
         # Optional filter by site id (idSite1 exact match)
@@ -149,14 +163,18 @@ def build_output_rows(src_header: List[str], src_rows: List[Dict[str, Any]], sit
 
         mat = (val(d, 'materiau') or val(d, 'material') or '')
 
-        # Core FR V9 columns
+        gps_locked = _boolish(val(d, 'gps_locked') or val(d, 'gpsLocked'))
+        pm_offset = _num(val(d, 'pm_offset_m') or val(d, 'pm_offset'))
+
+        # Core FR V11 columns
         core = [
             nid,
             name,
             (ntype if isinstance(ntype, str) else 'OUVRAGE'),
             branch,
+            gps_locked,
+            ("" if pm_offset is None else pm_offset),
             ("" if diam_mm is None else diam_mm),
-            (val(d, 'sdrOuvrage') or ''),
             mat,
             (val(d, 'commentaire') or ''),
             '',  # pm_collector_edge_id
